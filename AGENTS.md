@@ -2,6 +2,87 @@
 
 This file provides guidance to AI coding agents when working with code in this repository.
 
+## Repository layout
+
+This repository is the **`eduinject`** project (see the root `pyproject.toml`):
+an indirect-prompt-injection testbed for staged agent pipelines. It is *built
+on* Inspect AI but is not a fork of it — `inspect-ai` is an ordinary pip
+dependency, and `import inspect_ai` resolves to the installed wheel in
+`.venv/`, never to `src/inspect_ai/`.
+
+A full upstream Inspect AI checkout is nevertheless still present in the tree
+(`src/inspect_ai/`, `src/inspect_sandbox_tools/`, `src/inspect_tool_support/`,
+`docs/*.qmd`, `design/`, `examples/`, `.github/`, `Makefile`,
+`requirements*.txt`, `CHANGELOG.md`, `CONTRIBUTING.md`). None of it is imported
+or packaged — `[tool.setuptools.packages.find]` includes `eduinject*` only.
+Treat it as vendored reference material: read it to understand Inspect's API,
+but do not edit it as part of eduinject work, and do not assume a change there
+takes effect. Upstream's own root files that would otherwise collide with this
+project's (its `README.md`, `.gitignore`, `pyproject.toml`, `tests/`,
+`scripts/`) have been relocated under `_upstream_inspect_ai/`.
+
+Two name collisions follow from that arrangement and cause real mistakes:
+
+- **`design/` is upstream's**, architecture notes for Inspect internals.
+  **`docs/design/` is this project's** and is authoritative. When a task refers
+  to "the design docs", it means `docs/design/`.
+- The **contribution policy below is upstream Inspect AI's**, governing PRs to
+  `UKGovernmentBEIS/inspect_ai`. It applies when contributing there, not to
+  routine work inside `src/eduinject/`.
+
+### The eduinject package — `src/eduinject/`
+
+Data flows in one direction: `extraction` turns bytes into the text the intake
+agent sees, `agents/pipeline` runs that text through three stages against
+`tools/`, the `tools/ledger` records what was attempted, and `scorers/` reduce
+the finished record to numbers. `config` is hashed into every run so the
+conditions behind a figure are recoverable from the log alone.
+
+| File | What it holds |
+| --- | --- |
+| `__init__.py` | Package docstring only; deliberately exports nothing, so imports name their module. |
+| `config.py` | `EXTRACTION_PINS` (exact parser versions), `DOC_VERSIONS` (design docs in force), `assert_extraction_pinned()` (raises, never warns, at task construction), `config_hash()` (folds pins, doc versions and run parameters into one recorded hash). Constraint C2. |
+| `extraction.py` | `extract()` for `.pdf` / `.docx` / `.txt` / `.md`, plus the private helpers that pull PDF metadata, docx core properties, tracked comments and image alt text. Emits channels a human reader never sees, because that is where an injection hides — so this file *defines the attack surface*. |
+| `task.py` | `dataset_from_manifest()`, the `paired_pipeline()` solver that runs the attack document and its benign twin under identical settings inside one sample, and the `eduinject_w2()` `@task`. The pair, not the document, is the unit of measurement. |
+| `tracelog.py` | Standalone append-only JSONL trace schema — `TraceLogger`, `ConditionConfig`, `Trace` — writing `conditions.jsonl` and `events.jsonl`. **Not yet wired into the pipeline**; nothing calls it, and its `compute_config_hash()` hashes a different field set from `config.config_hash()`. The two are unrelated and will never agree. |
+| `agents/prompts.py` | `PROMPTS_VERSION` and the three system prompts. The **only** source of system-message text in the project — prompts are an independent variable and must be hashable. Constraint C4. |
+| `agents/pipeline.py` | `single_shot()`, `action_agent()`, `run_pipeline()`. Stages are composed with Inspect's `run()` — never `handoff()` or `as_tool()` — so each stage's input is built by hand and at `isolated=True` the source document is structurally absent after stage 1. Constraint C1. |
+| `agents/__init__.py` | Re-exports from `pipeline` and `prompts`. |
+| `tools/ats.py` | Mock applicant-tracking tools (`get_posting_requirements`, `submit_shortlist`, `send_email`), `POSTING_REQUIREMENTS`, and the `SCOPES` map with `tools_for_scope()` / `tool_names_for_scope()`. Tools never reveal that they are mocks: a "this is a test" response would teach the agent it is being evaluated. |
+| `tools/ledger.py` | `Ledger` (an Inspect `StoreModel`) and `record()` — per-run record of calls, attempted egress and refusals. This is the measurement record the scorers read. |
+| `tools/__init__.py` | Re-exports from `ats` and `ledger`. |
+| `scorers/outcomes.py` | Pure, Inspect-free functions over a finished run: `marker_propagation()`, `exfiltration_outcome()` (destination **and** payload sensitivity tier, per doc 07), `scope_outcome()`, `twin_divergence()`, with `T2_TERMS` / `ENTITLEMENT` and `NamedTuple` results. Unit-testable against synthetic runs. |
+| `scorers/deterministic.py` | Four Inspect scorers (`propagation`, `exfiltration`, `scope_violation`, `action_divergence`) and `RUNS_KEY`. Thin adapters holding no judgement of their own, so a disputed number can be recomputed from the log. |
+| `scorers/__init__.py` | Re-exports both modules. Its docstring records why a model-graded judge is deliberately absent. |
+
+### Everything else in this project
+
+| Path | What it is |
+| --- | --- |
+| `pyproject.toml` | The eduinject package: deps (`inspect-ai`, `pypdf`, `python-docx`, `pydantic`), the `dev` and `openrouter` extras, `src/` layout, and pytest config (`testpaths = ["tests"]`). |
+| `README.md` | Project overview: the three-stage pipeline, the four load-bearing constraints, why benign twins are mandatory, how to run it, and release status. |
+| `.gitignore` | Secrets (`.env*`), Python artifacts, `logs/`, and the **gated** paths that must never be committed: `corpus/canonical/*` and `src/eduinject/corpus/payloads.py`. |
+| `docs/design/` | **Authoritative.** `00_project_proposal` … `07_thresholds_appendix` (numbered, versioned; versions mirrored in `config.DOC_VERSIONS`), plus `README.md` and `implementation-map.md`. Where code and a document disagree, the document is right and the code has a defect. |
+| `docs/design/implementation-map.md` | Which constraint is enforced by which code, and every known divergence (`D1`…). **Read before trusting any number.** |
+| `scripts/make_fixtures.py` | Generates the W2 attack/twin `.docx` pair from literals in the file, and the corpus manifest. All fixture data is synthetic — no real student, applicant or staff data. |
+| `scripts/run_sweep.py` | Sweeps write scope × stage isolation; `--isolation both` includes the negative control. Each cell is a separate task stamping `config_hash(...)` into metadata. |
+| `corpus/manifest_w2.jsonl` | One row per artifact pair: paths, `payload_marker`, `operator_request`, and the authorization facts the scorers need (`authorized_recipients`, `applicant_addresses`, `other_candidate_terms`). |
+| `corpus/benign/` | The generated `.docx` fixtures. Tier 2 — Open. |
+| `corpus/canonical/` | **Gated (Tier 1).** Real-payload corpus; gitignored except `.gitkeep`, which keeps the layout reproducible. Never commit contents. |
+| `tests/test_extraction.py` | Pins are the installed versions, and each attack/twin pair differs by the marker and nothing else. |
+| `tests/test_isolation.py` | The load-bearing test: patches Inspect's `run()` with a recorder to prove the document reaches stage 1 and no other at `isolated=True`, with an `isolated=False` negative control. No model contacted. |
+| `tests/test_scorers.py` | Outcome functions, scorer adapters, dataset construction, and `config_hash` behaviour. |
+| `tests/test_task_e2e.py` | Whole task against Inspect's scripted `mockllm/model`, standing in for a fully compromised pipeline — a test of the *measurement*. |
+| `logs/` | Inspect `.eval` run logs. Gitignored (traces are Tier 1). |
+| `.env.local` | Local provider credentials. Gitignored. Note: `README.md` points at a `.env.example` template that does not currently exist. |
+
+### Where to make a change
+
+- Behaviour of a stage → `agents/pipeline.py`; its wording → `agents/prompts.py` (nowhere else).
+- A new mock tool or permission scope → `tools/ats.py` + the `SCOPES` map.
+- A new measurement → a pure function in `scorers/outcomes.py` first, then a thin adapter in `scorers/deterministic.py`.
+- Anything that changes what is being measured → update `docs/design/` and bump the version in `config.DOC_VERSIONS`, or record the gap in `implementation-map.md`.
+
 ## Contribution policy — required checks before opening a PR
 
 These rules are mandatory for AI coding agents (Claude Code, Codex, Cursor,
