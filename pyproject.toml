@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eduinject"
+version = "0.1.0"
+description = "Indirect prompt injection testbed for staged AI agent pipelines in educational administrative workflows"
+requires-python = ">=3.11"
+dependencies = [
+    "inspect-ai",
+    "pypdf",
+    "python-docx",
+    "pydantic",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+]
+# Inspect's OpenRouter provider talks OpenAI's wire protocol, so running an
+# eval against openrouter/* needs the openai client.
+openrouter = [
+    "openai",
+]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["eduinject*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

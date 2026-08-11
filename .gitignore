@@ -1,5 +1,25 @@
-.venv/
+# secrets / local env -- every .env variant except the committed template
+.env
+.env.*
+!.env.example
+
+# python
 __pycache__/
 *.pyc
+*.egg-info/
+.pytest_cache/
+.venv/
+
+# inspect eval logs
 logs/
+
+# gated: canonical (real-payload) corpus never leaves the workstation.
+# The directory itself is tracked via .gitkeep so the layout is reproducible.
+corpus/canonical/*
+!corpus/canonical/.gitkeep
+
+# gated: real concealment payloads (future file, must never be committed)
+src/eduinject/corpus/payloads.py
+
+# local sandbox scratch
 test_sandbox/
