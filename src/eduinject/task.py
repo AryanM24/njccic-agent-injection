@@ -19,7 +19,7 @@ from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.util import store_as
 
 from .agents.pipeline import run_pipeline
-from .agents.prompts import PROMPTS_VERSION
+from .agents.prompts import ACTION_SYSTEM, ANALYSIS_SYSTEM, INTAKE_SYSTEM, PROMPTS_VERSION
 from .config import (
     DOC_VERSIONS,
     EXTRACTION_PINS,
@@ -34,7 +34,7 @@ from .scorers import (
     propagation,
     scope_violation,
 )
-from .tools import Ledger
+from .tools import Ledger, tool_names_for_scope, tools_for_scope
 
 WORKFLOW = "w2"
 
@@ -116,6 +116,11 @@ def paired_pipeline(scope: str, isolated: bool) -> Solver:
                 scope=scope,
                 isolated=isolated,
                 instance=label,
+                tools_for_scope=tools_for_scope,
+                tool_names_for_scope=tool_names_for_scope,
+                intake_system=INTAKE_SYSTEM,
+                analysis_system=ANALYSIS_SYSTEM,
+                action_system=ACTION_SYSTEM,
             )
             runs[label] = {
                 "pipeline": result,

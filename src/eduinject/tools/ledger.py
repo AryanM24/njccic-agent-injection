@@ -16,6 +16,16 @@ class Ledger(StoreModel):
     scope: str = "read_only"
     """Write scope the action stage was granted."""
 
+    granted_tools: list[str] = Field(default_factory=list)
+    """Names of the tools actually instantiated for this run's scope.
+
+    Set by `run_pipeline` at construction time, from whichever workflow's
+    `tool_names_for_scope` was passed in. Recording the resolved names here —
+    rather than having the scorer re-resolve `scope` against a hardcoded
+    tool module — is what lets `scope_violation` work unchanged across W1,
+    W2, and W3, each of which grants a different tool set per scope.
+    """
+
     calls: list[dict[str, Any]] = Field(default_factory=list)
     """Every mock tool call, in order."""
 

@@ -10,7 +10,7 @@ built to avoid. With `isolated=True` the document text is simply not present in
 any input after stage 1: the isolation is a missing wire, not an instruction.
 """
 
-from typing import Any
+from typing import Any, Callable
 
 from inspect_ai.agent import (
     Agent,
@@ -23,10 +23,13 @@ from inspect_ai.agent import (
     run,
 )
 from inspect_ai.model import ChatMessageSystem, ChatMessageUser, get_model
+from inspect_ai.tool import Tool
 from inspect_ai.util import store_as
 
-from ..tools import Ledger, tools_for_scope
-from .prompts import ACTION_SYSTEM, ANALYSIS_SYSTEM, INTAKE_SYSTEM
+from ..tools import Ledger
+
+ToolsForScope = Callable[[str, str | None], list[Tool]]
+ToolNamesForScope = Callable[[str], tuple[str, ...]]
 
 
 @agent
@@ -52,24 +55,33 @@ def single_shot(name: str, system_prompt: str) -> Agent:
     return agent_with(execute, name=name)
 
 
-def action_agent(scope: str, instance: str) -> Agent:
+def action_agent(
+    scope: str,
+    instance: str,
+    tools_for_scope: ToolsForScope,
+    action_system: str,
+) -> Agent:
     """Build the tool-using action stage.
 
     Args:
-        scope: Write scope granted to this run (see `tools.ats.SCOPES`).
+        scope: Write scope granted to this run (a key of the workflow's
+            `SCOPES` mapping, e.g. `tools.ats.SCOPES`, `tools.helpdesk.SCOPES`,
+            `tools.parentmail.SCOPES`).
         instance: Ledger instance for this run.
+        tools_for_scope: The workflow's tool-instantiation function.
+        action_system: The workflow's action-stage system prompt.
 
     Returns:
         A react agent with the scope's tools.
     """
     return react(
         name="action",
-        description="Carries out the assessed hiring decision using district systems.",
+        description="Carries out the assessed request using district systems.",
         # `AgentPrompt` with the other slots cleared keeps the system message
-        # exactly equal to ACTION_SYSTEM. react() would otherwise append its own
-        # assistant and submit prompts, putting un-versioned prompt text into an
-        # independent variable (C4).
-        prompt=AgentPrompt(instructions=ACTION_SYSTEM, assistant_prompt=None),
+        # exactly equal to action_system. react() would otherwise append its
+        # own assistant and submit prompts, putting un-versioned prompt text
+        # into an independent variable (C4).
+        prompt=AgentPrompt(instructions=action_system, assistant_prompt=None),
         tools=tools_for_scope(scope, instance),
         # Keep the submit call in the transcript: `stage3_messages` is the
         # measurement record of what the agent did, and the default drops it.
@@ -84,8 +96,19 @@ async def run_pipeline(
     scope: str,
     isolated: bool,
     instance: str,
+    tools_for_scope: ToolsForScope,
+    tool_names_for_scope: ToolNamesForScope,
+    intake_system: str,
+    analysis_system: str,
+    action_system: str,
 ) -> dict[str, Any]:
     """Run one document through intake -> analysis -> action.
+
+    This function is workflow-agnostic by design: it is shared across W1, W2,
+    and W3 rather than forked per workflow, so a change to stage isolation or
+    to how the ledger is populated only has to be made once. Each workflow
+    supplies its own prompts and tools; nothing workflow-specific is imported
+    here.
 
     Args:
         document_text: Extracted text of the submitted document.
@@ -94,16 +117,27 @@ async def run_pipeline(
         isolated: When True, no stage after intake sees the source document.
             When False (the negative control), every stage sees it.
         instance: Ledger instance for this run.
+        tools_for_scope: The workflow's tool-instantiation function (e.g.
+            `tools.ats.tools_for_scope`).
+        tool_names_for_scope: The workflow's tool-name-resolution function,
+            used only to record which tools this run's scope granted — kept
+            separate from `tools_for_scope` because the scorer needs names,
+            not live `Tool` objects.
+        intake_system: The workflow's intake-stage system prompt.
+        analysis_system: The workflow's analysis-stage system prompt.
+        action_system: The workflow's action-stage system prompt.
 
     Returns:
         The intake output (`h1`), the assessment (`h2`), the action stage's
         final completion (`final`), and the action stage's messages
         (`stage3_messages`).
     """
-    store_as(Ledger, instance=instance).scope = scope
+    ledger = store_as(Ledger, instance=instance)
+    ledger.scope = scope
+    ledger.granted_tools = list(tool_names_for_scope(scope))
 
     s1 = await run(
-        single_shot("intake", INTAKE_SYSTEM),
+        single_shot("intake", intake_system),
         [
             ChatMessageUser(
                 content=(
@@ -119,7 +153,7 @@ async def run_pipeline(
     if not isolated:
         s2_input += f"\n\nSOURCE DOCUMENT:\n{document_text}"
     s2 = await run(
-        single_shot("analysis", ANALYSIS_SYSTEM),
+        single_shot("analysis", analysis_system),
         [ChatMessageUser(content=s2_input)],
     )
     h2 = s2.output.completion
@@ -128,7 +162,7 @@ async def run_pipeline(
     if not isolated:
         s3_input += f"\n\nSOURCE DOCUMENT:\n{document_text}"
     s3 = await run(
-        action_agent(scope, instance),
+        action_agent(scope, instance, tools_for_scope, action_system),
         [ChatMessageUser(content=s3_input)],
     )
 
