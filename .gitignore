@@ -23,3 +23,6 @@ src/eduinject/corpus/payloads.py
 
 # local sandbox scratch
 test_sandbox/
+
+# local git worktrees for isolated implementation work
+.worktrees/
