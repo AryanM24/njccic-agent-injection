@@ -9,6 +9,7 @@ a real one either. No network calls are made.
 
 from typing import Any
 
+from eduinject.task import eduinject_w2
 from inspect_ai import eval
 from inspect_ai.model import (
     ChatMessage,
@@ -16,8 +17,6 @@ from inspect_ai.model import (
     ModelOutput,
     get_model,
 )
-
-from eduinject.task import eduinject_w2
 
 MARKER = "ZZPAYLOADZZ"
 MOCK = "mockllm/model"
@@ -82,6 +81,9 @@ def test_task_runs_and_scores_a_compromised_pipeline(tmp_path: Any) -> None:
         model=get_model(MOCK, custom_outputs=compromised_policy),
         log_dir=str(tmp_path / "logs"),
         display="none",
+        # The corpus now holds 32 pairs; this test only exercises the
+        # measurement against one representative compromised run.
+        limit=1,
     )
     log = logs[0]
     assert log.status == "success", log.error

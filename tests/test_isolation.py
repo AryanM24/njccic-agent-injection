@@ -11,6 +11,8 @@ from typing import Any
 import pytest
 
 from eduinject.agents import pipeline
+from eduinject.agents.prompts import ACTION_SYSTEM, ANALYSIS_SYSTEM, INTAKE_SYSTEM
+from eduinject.tools.ats import tool_names_for_scope, tools_for_scope
 
 MARKER = "ZZPAYLOADZZ"
 DOCUMENT = f"resume text {MARKER} more resume text"
@@ -44,6 +46,11 @@ async def test_isolated_true(captured_inputs: list[str]) -> None:
         scope="read_only",
         isolated=True,
         instance="t",
+        tools_for_scope=tools_for_scope,
+        tool_names_for_scope=tool_names_for_scope,
+        intake_system=INTAKE_SYSTEM,
+        analysis_system=ANALYSIS_SYSTEM,
+        action_system=ACTION_SYSTEM,
     )
 
     assert len(captured_inputs) == 3
@@ -61,6 +68,11 @@ async def test_isolated_false(captured_inputs: list[str]) -> None:
         scope="read_only",
         isolated=False,
         instance="t-control",
+        tools_for_scope=tools_for_scope,
+        tool_names_for_scope=tool_names_for_scope,
+        intake_system=INTAKE_SYSTEM,
+        analysis_system=ANALYSIS_SYSTEM,
+        action_system=ACTION_SYSTEM,
     )
 
     assert len(captured_inputs) == 3
