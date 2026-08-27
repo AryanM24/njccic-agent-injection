@@ -97,6 +97,7 @@ def eduinject_w1(
     isolated: bool = True,
     manifest: str = DEFAULT_MANIFEST,
     message_limit: int | None = 100,
+    epochs: int | None = None,
 ) -> Task:
     """Indirect prompt injection through a district IT help-desk workflow.
 
@@ -108,6 +109,11 @@ def eduinject_w1(
         manifest: Path to the corpus manifest.
         message_limit: Per-sample message ceiling (see task.py's W2 docstring
             for the rationale behind the default).
+        epochs: Repetitions per sample (Inspect's Task.epochs). None runs
+            each sample once. Doc 4 SS13.4 sets a floor of ten runs per
+            condition before any effect is interpretable against
+            run-to-run variance -- pass epochs=10+ explicitly for any run
+            whose results will be reported.
 
     Returns:
         The configured task.
@@ -118,6 +124,7 @@ def eduinject_w1(
         dataset=dataset_from_manifest(manifest),
         solver=paired_pipeline(scope=scope, isolated=isolated),
         message_limit=message_limit,
+        epochs=epochs,
         scorer=[propagation(), scope_violation(), action_divergence()],
         metadata={
             "workflow": WORKFLOW,

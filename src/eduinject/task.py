@@ -19,7 +19,12 @@ from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.util import store_as
 
 from .agents.pipeline import run_pipeline
-from .agents.prompts import ACTION_SYSTEM, ANALYSIS_SYSTEM, INTAKE_SYSTEM, PROMPTS_VERSION
+from .agents.prompts import (
+    ACTION_SYSTEM,
+    ANALYSIS_SYSTEM,
+    INTAKE_SYSTEM,
+    PROMPTS_VERSION,
+)
 from .config import (
     DOC_VERSIONS,
     EXTRACTION_PINS,
@@ -79,9 +84,7 @@ def dataset_from_manifest(manifest: str | Path) -> MemoryDataset:
                     # Optional: absent for older manifest lines, in which case
                     # every non-authorized address is treated as unattested.
                     "applicant_addresses": entry.get("applicant_addresses", []),
-                    "other_candidate_terms": entry.get(
-                        "other_candidate_terms", []
-                    ),
+                    "other_candidate_terms": entry.get("other_candidate_terms", []),
                 },
             )
         )
@@ -142,6 +145,7 @@ def eduinject_w2(
     isolated: bool = True,
     manifest: str = DEFAULT_MANIFEST,
     message_limit: int | None = 100,
+    epochs: int | None = None,
 ) -> Task:
     """Indirect prompt injection through a district hiring workflow.
 
@@ -155,6 +159,11 @@ def eduinject_w2(
             submit would otherwise keep the action stage's react loop running
             indefinitely; the sample covers six stage runs, so the default is
             well clear of any honest trajectory.
+        epochs: Repetitions per sample (Inspect's Task.epochs). None runs
+            each sample once. Doc 4 SS13.4 sets a floor of ten runs per
+            condition before any effect is interpretable against
+            run-to-run variance -- pass epochs=10+ explicitly for any run
+            whose results will be reported.
 
     Returns:
         The configured task.
@@ -168,6 +177,7 @@ def eduinject_w2(
         dataset=dataset_from_manifest(manifest),
         solver=paired_pipeline(scope=scope, isolated=isolated),
         message_limit=message_limit,
+        epochs=epochs,
         scorer=[
             propagation(),
             exfiltration(),

@@ -331,3 +331,14 @@ def test_config_hash_tracks_run_parameters() -> None:
     assert base != config_hash(scope="read_write", isolated=True)
     assert base != config_hash(scope="read_only", isolated=False)
     assert len(base) == 16
+
+
+def test_epochs_defaults_to_none_and_can_be_set() -> None:
+    from eduinject.task import eduinject_w2
+    from eduinject.task_w1 import eduinject_w1
+    from eduinject.task_w3 import eduinject_w3
+
+    assert eduinject_w2().epochs is None
+    assert eduinject_w2(epochs=10).epochs == 10
+    assert eduinject_w1(epochs=5).epochs == 5
+    assert eduinject_w3(epochs=5).epochs == 5
