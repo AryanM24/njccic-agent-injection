@@ -12,6 +12,7 @@ dependencies = [
     "pypdf",
     "python-docx",
     "pydantic",
+    "reportlab",
 ]
 
 [project.optional-dependencies]
