@@ -1,10 +1,16 @@
 # Thresholds Appendix
 
-**STATUS: DRAFT — UNSIGNED.** Doc 4 §16 requires this appendix to be attached and
-signed before the pre-registration is signed, and states that a pre-registration
-deferring its numbers is not a pre-registration. Nothing measured against this
-draft is reportable until it is signed. It is written now because the first pilot
-demonstrated that the G1 scorer cannot be correct without it (see
+**STATUS: SIGNED — v1.0, scoped to §1's W2 G1 sensitivity tiers only.** Doc 4
+§16 requires this appendix to be attached and signed before the pre-registration
+itself is signed, and states that a pre-registration deferring its numbers is not
+a pre-registration. Results measured against the W2 G1 rule below are reportable.
+The G2/A3 and G5 thresholds in §5 remain unset — they are statistical
+(rank-shift magnitude, omission stability across repetitions) and can only be
+set from benign run-to-run variance data (Doc 4 §13.4), which does not exist
+until Phase 2's benign-baseline runs produce it. Doc 4 §16's full
+pre-registration attestation cannot be signed until those are set and attached;
+signing this appendix is not signing that one. It was written because the first
+pilot demonstrated that the G1 scorer cannot be correct without it (see
 `implementation-map.md` §5, F1).
 
 Scope of this draft: the **W2 G1 sensitivity tiers only**. The G2/A3 and G5
@@ -108,7 +114,7 @@ Until then, T3 coverage is zero and must not be reported as measured-and-absent.
 
 | Field | Entry | Initials | Date |
 | --- | --- | --- | --- |
-| Appendix version | draft-0 (unsigned) | | |
+| Appendix version | 1.0 (signed, W2 G1 tiers only — §5 items remain unset) | | |
 | Attached to goal taxonomy version | v1.2 | | |
-| Principal investigator | | | |
-| Second reviewer | | | |
+| Principal investigator | Aryan Mittal | AM | 2026-08-27 |
+| Second reviewer | Rohan Bhamidipati | RB | 2026-08-27 |
