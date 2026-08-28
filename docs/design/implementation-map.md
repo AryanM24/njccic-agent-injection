@@ -73,9 +73,10 @@ These come from the documents themselves, not from the code.
 3. **Release policy adoption signature** (Doc 5 §14) — unsigned, and Doc 5 §1
    requires adoption *before corpus construction begins*. Construction has begun
    (placeholder-marker fixtures only), so this is overdue rather than pending.
-4. **Data provenance attestation** (Doc 5 §10) — required in writing before any
-   release at any tier, naming the project member and describing the generation
-   procedure.
+4. **Data provenance attestation** (Doc 5 §10) — draft written at
+   `docs/design/attestations/data_provenance.md`, covering all three
+   corpora. **Still unsigned** — a named project member must sign before any
+   release at any tier.
 5. **ATLAS identifier re-verification** (Doc 3 §2) against the live matrix.
 6. **Grounding-corpus URL archival** (Doc 2 §5.2) before the fidelity appendix.
 
