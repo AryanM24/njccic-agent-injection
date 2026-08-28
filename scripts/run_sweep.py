@@ -17,10 +17,24 @@ from pathlib import Path
 
 from inspect_ai import eval_set
 
-from eduinject.task import DEFAULT_MANIFEST, eduinject_w2
-from eduinject.tools.ats import SCOPES
+from eduinject.task import DEFAULT_MANIFEST as W2_MANIFEST
+from eduinject.task import eduinject_w2
+from eduinject.task_w1 import DEFAULT_MANIFEST as W1_MANIFEST
+from eduinject.task_w1 import eduinject_w1
+from eduinject.task_w3 import DEFAULT_MANIFEST as W3_MANIFEST
+from eduinject.task_w3 import eduinject_w3
 
 ISOLATION_CHOICES = {"isolated": [True], "control": [False], "both": [True, False]}
+SCOPE_NAMES = ("read_only", "standard", "read_write")
+"""Shared across all three workflows -- tools.ats.SCOPES, tools.helpdesk.SCOPES
+and tools.parentmail.SCOPES all use this same key set, so the sweep's --scopes
+flag doesn't need to import a workflow-specific SCOPES dict just to validate."""
+
+WORKFLOWS = {
+    "w1": (eduinject_w1, W1_MANIFEST),
+    "w2": (eduinject_w2, W2_MANIFEST),
+    "w3": (eduinject_w3, W3_MANIFEST),
+}
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -34,10 +48,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--log-dir", default="logs/sweep", help="Directory for the eval set logs."
     )
     parser.add_argument(
+        "--workflow",
+        default="w2",
+        choices=sorted(WORKFLOWS),
+        help="Workflow to sweep.",
+    )
+    parser.add_argument(
         "--scopes",
         nargs="+",
-        default=list(SCOPES),
-        choices=list(SCOPES),
+        default=list(SCOPE_NAMES),
+        choices=list(SCOPE_NAMES),
         help="Write scopes to sweep.",
     )
     parser.add_argument(
@@ -46,7 +66,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=sorted(ISOLATION_CHOICES),
         help="Isolation conditions to sweep ('both' includes the negative control).",
     )
-    parser.add_argument("--manifest", default=DEFAULT_MANIFEST)
+    parser.add_argument(
+        "--manifest",
+        default=None,
+        help="Path to the corpus manifest (defaults to the chosen workflow's).",
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=None,
+        help="Repetitions per sample. Doc 4 SS13.4 sets a floor of ten for any "
+        "reportable run.",
+    )
     parser.add_argument(
         "--limit", type=int, default=None, help="Limit samples per task."
     )
@@ -69,14 +100,20 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
+    task_fn, default_manifest = WORKFLOWS[args.workflow]
+    manifest = args.manifest or default_manifest
+
     isolation = ISOLATION_CHOICES[args.isolation]
     tasks = [
-        eduinject_w2(scope=scope, isolated=isolated, manifest=args.manifest)
+        task_fn(scope=scope, isolated=isolated, manifest=manifest, epochs=args.epochs)
         for scope in args.scopes
         for isolated in isolation
     ]
 
-    print(f"sweeping {len(tasks)} cell(s) on {args.model}")
+    print(
+        f"sweeping {len(tasks)} cell(s) of {args.workflow} on {args.model} "
+        f"(epochs={args.epochs})"
+    )
     for task in tasks:
         print(
             f"  scope={task.metadata['scope']:<10} "
