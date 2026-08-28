@@ -72,13 +72,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import threading
 import uuid
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Literal
 
 SCHEMA_VERSION = "1.0"
 
@@ -98,7 +97,7 @@ ResultStatus = Literal["success", "refused", "error"]
 
 
 def _utcnow_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
 def _canonical_json(obj: dict) -> str:
@@ -152,9 +151,8 @@ class _JsonlWriter:
 
     def write(self, obj: dict) -> None:
         line = json.dumps(obj, separators=(",", ":"))
-        with self._lock:
-            with open(self.path, "a", encoding="utf-8") as f:
-                f.write(line + "\n")
+        with self._lock, open(self.path, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
 
 
 class TraceLogger:
@@ -162,7 +160,7 @@ class TraceLogger:
     events.jsonl and hands out Trace objects for individual pipeline
     executions."""
 
-    def __init__(self, log_dir: str, run_id: Optional[str] = None):
+    def __init__(self, log_dir: str, run_id: str | None = None):
         self.log_dir = Path(log_dir)
         self.run_id = run_id or f"run_{_utcnow_iso().replace(':', '-')}_{uuid.uuid4().hex[:6]}"
         self._conditions_writer = _JsonlWriter(self.log_dir / "conditions.jsonl")
@@ -196,8 +194,8 @@ class TraceLogger:
         self,
         config_hash: str,
         repetition_index: int,
-        corpus_file_id: Optional[str] = None,
-    ) -> "Trace":
+        corpus_file_id: str | None = None,
+    ) -> Trace:
         trace_id = f"trace_{uuid.uuid4().hex[:8]}"
         return Trace(
             logger=self,
@@ -232,10 +230,10 @@ class Trace:
     trace_id: str
     config_hash: str
     repetition_index: int
-    corpus_file_id: Optional[str] = None
+    corpus_file_id: str | None = None
 
     def _envelope(self, agent_id: str, agent_hop_index: int, event_type: EventType,
-                  parent_event_id: Optional[str], corpus_file_id: Optional[str]) -> dict:
+                  parent_event_id: str | None, corpus_file_id: str | None) -> dict:
         return {
             "trace_id": self.trace_id,
             "repetition_index": self.repetition_index,
@@ -249,14 +247,14 @@ class Trace:
 
     def log_prompt(self, agent_id: str, agent_hop_index: int, role: str,
                     content: str, input_tokens: int,
-                    parent_event_id: Optional[str] = None) -> str:
+                    parent_event_id: str | None = None) -> str:
         envelope = self._envelope(agent_id, agent_hop_index, "prompt", parent_event_id, None)
         payload = {"role": role, "content": content, "input_tokens": input_tokens}
         return self.logger._write_event(envelope, payload)
 
     def log_completion(self, agent_id: str, agent_hop_index: int, content: str,
                         output_tokens: int, latency_ms: int, stop_reason: str,
-                        parent_event_id: Optional[str] = None) -> str:
+                        parent_event_id: str | None = None) -> str:
         envelope = self._envelope(agent_id, agent_hop_index, "completion", parent_event_id, None)
         payload = {
             "content": content,
@@ -269,7 +267,7 @@ class Trace:
     def log_tool_call(self, agent_id: str, agent_hop_index: int, tool_name: str,
                        tool_args: dict, requested_scope: str, granted_scope: str,
                        is_destructive: bool, action_taken: ActionTaken,
-                       parent_event_id: Optional[str] = None) -> str:
+                       parent_event_id: str | None = None) -> str:
         envelope = self._envelope(agent_id, agent_hop_index, "tool_call", parent_event_id, None)
         payload = {
             "tool_name": tool_name,
@@ -295,7 +293,7 @@ class Trace:
     def log_inter_agent_message(self, from_agent: str, to_agent: str, content: str,
                                  carried_injection: bool, injection_verbatim: bool,
                                  agent_hop_index: int = 0,
-                                 parent_event_id: Optional[str] = None) -> str:
+                                 parent_event_id: str | None = None) -> str:
         envelope = self._envelope(from_agent, agent_hop_index, "inter_agent_message",
                                    parent_event_id, None)
         payload = {

@@ -4,6 +4,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from inspect_ai.model import ModelName
+from inspect_ai.scorer import Target
+from inspect_ai.solver import TaskState
 
 from eduinject.config import config_hash
 from eduinject.scorers import (
@@ -19,9 +22,6 @@ from eduinject.scorers import (
     twin_divergence,
 )
 from eduinject.task import DEFAULT_MANIFEST, dataset_from_manifest
-from inspect_ai.model import ModelName
-from inspect_ai.scorer import Target
-from inspect_ai.solver import TaskState
 
 MARKER = "ZZPAYLOADZZ"
 AUTHORIZED = ["hr@example-district.k12.nj.us"]

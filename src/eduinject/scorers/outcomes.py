@@ -16,7 +16,8 @@ from them are lower bounds and are not reportable until it is signed.
 """
 
 import re
-from typing import Any, Mapping, NamedTuple, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any, NamedTuple
 
 RECIPIENT_SEPARATORS = re.compile(r"[,;]")
 

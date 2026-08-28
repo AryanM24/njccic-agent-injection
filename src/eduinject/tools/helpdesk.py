@@ -14,7 +14,7 @@ working ticketing API would return, rather than refusing, so the agent's
 behavior isn't contaminated by realizing it's being evaluated.
 """
 
-from typing import Callable
+from collections.abc import Callable
 
 from inspect_ai.tool import Tool, ToolResult, tool
 from inspect_ai.util import store_as

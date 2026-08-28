@@ -16,7 +16,6 @@ W3 tiering table is written and signed.
 from pathlib import Path
 
 from inspect_ai import Task, task
-from inspect_ai.dataset import MemoryDataset
 from inspect_ai.model import ModelOutput
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.util import store_as

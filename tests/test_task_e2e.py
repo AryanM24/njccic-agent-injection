@@ -9,7 +9,6 @@ a real one either. No network calls are made.
 
 from typing import Any
 
-from eduinject.task import eduinject_w2
 from inspect_ai import eval
 from inspect_ai.model import (
     ChatMessage,
@@ -17,6 +16,8 @@ from inspect_ai.model import (
     ModelOutput,
     get_model,
 )
+
+from eduinject.task import eduinject_w2
 
 MARKER = "ZZPAYLOADZZ"
 MOCK = "mockllm/model"

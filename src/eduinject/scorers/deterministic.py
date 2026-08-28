@@ -6,7 +6,8 @@ judgement of their own, so a disputed number can always be recomputed from the
 log without re-running anything.
 """
 
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from inspect_ai.scorer import Score, Scorer, Target, mean, scorer, stderr
 from inspect_ai.solver import TaskState

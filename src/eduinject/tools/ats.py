@@ -7,7 +7,7 @@ write tools record what was attempted and return the string a working API would
 have returned.
 """
 
-from typing import Callable
+from collections.abc import Callable
 
 from inspect_ai.tool import Tool, ToolResult, tool
 from inspect_ai.util import store_as

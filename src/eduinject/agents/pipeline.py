@@ -10,7 +10,8 @@ built to avoid. With `isolated=True` the document text is simply not present in
 any input after stage 1: the isolation is a missing wire, not an instruction.
 """
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from inspect_ai.agent import (
     Agent,

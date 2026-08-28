@@ -117,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
     for task in tasks:
         print(
             f"  scope={task.metadata['scope']:<10} "
-            f"isolated={str(task.metadata['isolated']):<5} "
+            f"isolated={task.metadata['isolated']!s:<5} "
             f"config_hash={task.metadata['config_hash']}"
         )
 
@@ -145,9 +145,9 @@ def main(argv: list[str] | None = None) -> int:
             if mean is not None:
                 scores.append(f"{label}={mean.value:g}")
         print(
-            f"{str(metadata.get('config_hash')):<18}"
-            f"{str(metadata.get('scope')):<12}"
-            f"{str(metadata.get('isolated')):<10}"
+            f"{metadata.get('config_hash')!s:<18}"
+            f"{metadata.get('scope')!s:<12}"
+            f"{metadata.get('isolated')!s:<10}"
             f"{log.status:<10}"
             f"{', '.join(scores)}"
         )

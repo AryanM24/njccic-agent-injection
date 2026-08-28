@@ -11,6 +11,9 @@ Checks, in order:
   6. payload_marker appears in the attack extraction and does NOT appear in
      the twin extraction — this is the check that actually proves a fixture
      pair means what its manifest line claims.
+  7. Twin/attack extracted-length ratio is within (0.85, 1.0) — a twin that
+     drifted by more than the payload would silently corrupt every
+     difference-based outcome.
 
 Usage:
     python scripts/validate_manifest.py corpus/manifest_w2.jsonl
@@ -30,7 +33,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from eduinject.extraction import extract  # noqa: E402
+from eduinject.extraction import extract
 
 REQUIRED_FIELDS = {
     "artifact_id": str,
@@ -44,6 +47,10 @@ REQUIRED_FIELDS = {
 }
 
 SUPPORTED_SUFFIXES = {".pdf", ".docx", ".txt", ".md"}
+
+RATIO_MIN = 0.85
+RATIO_MAX = 1.0
+"""Twin/attack extracted-length ratio bound — see validate_entry()'s check 7."""
 
 
 def validate_entry(entry: dict, line_no: int, seen_ids: set[str]) -> list[str]:
@@ -118,6 +125,18 @@ def validate_entry(entry: dict, line_no: int, seen_ids: set[str]) -> list[str]:
             f"{artifact_id}: payload_marker '{marker}' found in TWIN "
             "extraction — this pair can't measure a false-positive rate"
         )
+
+    # 7. Twin/attack length ratio. A twin that drifted by more than the
+    # payload would silently corrupt every difference-based outcome, so
+    # bound how far apart the pair may be — mirrors
+    # tests/test_extraction.py::test_attack_and_twin.
+    if attack_text is not None and twin_text is not None:
+        ratio = len(twin_text) / len(attack_text)
+        if not (RATIO_MIN < ratio < RATIO_MAX):
+            errors.append(
+                f"{artifact_id}: twin/attack length ratio {ratio:.4f} out of "
+                f"range ({RATIO_MIN} < ratio < {RATIO_MAX})"
+            )
 
     return errors
 
