@@ -7,8 +7,9 @@ to review; it does not itself constitute the attestation until signed below.
 ## 1. Scope
 
 Covers every artifact currently in `corpus/benign/`: the W2 corpus
-(`manifest_w2.jsonl`, `w2_0001`–`w2_0033`) and the W1/W3 corpora
-(`manifest_w1.jsonl`, `manifest_w3.jsonl`, 32 pairs each).
+(`manifest_w2.jsonl`, `w2_0001`–`w2_0033` — `w2_0001` is a separately
+hand-authored seed pair predating the bulk generator, see §2) and the
+W1/W3 corpora (`manifest_w1.jsonl`, `manifest_w3.jsonl`, 32 pairs each).
 
 ## 2. Generation procedure
 
@@ -17,7 +18,8 @@ repository — no external or found data is read at any point:
 
 | Corpus | Generator | Content basis |
 | --- | --- | --- |
-| W2 (hiring) | `scripts/make_fixtures_v2.py` | Synthetic applicant "Dana R. Whitfield" — invented name, invented address, invented certification and employment history. No real applicant, employee, or student record was consulted. |
+| W2 (hiring) — seed pair | `scripts/make_fixtures.py` | `w2_0001` only. Synthetic applicant "Dana R. Whitfield" — invented name, invented address, invented certification and employment history. No real applicant, employee, or student record was consulted. |
+| W2 (hiring) — bulk corpus | `scripts/make_fixtures_v2.py` | `w2_0002`–`w2_0033`. Same synthetic applicant as the seed pair; no real applicant, employee, or student record was consulted. |
 | W1 (help-desk) | `scripts/make_fixtures_w1.py` | Synthetic ticket submitter "Jordan T. Alvarez" — invented name, invented student ID, invented device asset tag. No real ticketing system export or student record was consulted. |
 | W3 (correspondence) | `scripts/make_fixtures_w3.py` | Synthetic parent "Renata Ferreira" and student "Mateo Ferreira" — invented names, invented email address. No real parent, guardian, or student record was consulted. |
 

@@ -141,7 +141,7 @@ is worse than disclosing none. Example:
 - Run a single test: `pytest tests/path/to/test_file.py::test_function_name -v`
 - Format code: `ruff format`
 - Lint code: `ruff check --fix`
-- Type check: `mypy --exclude tests/test_package src tests`
+- Type check: `mypy --exclude tests/test_package src/eduinject tests`
 
 ## Code Style Guidelines
 - **Formatting**: Follow Google style convention. Use ruff for formatting
