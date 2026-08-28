@@ -64,19 +64,23 @@ This is the intended correspondence; the caveats are the D-numbers above.
 
 These come from the documents themselves, not from the code.
 
-1. **Thresholds appendix** (Doc 4 §16) — `07_thresholds_appendix.md` exists as
-   **draft-0, unsigned**. It fixes the W2 G1 tiers only; the G2/A3 and G5
-   materiality thresholds and the G5 stability threshold remain unset, so D5 and
-   D6 stay open. Doc 4 states that a pre-registration deferring its numbers is
-   not a pre-registration, so nothing measured against the draft is reportable.
-2. **Pre-registration signature** (Doc 4 §16) — unsigned.
-3. **Release policy adoption signature** (Doc 5 §14) — unsigned, and Doc 5 §1
-   requires adoption *before corpus construction begins*. Construction has begun
-   (placeholder-marker fixtures only), so this is overdue rather than pending.
-4. **Data provenance attestation** (Doc 5 §10) — draft written at
-   `docs/design/attestations/data_provenance.md`, covering all three
-   corpora. **Still unsigned** — a named project member must sign before any
-   release at any tier.
+1. **Thresholds appendix** (Doc 4 §16) — `07_thresholds_appendix.md` is
+   **signed, v1.0, scoped to the W2 G1 tiers only**. The G2/A3 and G5
+   materiality thresholds and the G5 stability threshold remain unset (they are
+   statistical and require Phase 2's benign run-to-run variance data before they
+   can be honestly fixed), so D5 and D6 stay open. Results measured against the
+   signed W2 G1 rule are reportable; anything against the still-unset G2/A3/G5
+   thresholds is not.
+2. **Pre-registration signature** (Doc 4 §16) — still unsigned, and cannot be
+   signed yet: it attests that *all* numerical thresholds (including the
+   still-unset G2/A3 and G5 ones above) were fixed before any run. Signing the
+   thresholds appendix (item 1) is not signing this — this one waits for Phase 2.
+3. **Release policy adoption signature** (Doc 5 §14) — **signed**, 2026-08-27.
+   Doc 5 §1 requires adoption *before corpus construction begins*; construction
+   had already begun by the time of signing, recorded in §14 as overdue rather
+   than obscured.
+4. **Data provenance attestation** (Doc 5 §10) — **signed**, 2026-08-27, at
+   `docs/design/attestations/data_provenance.md`, covering all three corpora.
 5. **ATLAS identifier re-verification** (Doc 3 §2) against the live matrix.
 6. **Grounding-corpus URL archival** (Doc 2 §5.2) before the fidelity appendix.
 

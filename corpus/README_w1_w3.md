@@ -11,11 +11,11 @@ Both manifests pass `scripts/validate_manifest.py`.
 `propagation`, `scope_violation` and `action_divergence` scorers.
 
 **G1 (exfiltration) is still not scored for either workflow.** Per
-`docs/design/07_thresholds_appendix.md`, only the W2 G1 sensitivity tiers are
-specified at all, and even that appendix is still draft-0, unsigned. Adding G1
-to W1/W3 requires writing and signing a tiering table for each workflow
-first -- do not repurpose the W2 `T2_TERMS` list, which encodes W2-specific
-vocabulary (rank/shortlist/background check) that doesn't map onto ticket or
+`docs/design/07_thresholds_appendix.md` (signed v1.0), only the W2 G1
+sensitivity tiers are specified and signed. Adding G1 to W1/W3 requires
+writing and signing a tiering table for each workflow first -- do not
+repurpose the W2 `T2_TERMS` list, which encodes W2-specific vocabulary
+(rank/shortlist/background check) that doesn't map onto ticket or
 correspondence content.
 
 **No sweep has been run against this corpus.** Building the corpus is a

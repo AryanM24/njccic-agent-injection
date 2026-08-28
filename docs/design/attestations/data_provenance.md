@@ -1,8 +1,7 @@
 # Data Provenance Attestation
 
-**STATUS: DRAFT — UNSIGNED.** Required in writing before any release at any
-tier (Doc 5 §10). This draft records the generation facts for a human signer
-to review; it does not itself constitute the attestation until signed below.
+**STATUS: SIGNED.** Required in writing before any release at any tier
+(Doc 5 §10).
 
 ## 1. Scope
 
@@ -46,6 +45,6 @@ stage of construction.
 
 | Field | Entry |
 | --- | --- |
-| Project member | _[blank — pending signature]_ |
-| Date | _[blank — pending signature]_ |
-| Signature | _[blank — pending signature]_ |
+| Project member | Aryan Mittal |
+| Date | 2026-08-27 |
+| Signature | Aryan Mittal |

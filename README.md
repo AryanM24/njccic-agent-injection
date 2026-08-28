@@ -151,10 +151,12 @@ detect. It lands with the first real payloads.
 
 Read `docs/design/implementation-map.md` before trusting any number. It records,
 among others, that effect-only propagation is not yet detectable (a substring
-test finds verbatim propagation only), that hijack-level scoring is absent, that
-evaluative corruption and suppression are unmeasured pending materiality
-thresholds, and that the thresholds appendix is a draft and unsigned — so no
-figure produced today is reportable.
+test finds verbatim propagation only), that hijack-level scoring is absent, and
+that evaluative corruption and suppression are unmeasured pending materiality
+thresholds — those thresholds are statistical and wait on Phase 2's benign
+run-to-run variance data, so no figure against G2/A3 or G5 is reportable yet.
+The thresholds appendix's W2 G1 tiers are signed and reportable; the full
+pre-registration is not signed until the remaining thresholds are.
 
 ## Release status
 

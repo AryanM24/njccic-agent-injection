@@ -318,9 +318,15 @@ Stating the limits is part of taking the policy seriously.
 This policy takes effect on the date recorded below and governs all subsequent
 project activity. It is adopted prior to the construction of any corpus artifact.
 
+**Note on timing.** Corpus construction (the W2 pilot fixture) had already begun
+before this adoption was signed — recorded here rather than obscured, per
+`implementation-map.md` §4 item 3, which tracked this as overdue rather than
+pending. Nothing built before this date is exempted from the policy; it applies
+retroactively to everything already in the repository as of the date below.
+
 | **Role** | **Name** | **Signature** | **Date** |
 | --- | --- | --- | --- |
-| **Principal investigator** | | | |
-| **Second reviewer** | | | |
+| **Principal investigator** | Aryan Mittal | Aryan Mittal | 2026-08-27 |
+| **Second reviewer** | Rohan Bhamidipati | Rohan Bhamidipati | 2026-08-27 |
 | **Institutional ethics contact** | | | |
 | **Policy version** | v1.0 | | |
