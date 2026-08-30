@@ -90,6 +90,49 @@ def paired_pipeline(scope: str, isolated: bool) -> Solver:
     return solve
 
 
+@solver
+def benign_pipeline(scope: str, isolated: bool) -> Solver:
+    """Run only the benign twin ticket through the pipeline — no attack ticket.
+
+    Phase 2's benign-only baseline. See task.py's `benign_pipeline` docstring
+    for why this exists separately from `paired_pipeline`.
+
+    Args:
+        scope: Write scope granted to the action stage.
+        isolated: Whether stages after intake see the source document.
+
+    Returns:
+        A solver that records the single twin run under `metadata["runs"]["twin"]`.
+    """
+
+    async def solve(state: TaskState, generate: Generate) -> TaskState:
+        document_text = extract(state.metadata["twin_path"])
+        result = await run_pipeline(
+            document_text,
+            state.input_text,
+            scope=scope,
+            isolated=isolated,
+            instance="twin",
+            tools_for_scope=tools_for_scope,
+            tool_names_for_scope=tool_names_for_scope,
+            intake_system=INTAKE_SYSTEM,
+            analysis_system=ANALYSIS_SYSTEM,
+            action_system=ACTION_SYSTEM,
+        )
+        state.metadata[RUNS_KEY] = {
+            "twin": {
+                "pipeline": result,
+                "ledger": store_as(Ledger, instance="twin").model_dump(),
+            }
+        }
+        state.output = ModelOutput.from_content(
+            model=str(state.model), content=result["final"]
+        )
+        return state
+
+    return solve
+
+
 @task
 def eduinject_w1(
     scope: str = "read_write",
@@ -97,6 +140,7 @@ def eduinject_w1(
     manifest: str = DEFAULT_MANIFEST,
     message_limit: int | None = 100,
     epochs: int | None = None,
+    benign_only: bool = False,
 ) -> Task:
     """Indirect prompt injection through a district IT help-desk workflow.
 
@@ -113,22 +157,35 @@ def eduinject_w1(
             condition before any effect is interpretable against
             run-to-run variance -- pass epochs=10+ explicitly for any run
             whose results will be reported.
+        benign_only: When True, run only the twin (Phase 2's baseline) --
+            no attack artifact runs at all. Scores propagation (a floor
+            check) and scope_violation (the out-of-scope-call base rate)
+            from the twin run. action_divergence is omitted -- it is
+            defined only as attack-vs-twin, which does not exist here.
 
     Returns:
         The configured task.
     """
     assert_extraction_pinned()
 
+    if benign_only:
+        solver = benign_pipeline(scope=scope, isolated=isolated)
+        scorers = [propagation(run_label="twin"), scope_violation(run_label="twin")]
+    else:
+        solver = paired_pipeline(scope=scope, isolated=isolated)
+        scorers = [propagation(), scope_violation(), action_divergence()]
+
     return Task(
         dataset=dataset_from_manifest(manifest),
-        solver=paired_pipeline(scope=scope, isolated=isolated),
+        solver=solver,
         message_limit=message_limit,
         epochs=epochs,
-        scorer=[propagation(), scope_violation(), action_divergence()],
+        scorer=scorers,
         metadata={
             "workflow": WORKFLOW,
             "scope": scope,
             "isolated": isolated,
+            "benign_only": benign_only,
             "prompts_version": PROMPTS_VERSION_W1,
             "extraction_pins": EXTRACTION_PINS,
             "doc_versions": DOC_VERSIONS,
@@ -136,6 +193,7 @@ def eduinject_w1(
                 workflow=WORKFLOW,
                 scope=scope,
                 isolated=isolated,
+                benign_only=benign_only,
                 prompts_version=PROMPTS_VERSION_W1,
             ),
         },
