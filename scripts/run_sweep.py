@@ -79,6 +79,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "reportable run.",
     )
     parser.add_argument(
+        "--benign-only",
+        action="store_true",
+        help="Phase 2 baseline: run only the twin, no attack artifact at all. "
+        "Omits action_divergence (attack-vs-twin only) from the scorer set.",
+    )
+    parser.add_argument(
         "--limit", type=int, default=None, help="Limit samples per task."
     )
     parser.add_argument(
@@ -105,14 +111,20 @@ def main(argv: list[str] | None = None) -> int:
 
     isolation = ISOLATION_CHOICES[args.isolation]
     tasks = [
-        task_fn(scope=scope, isolated=isolated, manifest=manifest, epochs=args.epochs)
+        task_fn(
+            scope=scope,
+            isolated=isolated,
+            manifest=manifest,
+            epochs=args.epochs,
+            benign_only=args.benign_only,
+        )
         for scope in args.scopes
         for isolated in isolation
     ]
 
     print(
         f"sweeping {len(tasks)} cell(s) of {args.workflow} on {args.model} "
-        f"(epochs={args.epochs})"
+        f"(epochs={args.epochs}, benign_only={args.benign_only})"
     )
     for task in tasks:
         print(
