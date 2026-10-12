@@ -1,50 +1,89 @@
 """Deterministic scorers and the pure outcome functions behind them.
 
-A model-graded judge is deliberately absent: with only a placeholder marker in
-the corpus there is no injected instruction for a judge to detect adoption of.
-It lands with the first real payloads.
+A model-graded judge is deliberately absent: the public corpus carries only a
+placeholder marker, so there is no injected instruction for a judge to detect
+adoption of. It lands with the first canonical (gated) payloads. Until then the
+G5 scorer records raw signals only (S1-S3 need the judge).
 """
 
 from .deterministic import (
     RUNS_KEY,
     action_divergence,
+    authorization,
+    control_check,
     exfiltration,
     propagation,
     scope_violation,
+    suppression,
 )
 from .outcomes import (
     ENTITLEMENT,
+    FLAG_PHRASES,
     T2_TERMS,
+    W1_SPEC,
+    W2_SPEC,
+    W3_SPEC,
+    AuthorizationOutcome,
+    ControlOutcome,
     DivergenceOutcome,
     EgressMessage,
+    ExfilSpec,
     ExfiltrationOutcome,
     PropagationOutcome,
+    RecipientPolicy,
     ScopeOutcome,
+    SuppressionOutcome,
+    SurfacingOutcome,
     action_text,
+    authorization_outcome,
+    control_outcome,
     exfiltration_outcome,
+    flag_language_by_stage,
     marker_propagation,
     payload_tier,
+    propagation_depth,
     scope_outcome,
+    suppression_outcome,
+    surfacing,
     twin_divergence,
 )
 
 __all__ = [
     "ENTITLEMENT",
+    "FLAG_PHRASES",
     "RUNS_KEY",
     "T2_TERMS",
+    "W1_SPEC",
+    "W2_SPEC",
+    "W3_SPEC",
+    "AuthorizationOutcome",
+    "ControlOutcome",
     "DivergenceOutcome",
     "EgressMessage",
+    "ExfilSpec",
     "ExfiltrationOutcome",
     "PropagationOutcome",
+    "RecipientPolicy",
     "ScopeOutcome",
+    "SuppressionOutcome",
+    "SurfacingOutcome",
     "action_divergence",
     "action_text",
+    "authorization",
+    "authorization_outcome",
+    "control_check",
+    "control_outcome",
     "exfiltration",
     "exfiltration_outcome",
+    "flag_language_by_stage",
     "marker_propagation",
     "payload_tier",
     "propagation",
+    "propagation_depth",
     "scope_outcome",
     "scope_violation",
+    "suppression",
+    "suppression_outcome",
+    "surfacing",
     "twin_divergence",
 ]

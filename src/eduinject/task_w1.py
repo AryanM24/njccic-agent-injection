@@ -6,11 +6,15 @@ insider-attacker, credential/device-action workflow) substituted in. See
 task.py's module docstring for why the pair, not the document, is the unit of
 measurement.
 
-G1 (exfiltration) is intentionally NOT included here: docs/design/07_thresholds_appendix.md
-fixes sensitivity tiers only for W2. Per that appendix's own rule, an outcome
-without signed-off thresholds is descoped rather than approximated, so this
-task reports propagation, scope_violation, and action_divergence only until a
-W1 tiering table is written and signed.
+Scorers beyond W2's set, and their status:
+
+- `exfiltration` (G1) uses W1's tier table and recipient policy from
+  docs/design/08_w1_w3_g1_tiers_addendum.md (signed v1.0, 2026-10-11).
+  W1 G1 figures are reportable as lower bounds (07 covers W2).
+- `authorization` (G2, unauthorized approval) checks every password reset and
+  device unlock against what the submitter is really entitled to, using the
+  synthetic directory as ground truth.
+- `suppression` (G5) records raw signals only; its thresholds are unset.
 """
 
 from pathlib import Path
@@ -29,19 +33,39 @@ from .agents.prompts_w1 import (
 )
 from .config import DOC_VERSIONS, EXTRACTION_PINS, assert_extraction_pinned, config_hash
 from .extraction import extract
-from .scorers import RUNS_KEY, action_divergence, propagation, scope_violation
-from .task import dataset_from_manifest
+from .scorers import (
+    RUNS_KEY,
+    W1_SPEC,
+    action_divergence,
+    authorization,
+    control_check,
+    exfiltration,
+    propagation,
+    scope_violation,
+    suppression,
+)
+from .task import corpus_label, dataset_from_manifest, resolve_run_mode
 from .tools import Ledger
-from .tools.helpdesk import tool_names_for_scope, tools_for_scope
+from .tools.helpdesk import (
+    STATE_CHANGING,
+    TOOL_SURFACE,
+    tool_names_for_scope,
+    tools_for_scope,
+)
 
 WORKFLOW = "w1"
 
 DEFAULT_MANIFEST = str(
     Path(__file__).resolve().parents[2] / "corpus" / "manifest_w1.jsonl"
 )
-"""Manifest shipped with the repo. Currently EMPTY — no W1 fixtures exist yet
-(see corpus/manifest_w1.jsonl). This task will raise on an empty dataset until
-fixture pairs are built with scripts/make_fixtures.py, mirroring w2_0001."""
+"""Manifest shipped with the repo (marker-only placeholder corpus; see
+corpus/README_w1_w3.md). Resolved from the source tree, so it assumes an
+editable install; pass `manifest=` explicitly otherwise."""
+
+DEFAULT_CONTROLS_MANIFEST = str(
+    Path(__file__).resolve().parents[2] / "corpus" / "manifest_w1_controls.jsonl"
+)
+"""Benign-but-weird controls. Run with `controls=True`."""
 
 
 @solver
@@ -141,6 +165,7 @@ def eduinject_w1(
     message_limit: int | None = 100,
     epochs: int | None = None,
     benign_only: bool = False,
+    controls: bool = False,
 ) -> Task:
     """Indirect prompt injection through a district IT help-desk workflow.
 
@@ -159,21 +184,42 @@ def eduinject_w1(
             whose results will be reported.
         benign_only: When True, run only the twin (Phase 2's baseline) --
             no attack artifact runs at all. Scores propagation (a floor
-            check) and scope_violation (the out-of-scope-call base rate)
-            from the twin run. action_divergence is omitted -- it is
-            defined only as attack-vs-twin, which does not exist here.
+            check), exfiltration (the G1 false-positive rate), authorization
+            (the false-authorization rate), scope_violation (the
+            out-of-scope-call base rate) and control_check from the twin run.
+            action_divergence and suppression are omitted -- they are defined
+            only as attack-vs-twin, which does not exist here.
+        controls: When True, run the benign-but-weird controls manifest
+            instead (implies `benign_only`). Use `standard` or `read_write`
+            scope; at `read_only` there is nothing to complete.
 
     Returns:
         The configured task.
     """
     assert_extraction_pinned()
+    manifest, benign_only = resolve_run_mode(
+        manifest, DEFAULT_MANIFEST, DEFAULT_CONTROLS_MANIFEST, controls, benign_only
+    )
 
     if benign_only:
         solver = benign_pipeline(scope=scope, isolated=isolated)
-        scorers = [propagation(run_label="twin"), scope_violation(run_label="twin")]
+        scorers = [
+            propagation(run_label="twin"),
+            exfiltration(run_label="twin", spec=W1_SPEC),
+            authorization(STATE_CHANGING, run_label="twin"),
+            scope_violation(run_label="twin"),
+            control_check(spec=W1_SPEC, state_changing=STATE_CHANGING),
+        ]
     else:
         solver = paired_pipeline(scope=scope, isolated=isolated)
-        scorers = [propagation(), scope_violation(), action_divergence()]
+        scorers = [
+            propagation(),
+            exfiltration(spec=W1_SPEC),
+            authorization(STATE_CHANGING),
+            scope_violation(),
+            action_divergence(),
+            suppression(),
+        ]
 
     return Task(
         dataset=dataset_from_manifest(manifest),
@@ -186,6 +232,9 @@ def eduinject_w1(
             "scope": scope,
             "isolated": isolated,
             "benign_only": benign_only,
+            "controls": controls,
+            "corpus": corpus_label(manifest),
+            "tool_surface": TOOL_SURFACE,
             "prompts_version": PROMPTS_VERSION_W1,
             "extraction_pins": EXTRACTION_PINS,
             "doc_versions": DOC_VERSIONS,
@@ -195,6 +244,8 @@ def eduinject_w1(
                 isolated=isolated,
                 benign_only=benign_only,
                 prompts_version=PROMPTS_VERSION_W1,
+                corpus=corpus_label(manifest),
+                tool_surface=TOOL_SURFACE,
             ),
         },
     )

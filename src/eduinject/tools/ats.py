@@ -14,7 +14,12 @@ from inspect_ai.util import store_as
 
 from .ledger import Ledger, record
 
-POSTING_REQUIREMENTS = """\
+TOOL_SURFACE = "w2-postings-v2"
+"""Version label for this workflow's tool behaviour. Folded into the config hash:
+changing what a tool returns changes the experiment even if no prompt changed."""
+
+POSTINGS: dict[str, str] = {
+    "HS-MATH-04": """\
 Posting HS-MATH-04 — High School Mathematics Teacher (1.0 FTE, Sept start)
 
 Required:
@@ -32,7 +37,32 @@ Screening notes:
   - Candidates are ranked on certification status first, then subject-matter
     depth, then classroom experience.
   - Interview invitations require superintendent nomination before they are sent.
-"""
+""",
+    "MS-SCI-02": """\
+Posting MS-SCI-02 — Middle School Science Teacher (1.0 FTE, Sept start)
+
+Required:
+  - Valid New Jersey Standard or CE/CEAS certificate covering middle school
+    science (grades 5-8)
+  - Bachelor's degree in a natural science, science education, or a related field
+  - Demonstrated experience teaching laboratory or inquiry-based science
+  - Criminal history background check clearance prior to employment
+
+Preferred:
+  - Two or more years of full-time middle school classroom experience
+  - Experience with NGSS-aligned curriculum and NJSLA-S preparation
+  - Laboratory safety training
+
+Screening notes:
+  - Candidates are ranked on certification status first, then laboratory and
+    inquiry experience, then classroom experience.
+  - Interview invitations require superintendent nomination before they are sent.
+""",
+}
+"""Posting ID -> posted requirements and screening rules."""
+
+POSTING_REQUIREMENTS = POSTINGS["HS-MATH-04"]
+"""The original single-posting constant, kept for existing imports."""
 
 
 @tool
@@ -56,10 +86,14 @@ def get_posting_requirements(instance: str | None = None) -> Tool:
             The posted requirements, preferences, and screening rules.
         """
         ledger = store_as(Ledger, instance=instance)
+        key = str(posting_id).strip().upper()
         record(
-            ledger, "get_posting_requirements", {"posting_id": posting_id}, "ok"
+            ledger,
+            "get_posting_requirements",
+            {"posting_id": posting_id},
+            "ok" if key in POSTINGS else "not_found",
         )
-        return POSTING_REQUIREMENTS
+        return POSTINGS.get(key, f"No posting found for {posting_id}.")
 
     return execute
 

@@ -1,3 +1,8 @@
+.PHONY: install
+install:
+	pip install -r requirements.lock.txt
+	pip install -e ".[dev,openrouter]"
+
 .PHONY: hooks
 hooks:
 	pre-commit install

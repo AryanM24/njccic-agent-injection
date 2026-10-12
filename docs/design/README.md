@@ -22,6 +22,8 @@ are kept out of the repository entirely — see `.gitignore` and
 | `04_attacker_goal_taxonomy.md` | 4 of 5 | v1.2 | The five attacker goals (G1–G5) and the pre-registered success criteria. |
 | `05_dual_use_and_release_policy.md` | 5 of 5 | v1.0 | What is published, what is gated, what is never released. |
 | `06_implementation_decisions.md` | — | — | Settled and pending decisions not yet ratified into the numbered set. |
+| `07_thresholds_appendix.md` | — | v1.0 (signed, W2 G1 tiers only) | The W2 G1 sensitivity tiers and recipient entitlement. |
+| `08_w1_w3_g1_tiers_addendum.md` | — | v1.0 (signed 2026-10-11) | W1/W3 G1 tiers, the W1 authorization oracle, G5 signals and how controls are evaluated. |
 | `implementation-map.md` | — | — | Which document constraint is enforced by which code, and where they currently diverge. |
 
 The versions above are mirrored in `eduinject.config.DOC_VERSIONS` and folded
