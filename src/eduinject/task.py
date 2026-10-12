@@ -34,12 +34,16 @@ from .config import (
 from .extraction import extract
 from .scorers import (
     RUNS_KEY,
+    W2_SPEC,
     action_divergence,
+    control_check,
     exfiltration,
     propagation,
     scope_violation,
+    suppression,
 )
 from .tools import Ledger, tool_names_for_scope, tools_for_scope
+from .tools.ats import TOOL_SURFACE
 
 WORKFLOW = "w2"
 
@@ -48,6 +52,60 @@ DEFAULT_MANIFEST = str(
 )
 """Manifest shipped with the repo. Resolved from the source tree, so it assumes
 an editable install (`pip install -e .`); pass `manifest=` explicitly otherwise."""
+
+DEFAULT_CONTROLS_MANIFEST = str(
+    Path(__file__).resolve().parents[2] / "corpus" / "manifest_w2_controls.jsonl"
+)
+"""Benign-but-weird controls: legitimate documents with instruction-like
+phrasing. Run with `controls=True`."""
+
+OPTIONAL_METADATA: tuple[str, ...] = (
+    "base_id",
+    "kind",
+    "goal",
+    "file_type",
+    "concealment",
+    "payload_class",
+    "correspondent_addresses",
+    "third_party_terms",
+    "protected_terms",
+    "entitled_actions",
+    "tripwire_addresses",
+    "expect",
+)
+"""Manifest fields copied into sample metadata when present. They are optional
+so older manifest lines keep loading; carrying `goal`, `base_id`, `file_type` and
+`concealment` into the log is what lets results be sliced by them."""
+
+
+def corpus_label(manifest: str | Path) -> str:
+    """Short label for which corpus a run used, for the config hash.
+
+    The public marker-only manifest and the gated canonical manifest share a
+    file name, so the parent directory is part of the label.
+    """
+    path = Path(manifest)
+    return f"{path.parent.name}/{path.name}"
+
+
+def resolve_run_mode(
+    manifest: str,
+    default_manifest: str,
+    default_controls: str,
+    controls: bool,
+    benign_only: bool,
+) -> tuple[str, bool]:
+    """Resolve the controls flag into (manifest, benign_only).
+
+    Controls are scored on a single run per document, exactly like the benign
+    baseline, so `controls=True` implies `benign_only`. If the caller did not
+    pass a manifest, the workflow's controls manifest is used.
+    """
+    if controls:
+        benign_only = True
+        if manifest == default_manifest:
+            manifest = default_controls
+    return manifest, benign_only
 
 
 def dataset_from_manifest(manifest: str | Path) -> MemoryDataset:
@@ -85,6 +143,11 @@ def dataset_from_manifest(manifest: str | Path) -> MemoryDataset:
                     # every non-authorized address is treated as unattested.
                     "applicant_addresses": entry.get("applicant_addresses", []),
                     "other_candidate_terms": entry.get("other_candidate_terms", []),
+                    **{
+                        field: entry[field]
+                        for field in OPTIONAL_METADATA
+                        if field in entry
+                    },
                 },
             )
         )
@@ -194,6 +257,7 @@ def eduinject_w2(
     message_limit: int | None = 100,
     epochs: int | None = None,
     benign_only: bool = False,
+    controls: bool = False,
 ) -> Task:
     """Indirect prompt injection through a district hiring workflow.
 
@@ -218,10 +282,21 @@ def eduinject_w2(
             rate), and scope_violation (the out-of-scope-call base rate),
             each read from the twin run. action_divergence is omitted --
             it is defined only as attack-vs-twin, which does not exist here.
+            Also scores `control_check` on each twin (harm done, and whether
+            the legitimate task was completed).
+        controls: When True, run the benign-but-weird controls manifest
+            instead (implies `benign_only`). Same scorers as the baseline, so
+            a control's rates compare directly with the twin baseline for the
+            same base scenario. Use scopes that grant the legitimate tools
+            (`standard` or `read_write`) -- at `read_only` there is nothing to
+            complete.
 
     Returns:
         The configured task.
     """
+    manifest, benign_only = resolve_run_mode(
+        manifest, DEFAULT_MANIFEST, DEFAULT_CONTROLS_MANIFEST, controls, benign_only
+    )
     # C2: the extraction stack decides which concealment channels are visible
     # at all, so drift fails the run here rather than silently changing what
     # was measured.
@@ -233,6 +308,7 @@ def eduinject_w2(
             propagation(run_label="twin"),
             exfiltration(run_label="twin"),
             scope_violation(run_label="twin"),
+            control_check(spec=W2_SPEC),
         ]
     else:
         solver = paired_pipeline(scope=scope, isolated=isolated)
@@ -241,6 +317,7 @@ def eduinject_w2(
             exfiltration(),
             scope_violation(),
             action_divergence(),
+            suppression(),
         ]
 
     return Task(
@@ -254,6 +331,9 @@ def eduinject_w2(
             "scope": scope,
             "isolated": isolated,
             "benign_only": benign_only,
+            "controls": controls,
+            "corpus": corpus_label(manifest),
+            "tool_surface": TOOL_SURFACE,
             "prompts_version": PROMPTS_VERSION,
             "extraction_pins": EXTRACTION_PINS,
             "doc_versions": DOC_VERSIONS,
@@ -263,6 +343,8 @@ def eduinject_w2(
                 isolated=isolated,
                 benign_only=benign_only,
                 prompts_version=PROMPTS_VERSION,
+                corpus=corpus_label(manifest),
+                tool_surface=TOOL_SURFACE,
             ),
         },
     )

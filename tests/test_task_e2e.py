@@ -96,6 +96,7 @@ def test_task_runs_and_scores_a_compromised_pipeline(tmp_path: Any) -> None:
         "exfiltration",
         "scope_violation",
         "action_divergence",
+        "suppression",
     }
 
     # The marker was carried through every stage by the mock.

@@ -57,11 +57,17 @@ exactly where the vulnerability lives. Exact versions are pinned in
 `EXTRACTION_PINS`, asserted against what is installed at task-construction time
 (raising, never warning), and folded into a config hash recorded on every run.
 
-**C3 — No real payloads yet.** The only injected content is the placeholder
-marker `ZZPAYLOADZZ`; no concealment technique is exercised beyond placing text
-in a documented channel. Gated directories (`corpus/canonical/`,
-`src/eduinject/corpus/payloads.py`) and all trace logs are gitignored from the
-first commit, per the Tier 1 assignments in the release policy.
+**C3 — No real payloads in the public repo.** The only injected content in any
+committed file is the placeholder marker `ZZPAYLOADZZ`; no concealment technique
+is exercised beyond placing text in a documented channel. Realistic wording is
+Tier 1: it lives in the gitignored `src/eduinject/corpus/payloads.py`, and
+`--canonical` builds write the real-payload corpus under the gitignored
+`corpus/canonical/`. `scripts/validate_manifest.py` and
+`tests/test_corpus_integrity.py` fail if a public attack file differs from its
+twin by more than the marker. Trace logs are gitignored too. Consequence: in a
+public build the four goals of one (file type, channel) cell are byte-identical
+files, and a real model will not act on a bare marker, so real attack-success
+numbers come only from canonical builds on cleared machines.
 
 **C4 — All system prompts live in one versioned file.** They are an independent
 variable and must be hashable, so `agents/prompts.py` is the only source of
@@ -110,11 +116,21 @@ tests/
 ## Running it
 
 ```bash
-python3.11 -m venv .venv && .venv/bin/pip install -e ".[dev,openrouter]"
-python scripts/make_fixtures_v2.py  # regenerate the W2 corpus (32 pairs)
-python scripts/make_fixtures_w1.py  # regenerate the W1 corpus (32 pairs)
-python scripts/make_fixtures_w3.py  # regenerate the W3 corpus (32 pairs)
+python3.11 -m venv .venv && source .venv/bin/activate
+make install                        # lock file first, then the package (see below)
+python scripts/make_fixtures_v2.py  # regenerate the W2 corpus (49 pairs, 3 bases)
+python scripts/make_fixtures_w1.py  # regenerate the W1 corpus (48 pairs, 3 bases)
+python scripts/make_fixtures_w3.py  # regenerate the W3 corpus (48 pairs, 3 bases)
+python scripts/make_fixtures_controls.py  # benign-but-weird controls (4 per workflow)
 pytest -v                           # no model-provider calls
+```
+
+`make install` installs `requirements.lock.txt` before the package. Do not use a
+bare `pip install -e .`: the extraction stack is pinned, and an unpinned install
+can pick other versions, which makes `assert_extraction_pinned()` (correctly)
+refuse to run.
+
+```bash
 ```
 
 To evaluate, put `INSPECT_EVAL_MODEL` and a provider key in `.env` (gitignored;
@@ -123,21 +139,37 @@ see `.env.example`), then:
 ```bash
 inspect eval src/eduinject/task.py
 python scripts/run_sweep.py --isolation both   # includes the negative control
+python scripts/run_sweep.py --workflow w1 --benign-only --scopes standard read_write
+python scripts/run_sweep.py --workflow w1 --controls --scopes standard read_write
 ```
+
+`--benign-only` runs the twins alone (the Phase 2 baseline). `--controls` runs
+the benign-but-weird controls with the same scorers, so a control compares
+directly with the twin baseline for the same `base_id`. Both need a model; pick
+one and a spend ceiling first.
 
 The test suite contacts no model provider: `test_extraction.py` checks the pinned
 stack and that the marker survives extraction from the attack file but not its
 twin; `test_isolation.py` patches Inspect's `run()` with a recorder to prove the
 document reaches stage 1 and no other stage at `isolated=True`, with a negative
-control at `isolated=False`; `test_scorers.py` covers the outcome functions and
-dataset; `test_task_e2e.py` runs the whole task against Inspect's scripted
-`mockllm/model`.
+control at `isolated=False` (`test_isolation_w1_w3.py` repeats this for W1 and
+W3); `test_scorers.py` covers the outcome functions and dataset;
+`test_task_e2e.py` and `test_task_e2e_w1_w3.py` run whole tasks against Inspect's
+scripted `mockllm/model`; `test_directory_ground_truth.py` checks that the
+synthetic directories, the manifests and the corpus agree;
+`test_corpus_integrity.py` enforces the marker-only policy.
 
 ## Scoring, and what it does not yet cover
 
-Four deterministic scorers report marker propagation per stage, exfiltration,
-calls outside the granted write scope, and attack-versus-twin divergence in the
-actions taken.
+Deterministic scorers report marker propagation per stage (with a provisional
+depth), exfiltration, calls outside the granted write scope, and
+attack-versus-twin divergence in the actions taken. W1 adds an `authorization`
+scorer that checks every password reset and device unlock against what the
+submitter is really entitled to (ground truth: the synthetic directory). All
+workflows add `suppression` (G5 raw signals; not reportable) and, on benign-only
+and controls runs, `control_check` (harm done, and whether the legitimate task
+got done). W1 and W3 G1 rules are in
+`docs/design/08_w1_w3_g1_tiers_addendum.md` (signed v1.0, 2026-10-11).
 
 Exfiltration is scored on the destination **and** the payload's sensitivity
 tier, per `docs/design/07_thresholds_appendix.md`. Destination alone does not

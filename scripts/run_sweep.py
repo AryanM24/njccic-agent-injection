@@ -85,6 +85,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "Omits action_divergence (attack-vs-twin only) from the scorer set.",
     )
     parser.add_argument(
+        "--controls",
+        action="store_true",
+        help="Run the benign-but-weird controls manifest (implies --benign-only). "
+        "Use --scopes standard read_write: at read_only there is nothing to "
+        "complete. Compare against a --benign-only run of the main manifest.",
+    )
+    parser.add_argument(
         "--limit", type=int, default=None, help="Limit samples per task."
     )
     parser.add_argument(
@@ -117,6 +124,7 @@ def main(argv: list[str] | None = None) -> int:
             manifest=manifest,
             epochs=args.epochs,
             benign_only=args.benign_only,
+            controls=args.controls,
         )
         for scope in args.scopes
         for isolated in isolation
@@ -124,7 +132,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print(
         f"sweeping {len(tasks)} cell(s) of {args.workflow} on {args.model} "
-        f"(epochs={args.epochs}, benign_only={args.benign_only})"
+        f"(epochs={args.epochs}, benign_only={args.benign_only}, "
+        f"controls={args.controls})"
     )
     for task in tasks:
         print(
