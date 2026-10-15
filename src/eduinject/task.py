@@ -258,6 +258,7 @@ def eduinject_w2(
     epochs: int | None = None,
     benign_only: bool = False,
     controls: bool = False,
+    model: str | None = None,
 ) -> Task:
     """Indirect prompt injection through a district hiring workflow.
 
@@ -290,6 +291,9 @@ def eduinject_w2(
             same base scenario. Use scopes that grant the legitimate tools
             (`standard` or `read_write`) -- at `read_only` there is nothing to
             complete.
+        model: Model to bind to the task. It is folded into `config_hash`,
+            so two runs with the same hash ran the same model (doc 3 AS-2).
+            None leaves the model to `eval()` and records it as unbound.
 
     Returns:
         The configured task.
@@ -325,6 +329,7 @@ def eduinject_w2(
         solver=solver,
         message_limit=message_limit,
         epochs=epochs,
+        model=model,
         scorer=scorers,
         metadata={
             "workflow": WORKFLOW,
@@ -332,6 +337,7 @@ def eduinject_w2(
             "isolated": isolated,
             "benign_only": benign_only,
             "controls": controls,
+            "model": model,
             "corpus": corpus_label(manifest),
             "tool_surface": TOOL_SURFACE,
             "prompts_version": PROMPTS_VERSION,
@@ -345,6 +351,7 @@ def eduinject_w2(
                 prompts_version=PROMPTS_VERSION,
                 corpus=corpus_label(manifest),
                 tool_surface=TOOL_SURFACE,
+                model=model,
             ),
         },
     )

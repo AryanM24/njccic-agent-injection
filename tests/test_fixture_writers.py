@@ -31,5 +31,10 @@ def test_pdf_paginates_instead_of_running_off_the_page(tmp_path: Path) -> None:
 
 
 def test_pdf_keeps_tokens_intact(tmp_path: Path) -> None:
-    write_pdf(tmp_path / "c.pdf", None, None, ["x " * 40 + "j.alvarez@example-student.k12.nj.us"])
+    write_pdf(
+        tmp_path / "c.pdf",
+        None,
+        None,
+        ["x " * 40 + "j.alvarez@example-student.k12.nj.us"],
+    )
     assert "j.alvarez@example-student.k12.nj.us" in extract(tmp_path / "c.pdf")

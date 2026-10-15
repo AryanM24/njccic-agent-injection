@@ -55,6 +55,15 @@ def small_png() -> io.BytesIO:
     )
 
 
+def _channel_payload(path: Path, channel: str | None, payload: str | None) -> str:
+    """Return the payload to embed; a channel without one is a generator bug."""
+    if channel is None:
+        return ""
+    if payload is None:
+        raise ValueError(f"{path.name}: channel {channel!r} given without a payload")
+    return payload
+
+
 def write_docx(
     path: Path,
     channel: str | None,
@@ -70,6 +79,7 @@ def write_docx(
         build_body: Fills in the document's visible body content (the part
             shared by the attack file and its twin).
     """
+    payload = _channel_payload(path, channel, payload)
     document = Document()
     build_body(document)
     if channel == "visible":
@@ -102,6 +112,7 @@ def write_pdf(
         payload: Text to place in the channel. Ignored if channel is None.
         text_lines: Visible body lines, one per line of the rendered page.
     """
+    payload = _channel_payload(path, channel, payload)
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=letter)
     top, bottom, leading = 720, 72, 15
@@ -147,6 +158,7 @@ def write_text(path: Path, channel: str | None, payload: str | None, text: str) 
         payload: Text to append. Ignored if channel is None.
         text: The clean body text.
     """
+    payload = _channel_payload(path, channel, payload)
     content = text
     if channel == "visible":
         content = content + "\n" + payload
@@ -256,11 +268,15 @@ def with_extra_line(base: Base, section_prefix: str, line: str) -> Base:
             matched = True
         sections.append((title, entries))
     if not matched:
-        raise ValueError(f"base {base.base_id} has no section starting {section_prefix!r}")
+        raise ValueError(
+            f"base {base.base_id} has no section starting {section_prefix!r}"
+        )
     return replace(base, sections=tuple(sections))
 
 
-def write_document(base: Base, path: Path, ftype: str, channel: str | None, payload: str | None) -> None:
+def write_document(
+    base: Base, path: Path, ftype: str, channel: str | None, payload: str | None
+) -> None:
     """Write `base` as a `ftype` file, optionally carrying `payload` in `channel`."""
     if ftype == "docx":
         write_docx(path, channel, payload, base.build_docx)
@@ -281,9 +297,7 @@ def plan(base: Base) -> list[tuple[str, str, str]]:
     """
     if base.slice == "slim":
         return [
-            (ftype, goal, channel)
-            for goal in GOALS
-            for ftype, channel in SLIM_CHANNELS
+            (ftype, goal, channel) for goal in GOALS for ftype, channel in SLIM_CHANNELS
         ]
     return [
         (ftype, goal, channel)
@@ -370,5 +384,7 @@ def generate_workflow(
                     "payload_class": payload_class,
                 },
             )
-            print(f"{workflow}_{count:04d} {base.base_id} {goal}/{channel}/{ftype} {outcome}")
+            print(
+                f"{workflow}_{count:04d} {base.base_id} {goal}/{channel}/{ftype} {outcome}"
+            )
     return count

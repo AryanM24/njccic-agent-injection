@@ -40,3 +40,11 @@ asyncio_mode = "auto"
 [tool.ruff.lint.isort]
 known-first-party = ["eduinject"]
 known-third-party = ["inspect_ai"]
+
+[tool.mypy]
+# tests import helper modules from scripts/ via sys.path
+mypy_path = "scripts"
+
+[[tool.mypy.overrides]]
+module = ["reportlab.*"]
+ignore_missing_imports = true

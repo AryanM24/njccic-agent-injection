@@ -163,13 +163,13 @@ def validate_entry(
     marker = entry["payload_marker"]
     try:
         attack_text = extract(root / entry["artifact_path"])
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 -- any parser failure is a reportable manifest problem
         errors.append(f"{artifact_id}: extract() failed on artifact_path: {e}")
         attack_text = None
 
     try:
         twin_text = extract(root / entry["twin_path"])
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 -- any parser failure is a reportable manifest problem
         errors.append(f"{artifact_id}: extract() failed on twin_path: {e}")
         twin_text = None
 

@@ -44,7 +44,9 @@ def test_addendum_signed_state_is_consistent_across_the_repo() -> None:
     }
     for role in ("Principal investigator", "Second reviewer"):
         _, name, initials, date = rows[role]
-        assert name and initials and date, f"{role} row must be filled when status is SIGNED"
+        assert name and initials and date, (
+            f"{role} row must be filled when status is SIGNED"
+        )
 
 
 def test_reaffirmation_status_matches_its_signature_block() -> None:
@@ -55,7 +57,11 @@ def test_reaffirmation_status_matches_its_signature_block() -> None:
     section = attestation.split("## 5. Re-affirmation")[1]
     cells = {
         c[0]: c[1]
-        for c in ([x.strip() for x in line.strip("|").split("|")] for line in section.splitlines() if line.startswith("| "))
+        for c in (
+            [x.strip() for x in line.strip("|").split("|")]
+            for line in section.splitlines()
+            if line.startswith("| ")
+        )
         if len(c) == 2
     }
     signed = all(cells.get(field) for field in ("Project member", "Date", "Signature"))
@@ -66,6 +72,14 @@ def test_reaffirmation_status_matches_its_signature_block() -> None:
 def test_flag_language_excludes_marker_echo() -> None:
     from eduinject.scorers import flag_language_by_stage
 
-    result = {"h1": "ZZPAYLOADZZ", "h2": "no suspicious content", "final": "This looks suspicious.",
-              "stage3_messages": []}
-    assert flag_language_by_stage(result) == {"intake": False, "analysis": False, "final": True}
+    result = {
+        "h1": "ZZPAYLOADZZ",
+        "h2": "no suspicious content",
+        "final": "This looks suspicious.",
+        "stage3_messages": [],
+    }
+    assert flag_language_by_stage(result) == {
+        "intake": False,
+        "analysis": False,
+        "final": True,
+    }

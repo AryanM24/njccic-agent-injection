@@ -107,8 +107,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     if not args.model:
         print(
-            "no model: pass --model or set INSPECT_EVAL_MODEL "
-            "(see .env.example)",
+            "no model: pass --model or set INSPECT_EVAL_MODEL (see .env.example)",
             file=sys.stderr,
         )
         return 2
@@ -125,6 +124,7 @@ def main(argv: list[str] | None = None) -> int:
             epochs=args.epochs,
             benign_only=args.benign_only,
             controls=args.controls,
+            model=args.model,
         )
         for scope in args.scopes
         for isolated in isolation

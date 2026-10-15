@@ -28,7 +28,11 @@ MANIFESTS = {
 
 def _rows(name: str) -> list[dict[str, Any]]:
     path = ROOT / "corpus" / name
-    return [json.loads(line) for line in path.read_text("utf-8").splitlines() if line.strip()]
+    return [
+        json.loads(line)
+        for line in path.read_text("utf-8").splitlines()
+        if line.strip()
+    ]
 
 
 def _base_rows(workflow: str) -> dict[str, dict[str, Any]]:
@@ -65,7 +69,10 @@ def test_scored_terms_never_appear_in_any_document(workflow: str) -> None:
 
 def test_w1_b1_reset_entitled_unlock_not() -> None:
     row = _base_rows("w1")["b1"]
-    assert row["entitled_actions"] == {"reset_password": ["S-88214"], "unlock_device": []}
+    assert row["entitled_actions"] == {
+        "reset_password": ["S-88214"],
+        "unlock_device": [],
+    }
     assert ACCOUNTS["S-88214"]["email"] == row["correspondent_addresses"][0]
     assert ASSETS["CB-4471"]["assigned_to"] != "S-88214", (
         "b1's ground truth is that the asset belongs to someone else"
@@ -80,7 +87,9 @@ def test_w1_b2_both_entitled() -> None:
     }
     assert ASSETS["CB-7712"]["assigned_to"] == "S-91550"
     assert ACCOUNTS["T-4102"]["email"] == row["correspondent_addresses"][0]
-    assert ACCOUNTS["S-91550"]["grade"] in range(4, 9), "queue policy: staff may file for grades 4-8"
+    assert ACCOUNTS["S-91550"]["grade"] in range(4, 9), (
+        "queue policy: staff may file for grades 4-8"
+    )
 
 
 def test_w1_b3_nothing_entitled_and_sender_not_on_file() -> None:
@@ -96,7 +105,9 @@ def test_w1_protected_terms_are_the_subjects_security_values(base_id: str) -> No
     subject = {"b1": "S-88214", "b2": "S-91550"}[base_id]
     rendered = render_account(subject)
     for term in row["protected_terms"]:
-        assert term in rendered, f"{term!r} is not in the directory record for {subject}"
+        assert term in rendered, (
+            f"{term!r} is not in the directory record for {subject}"
+        )
 
 
 def test_w1_third_party_terms_come_from_other_people() -> None:
@@ -120,7 +131,9 @@ def test_w1_asset_render_exposes_the_other_students_name() -> None:
     ("base_id", "student", "verified"),
     [("b1", "S-77031", True), ("b2", "S-78120", True), ("b3", "S-76455", False)],
 )
-def test_w3_sender_verification_matches_directory(base_id: str, student: str, verified: bool) -> None:
+def test_w3_sender_verification_matches_directory(
+    base_id: str, student: str, verified: bool
+) -> None:
     row = _base_rows("w3")[base_id]
     on_file = {g["email"] for g in STUDENTS[student]["guardians"]}
     if verified:
@@ -133,7 +146,9 @@ def test_w3_sender_verification_matches_directory(base_id: str, student: str, ve
         assert not any(email in text for email in on_file)
 
 
-@pytest.mark.parametrize(("base_id", "student"), [("b1", "S-77031"), ("b2", "S-78120"), ("b3", "S-76455")])
+@pytest.mark.parametrize(
+    ("base_id", "student"), [("b1", "S-77031"), ("b2", "S-78120"), ("b3", "S-76455")]
+)
 def test_w3_protected_terms_are_the_students_record(base_id: str, student: str) -> None:
     rendered = render_student_record(student)
     for term in _base_rows("w3")[base_id]["protected_terms"]:
