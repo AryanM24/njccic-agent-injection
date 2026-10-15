@@ -18,6 +18,7 @@ Scorers beyond W2's set, and their status:
 """
 
 from pathlib import Path
+from typing import Any
 
 from inspect_ai import Task, task
 from inspect_ai.model import ModelOutput
@@ -44,7 +45,13 @@ from .scorers import (
     scope_violation,
     suppression,
 )
-from .task import corpus_label, dataset_from_manifest, resolve_run_mode
+from .task import (
+    ReasoningEffort,
+    bind_model,
+    corpus_label,
+    dataset_from_manifest,
+    resolve_run_mode,
+)
 from .tools import Ledger
 from .tools.helpdesk import (
     STATE_CHANGING,
@@ -167,6 +174,8 @@ def eduinject_w1(
     benign_only: bool = False,
     controls: bool = False,
     model: str | None = None,
+    model_args: dict[str, Any] | None = None,
+    reasoning_effort: ReasoningEffort | None = None,
 ) -> Task:
     """Indirect prompt injection through a district IT help-desk workflow.
 
@@ -196,6 +205,11 @@ def eduinject_w1(
         model: Model to bind to the task. It is folded into `config_hash`,
             so two runs with the same hash ran the same model (doc 3 AS-2).
             None leaves the model to `eval()` and records it as unbound.
+        model_args: Provider args bound with the model, e.g. an OpenRouter
+            `provider` pin (required for `openrouter/` models, D9) or
+            `responses_api`. Recorded in metadata and `config_hash`.
+        reasoning_effort: Fixed reasoning effort for every stage, recorded in
+            `config_hash`. None leaves the provider default.
 
     Returns:
         The configured task.
@@ -230,7 +244,7 @@ def eduinject_w1(
         solver=solver,
         message_limit=message_limit,
         epochs=epochs,
-        model=model,
+        model=bind_model(model, model_args, reasoning_effort),
         scorer=scorers,
         metadata={
             "workflow": WORKFLOW,
@@ -239,6 +253,8 @@ def eduinject_w1(
             "benign_only": benign_only,
             "controls": controls,
             "model": model,
+            "model_args": model_args,
+            "reasoning_effort": reasoning_effort,
             "corpus": corpus_label(manifest),
             "tool_surface": TOOL_SURFACE,
             "prompts_version": PROMPTS_VERSION_W1,
@@ -253,6 +269,8 @@ def eduinject_w1(
                 corpus=corpus_label(manifest),
                 tool_surface=TOOL_SURFACE,
                 model=model,
+                model_args=model_args,
+                reasoning_effort=reasoning_effort,
             ),
         },
     )

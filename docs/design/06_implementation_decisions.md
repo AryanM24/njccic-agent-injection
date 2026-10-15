@@ -27,17 +27,43 @@ Rationale:
   a TypeScript stack creates a persistent language split against the Python
   analysis work.
 
-## 2. Model provider
+## 2. Model provider and models under test — decided 2026-10-14
 
 **OpenRouter**, for both frontier and open-weight models.
 
+**Models under test** (Phase 2 sweep, all three workflows, ten epochs):
+
+| Role | Model | Host pin |
+| --- | --- | --- |
+| Closed, cost-efficient | `openrouter/openai/gpt-6-luna` | `{"order": ["OpenAI"], "allow_fallbacks": false}` |
+| Open-weight reference | `openrouter/deepseek/deepseek-v4-flash-0731` | `{"order": ["DeepInfra"], "allow_fallbacks": false}` (fp8) |
+
+Rationale: GPT-6 Luna is the low-cost tier of the ChatGPT/Copilot family, the
+second most-used AI platform in K-12. DeepSeek V4 Flash `-0731` has published
+weights, a dated identifier and a published indirect-injection baseline, so it
+is reproducible and comparable with prior work; it also guards against a floor
+effect if Luna resists the corpus outright. The pilot model
+(`nemotron-3-ultra:free`) is retired: the free tier's rate limits made the
+repetition floor unreachable (implementation-map §5, F4).
+
+Not chosen: Gemini 2.5 (OpenRouter retires it 2026-10-20), Gemini 3.8 Flash
+(about 7x the cost), Claude Haiku 5.5 (near-zero injection success and the
+highest over-refusal in its system card — a floor effect on both arms), and a
+frontier slice (deferred on cost).
+
+Both run with a fixed `reasoning_effort` recorded in the config hash. Before
+the sweep, a one-epoch smoke test must confirm that Luna's tool calls succeed
+through OpenRouter with reasoning enabled; if they do not, Luna runs against
+OpenAI directly with `responses_api=true` instead, and this table is amended.
+
 ## 3. Open technical issues requiring decisions
 
-**OpenRouter provider routing.** Automatic routing can silently serve a different
-upstream provider for the same model slug. This undermines model pinning and
-therefore AS-2 (Doc 3 §8). Explicit provider-locking controls are needed, and the
-locked provider must be recorded in the configuration hash alongside the model
-identifier.
+**OpenRouter provider routing.** *Resolved in code (D9).* Automatic routing can
+silently serve a different upstream provider for the same model slug, which
+undermines model pinning and therefore AS-2 (Doc 3 §8). Each task now binds its
+model with its provider args, refuses an `openrouter/` model without a host pin
+and fallbacks off, and folds the pin into the configuration hash alongside the
+model identifier (`task.bind_model`, `run_sweep.py -M`).
 
 **Document extraction stack.** The PDF, Word, and Excel parsers are a hidden
 independent variable. Since the file-type variable is one of the study's central

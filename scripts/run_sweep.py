@@ -11,14 +11,17 @@ any number in the logs are recoverable without consulting this script.
 """
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
+from typing import Any, get_args
 
+from dotenv import find_dotenv, load_dotenv
 from inspect_ai import eval_set
 
 from eduinject.task import DEFAULT_MANIFEST as W2_MANIFEST
-from eduinject.task import eduinject_w2
+from eduinject.task import ReasoningEffort, eduinject_w2
 from eduinject.task_w1 import DEFAULT_MANIFEST as W1_MANIFEST
 from eduinject.task_w1 import eduinject_w1
 from eduinject.task_w3 import DEFAULT_MANIFEST as W3_MANIFEST
@@ -37,12 +40,41 @@ WORKFLOWS = {
 }
 
 
+def parse_model_arg(text: str) -> tuple[str, Any]:
+    """Parse one `-M key=value`; the value is JSON if it parses, else a string."""
+    key, sep, raw = text.partition("=")
+    if not sep or not key:
+        raise argparse.ArgumentTypeError(f"expected key=value, got {text!r}")
+    try:
+        return key, json.loads(raw)
+    except json.JSONDecodeError:
+        return key, raw
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--model",
         default=os.environ.get("INSPECT_EVAL_MODEL"),
         help="Model to evaluate (defaults to $INSPECT_EVAL_MODEL).",
+    )
+    parser.add_argument(
+        "-M",
+        "--model-arg",
+        dest="model_args",
+        action="append",
+        type=parse_model_arg,
+        default=[],
+        metavar="KEY=VALUE",
+        help="Provider arg bound with the model (repeatable; JSON values). "
+        "OpenRouter models must pin their host, e.g. "
+        '-M \'provider={"order":["DeepInfra"],"allow_fallbacks":false}\'.',
+    )
+    parser.add_argument(
+        "--reasoning-effort",
+        default=None,
+        choices=get_args(ReasoningEffort),
+        help="Fixed reasoning effort for every stage (recorded in config_hash).",
     )
     parser.add_argument(
         "--log-dir", default="logs/sweep", help="Directory for the eval set logs."
@@ -104,6 +136,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Inspect loads .env only when the eval starts; tasks bind their model
+    # (and need its API key) before that.
+    load_dotenv(find_dotenv(usecwd=True))
     args = parse_args(argv)
     if not args.model:
         print(
@@ -125,6 +160,8 @@ def main(argv: list[str] | None = None) -> int:
             benign_only=args.benign_only,
             controls=args.controls,
             model=args.model,
+            model_args=dict(args.model_args) or None,
+            reasoning_effort=args.reasoning_effort,
         )
         for scope in args.scopes
         for isolated in isolation
@@ -133,13 +170,15 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"sweeping {len(tasks)} cell(s) of {args.workflow} on {args.model} "
         f"(epochs={args.epochs}, benign_only={args.benign_only}, "
-        f"controls={args.controls})"
+        f"controls={args.controls}, model_args={dict(args.model_args)}, "
+        f"reasoning_effort={args.reasoning_effort})"
     )
     for task in tasks:
+        meta = task.metadata or {}
         print(
-            f"  scope={task.metadata['scope']:<10} "
-            f"isolated={task.metadata['isolated']!s:<5} "
-            f"config_hash={task.metadata['config_hash']}"
+            f"  scope={meta['scope']:<10} "
+            f"isolated={meta['isolated']!s:<5} "
+            f"config_hash={meta['config_hash']}"
         )
 
     success, logs = eval_set(
