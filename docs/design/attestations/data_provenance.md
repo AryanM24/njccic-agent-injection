@@ -51,9 +51,9 @@ stage of construction.
 
 ## 5. Re-affirmation (2026-10-11) — SIGNED
 
-**STATUS: DRAFT — SIGNED.** §1–§4 above were signed on 2026-08-27 and are left
-unchanged. This section extends the scope to the current tree and must be signed
-by a project member before it takes effect.
+**STATUS: SIGNED, 2026-10-11** (Rohan Bhamidipati). §1–§4 above were signed on
+2026-08-27 and are left unchanged. This section extends their scope to the
+current tree, and took effect when signed.
 
 ### 5.1 What changed since §1–§4
 

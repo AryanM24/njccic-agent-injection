@@ -94,11 +94,11 @@ These come from the documents themselves, not from the code.
    v1.0, 2026-10-11 (principal investigator and second reviewer). W1/W3 G1 and
    authorization figures are reportable as lower bounds. G5 signals stay
    recorded-only.
-6. **Data provenance attestation re-affirmation** — drafted as §5 of
-   `attestations/data_provenance.md` (2026-10-11), **awaiting a project member's
-   signature**. The original attestation (item 4) predates the corpus expansion
-   (three bases per workflow, controls, `_corpus_bases.py`, synthetic
-   directories); the re-affirmation extends its scope to the current tree.
+6. **Data provenance attestation re-affirmation** — **signed**, 2026-10-11
+   (Rohan Bhamidipati), as §5 of `attestations/data_provenance.md`. The original
+   attestation (item 4) predates the corpus expansion (three bases per workflow,
+   controls, `_corpus_bases.py`, synthetic directories); the re-affirmation
+   extends its scope to the current tree.
 7. **ATLAS identifier re-verification** (Doc 3 §2) against the live matrix.
 8. **Grounding-corpus URL archival** (Doc 2 §5.2) before the fidelity appendix.
 
