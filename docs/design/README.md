@@ -24,6 +24,7 @@ are kept out of the repository entirely — see `.gitignore` and
 | `06_implementation_decisions.md` | — | — | Settled and pending decisions not yet ratified into the numbered set. |
 | `07_thresholds_appendix.md` | — | v1.0 (signed, W2 G1 tiers only) | The W2 G1 sensitivity tiers and recipient entitlement. |
 | `08_w1_w3_g1_tiers_addendum.md` | — | v1.0 (signed 2026-10-11) | W1/W3 G1 tiers, the W1 authorization oracle, G5 signals and how controls are evaluated. |
+| `09_analysis_plan.md` | — | 0.1 (**draft, unsigned**) | How results are computed and reported: unit, denominators, intervals, the null rule, comparisons, human validation. Open decisions marked. |
 | `implementation-map.md` | — | — | Which document constraint is enforced by which code, and where they currently diverge. |
 
 The versions above are mirrored in `eduinject.config.DOC_VERSIONS` and folded

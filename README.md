@@ -212,6 +212,10 @@ handles each step:
    scores above.
 8. **The result is saved** as an Inspect log in `logs/` and viewed with
    `inspect view`.
+9. **The numbers are computed.** `scripts/analyze.py` (using
+   `src/eduinject/analysis.py`) reads all the logs and produces the tables:
+   how often each outcome happened, with a margin of error, how much the AI
+   varies on its own, and whether each defense made a real difference.
 
 ### Map of the folders
 
@@ -400,7 +404,8 @@ docs/design/     authoritative design documents, implementation map, attestation
 scripts/         make_fixtures_v2.py / _w1.py / _w3.py / _controls.py (corpus
                  generation; shared helpers in _fixtures_common.py and
                  _corpus_bases.py), validate_manifest.py, run_sweep.py
-                 (workflow x scope x isolation x epochs)
+                 (workflow x scope x isolation x epochs), analyze.py
+                 (post-run tables, comparisons, human-check sampling)
 src/eduinject/
   config.py      extraction pins, doc versions, config_hash
   extraction.py  bytes -> the text the intake agent sees, including invisible channels
@@ -411,6 +416,7 @@ src/eduinject/
   corpus/        placeholder marker and the gated-payload loader
   task.py        paired-run solver, bind_model(), and the W2 task
   task_w1.py, task_w3.py   the W1 and W3 tasks
+  analysis.py    post-run statistics over logs (draft plan: docs/design/09)
 tests/
 RUNNING.md       step-by-step guide to running the study
 ```
