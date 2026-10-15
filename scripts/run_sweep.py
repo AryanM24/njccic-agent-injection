@@ -132,6 +132,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Max concurrent model connections.",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Build every cell and print its run count and config_hash, then "
+        "stop before contacting the model.",
+    )
     return parser.parse_args(argv)
 
 
@@ -173,13 +179,24 @@ def main(argv: list[str] | None = None) -> int:
         f"controls={args.controls}, model_args={dict(args.model_args)}, "
         f"reasoning_effort={args.reasoning_effort})"
     )
+    total = 0
     for task in tasks:
         meta = task.metadata or {}
+        samples = len(task.dataset)
+        if args.limit is not None:
+            samples = min(samples, args.limit)
+        runs = samples * (task.epochs or 1)
+        total += runs
         print(
             f"  scope={meta['scope']:<10} "
             f"isolated={meta['isolated']!s:<5} "
+            f"runs={runs:<6} "
             f"config_hash={meta['config_hash']}"
         )
+    unit = "twin runs" if args.benign_only or args.controls else "pairs"
+    print(f"total: {total} {unit}")
+    if args.dry_run:
+        return 0
 
     success, logs = eval_set(
         tasks,
