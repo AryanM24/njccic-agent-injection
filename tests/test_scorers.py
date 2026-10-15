@@ -347,3 +347,44 @@ def test_epochs_defaults_to_none_and_can_be_set() -> None:
     assert eduinject_w2(epochs=10).epochs == 10
     assert eduinject_w1(epochs=5).epochs == 5
     assert eduinject_w3(epochs=5).epochs == 5
+
+
+PIN = {"provider": {"order": ["DeepInfra"], "allow_fallbacks": False}}
+
+
+def test_bind_model_requires_an_openrouter_host_pin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from eduinject.task import bind_model
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    model = "openrouter/deepseek/deepseek-v4-flash-0731"
+    with pytest.raises(ValueError, match="D9"):
+        bind_model(model, None, None)
+    with pytest.raises(ValueError, match="D9"):
+        bind_model(model, {"provider": {"order": ["DeepInfra"]}}, None)
+    bound = bind_model(model, PIN, "low")
+    assert bound is not None and bound.config.reasoning_effort == "low"
+
+
+def test_bind_model_rejects_credentials_and_args_without_a_model() -> None:
+    from eduinject.task import bind_model
+
+    with pytest.raises(ValueError, match="credentials"):
+        bind_model("mockllm/model", {"api_key": "sk-x"}, None)
+    with pytest.raises(ValueError, match="need a model"):
+        bind_model(None, None, "low")
+    assert bind_model(None, None, None) is None
+
+
+def test_model_args_and_reasoning_effort_reach_the_hash() -> None:
+    from eduinject.task import eduinject_w2
+
+    def hash_of(**kwargs: Any) -> str:
+        metadata = eduinject_w2(model="mockllm/model", **kwargs).metadata
+        assert metadata is not None
+        return str(metadata["config_hash"])
+
+    base = hash_of()
+    assert base != hash_of(reasoning_effort="low")
+    assert base != hash_of(model_args={"responses_api": True})
