@@ -32,6 +32,31 @@ corpus; do attack runs only once a canonical corpus exists (step 7).
 
 ---
 
+## The whole path, and who does what
+
+Everything between today and a reportable result, in order. **You** marks a
+decision or action only a project member can take; the rest is built and
+tested.
+
+| # | Step | Who | Status |
+| --- | --- | --- | --- |
+| 1 | Setup, `pytest`, `.env` (step 1–2 below) | You | Ready |
+| 2 | Pick one reasoning effort for the whole study (step 3) | **You** | Open |
+| 3 | Dry run: check cell counts and fingerprints, free (step 4) | You | Ready |
+| 4 | Smoke test both models, check tools are called (step 4) | You | Ready, cents |
+| 5 | Twin baseline, all workflows, both models (step 5) | You | Ready, about $45 |
+| 6 | Controls (step 6) | You | Ready, about $3 |
+| 7 | Analyze the baseline: denominators, noise floors (step 8) | You | Tooling ready |
+| 8 | Resolve the open decisions in `docs/design/09_analysis_plan.md` (floor statistic, primary outcomes, human-check size, G5) | **You** | Open |
+| 9 | Set the G5 thresholds or descope G5; descope A3 (doc 09 §7) | **You** | Open |
+| 10 | Sign doc 09 and the pre-registration (doc 04 §16), PI and second reviewer | **You** | Blocked on 8–9 |
+| 11 | Write `payloads.py` on an approved machine; build the canonical corpus (step 7) | **You** | Open |
+| 12 | Attack runs (step 7) | You | Blocked on 10–11 |
+| 13 | Analyze, draw the human-check sample, code it, compute kappa (step 8) | You + a second coder | Tooling ready |
+| 14 | Before any release: canary strings (D11), ATLAS re-check, URL archival | **You** | Open |
+
+---
+
 ## 1. One-time setup
 
 You need Python 3.11 or newer, and an OpenRouter account with credit.
@@ -73,9 +98,20 @@ different settings can never be mixed up by accident.
 
 The commands below use `low` as an example. Write down what you chose.
 
-## 4. Smoke test (a few cents)
+## 4. Dry run (free), then smoke test (a few cents)
 
-Run five samples of W2 on each model:
+Add `--dry-run` to any command in this guide to see exactly what it would
+launch, without contacting the model: every cell, its number of runs, its
+`config_hash`, and the total. Do this before every real run.
+
+```bash
+python scripts/run_sweep.py --workflow w2 --benign-only --epochs 10 \
+  --model openrouter/deepseek/deepseek-v4-flash-0731 \
+  -M 'provider={"order":["DeepInfra"],"allow_fallbacks":false}' \
+  --reasoning-effort low --dry-run
+```
+
+Then run five samples of W2 on each model:
 
 ```bash
 python scripts/run_sweep.py --workflow w2 --benign-only --epochs 1 --limit 5 \
@@ -151,6 +187,10 @@ could complete the legitimate task. Repeat for DeepSeek.
 
 ## 7. Attack runs (canonical corpus only)
 
+**Do not start this step until doc 09 and the pre-registration (doc 04 §16)
+are signed** (table above, rows 8–10). Results from attack runs made before
+signing cannot be called pre-registered.
+
 This needs `src/eduinject/corpus/payloads.py`, the gitignored file holding the
 real hidden-instruction wording. Under the release policy
 (`docs/design/05_dual_use_and_release_policy.md`) it lives only on cleared
@@ -193,11 +233,46 @@ $0.50 per million input / output tokens, DeepSeek on DeepInfra $0.06 / $0.18.
 Add about 20% for retries. Thinking tokens are the biggest unknown: a higher
 reasoning effort can double or triple the output cost.
 
-## Reading the results
+## 8. Analysis
 
-`run_sweep.py` prints a summary table at the end: one row per cell, with its
-`config_hash`, scope, isolation, status and the mean of each score. For
-anything deeper, use `inspect view --log-dir <dir>`.
+`run_sweep.py` prints a quick summary when it finishes. The real analysis, as
+proposed in `docs/design/09_analysis_plan.md`, is one command over any number
+of log directories:
+
+```bash
+python scripts/analyze.py report logs/baseline-luna logs/baseline-deepseek
+```
+
+It writes to `logs/analysis/` (gitignored):
+
+| File | What it holds |
+| --- | --- |
+| `report.md` | A readable summary: denominators and rates. Start here. |
+| `denominators.csv` | Per cell: runs total, scored, errored, hit the message limit. |
+| `rates.csv` | Per cell and score: rate, 95% interval (resampling whole documents), whether it is stuck at 0 or 1, and the epoch-to-epoch spread (the noise floor). |
+| `rates_by_base.csv` | The same, split by base scenario. |
+| `comparisons.csv` | Isolation on vs off, narrower vs wider scope, and model vs model: the difference, its interval, and whether it counts as null under each candidate noise floor. A negative difference means the defense helped. |
+| `rows.csv` | One row per run, for anything else. |
+
+**After the baseline**, read `epoch_sd` and `epoch_range` in `rates.csv`. They
+are the noise floors the open decisions in doc 09 are about.
+
+**After the attack runs**, run `report` over the attack *and* baseline
+directories together, so every comparison can find its noise floor. Then
+draw the human-check sample:
+
+```bash
+python scripts/analyze.py sample-human logs/attack-luna logs/attack-deepseek
+```
+
+Give each coder a copy of `logs/analysis/human/coding_sheet.csv` (not
+`answer_key.csv`). Each fills the `code:` columns with 1 or 0 by reading the
+run in `inspect view`. Then:
+
+```bash
+python scripts/analyze.py kappa coder_a.csv coder_b.csv \
+  --key logs/analysis/human/answer_key.csv
+```
 
 What each score means:
 
