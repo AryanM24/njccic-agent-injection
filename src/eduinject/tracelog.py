@@ -162,7 +162,9 @@ class TraceLogger:
 
     def __init__(self, log_dir: str, run_id: str | None = None):
         self.log_dir = Path(log_dir)
-        self.run_id = run_id or f"run_{_utcnow_iso().replace(':', '-')}_{uuid.uuid4().hex[:6]}"
+        self.run_id = (
+            run_id or f"run_{_utcnow_iso().replace(':', '-')}_{uuid.uuid4().hex[:6]}"
+        )
         self._conditions_writer = _JsonlWriter(self.log_dir / "conditions.jsonl")
         self._events_writer = _JsonlWriter(self.log_dir / "events.jsonl")
         self._event_counter = 0
@@ -232,8 +234,14 @@ class Trace:
     repetition_index: int
     corpus_file_id: str | None = None
 
-    def _envelope(self, agent_id: str, agent_hop_index: int, event_type: EventType,
-                  parent_event_id: str | None, corpus_file_id: str | None) -> dict:
+    def _envelope(
+        self,
+        agent_id: str,
+        agent_hop_index: int,
+        event_type: EventType,
+        parent_event_id: str | None,
+        corpus_file_id: str | None,
+    ) -> dict:
         return {
             "trace_id": self.trace_id,
             "repetition_index": self.repetition_index,
@@ -242,20 +250,39 @@ class Trace:
             "agent_hop_index": agent_hop_index,
             "event_type": event_type,
             "parent_event_id": parent_event_id,
-            "corpus_file_id": corpus_file_id if corpus_file_id is not None else self.corpus_file_id,
+            "corpus_file_id": corpus_file_id
+            if corpus_file_id is not None
+            else self.corpus_file_id,
         }
 
-    def log_prompt(self, agent_id: str, agent_hop_index: int, role: str,
-                    content: str, input_tokens: int,
-                    parent_event_id: str | None = None) -> str:
-        envelope = self._envelope(agent_id, agent_hop_index, "prompt", parent_event_id, None)
+    def log_prompt(
+        self,
+        agent_id: str,
+        agent_hop_index: int,
+        role: str,
+        content: str,
+        input_tokens: int,
+        parent_event_id: str | None = None,
+    ) -> str:
+        envelope = self._envelope(
+            agent_id, agent_hop_index, "prompt", parent_event_id, None
+        )
         payload = {"role": role, "content": content, "input_tokens": input_tokens}
         return self.logger._write_event(envelope, payload)
 
-    def log_completion(self, agent_id: str, agent_hop_index: int, content: str,
-                        output_tokens: int, latency_ms: int, stop_reason: str,
-                        parent_event_id: str | None = None) -> str:
-        envelope = self._envelope(agent_id, agent_hop_index, "completion", parent_event_id, None)
+    def log_completion(
+        self,
+        agent_id: str,
+        agent_hop_index: int,
+        content: str,
+        output_tokens: int,
+        latency_ms: int,
+        stop_reason: str,
+        parent_event_id: str | None = None,
+    ) -> str:
+        envelope = self._envelope(
+            agent_id, agent_hop_index, "completion", parent_event_id, None
+        )
         payload = {
             "content": content,
             "output_tokens": output_tokens,
@@ -264,11 +291,21 @@ class Trace:
         }
         return self.logger._write_event(envelope, payload)
 
-    def log_tool_call(self, agent_id: str, agent_hop_index: int, tool_name: str,
-                       tool_args: dict, requested_scope: str, granted_scope: str,
-                       is_destructive: bool, action_taken: ActionTaken,
-                       parent_event_id: str | None = None) -> str:
-        envelope = self._envelope(agent_id, agent_hop_index, "tool_call", parent_event_id, None)
+    def log_tool_call(
+        self,
+        agent_id: str,
+        agent_hop_index: int,
+        tool_name: str,
+        tool_args: dict,
+        requested_scope: str,
+        granted_scope: str,
+        is_destructive: bool,
+        action_taken: ActionTaken,
+        parent_event_id: str | None = None,
+    ) -> str:
+        envelope = self._envelope(
+            agent_id, agent_hop_index, "tool_call", parent_event_id, None
+        )
         payload = {
             "tool_name": tool_name,
             "tool_args": tool_args,
@@ -279,10 +316,18 @@ class Trace:
         }
         return self.logger._write_event(envelope, payload)
 
-    def log_tool_result(self, agent_id: str, agent_hop_index: int, tool_name: str,
-                         result_status: ResultStatus, result_content: str,
-                         parent_event_id: str) -> str:
-        envelope = self._envelope(agent_id, agent_hop_index, "tool_result", parent_event_id, None)
+    def log_tool_result(
+        self,
+        agent_id: str,
+        agent_hop_index: int,
+        tool_name: str,
+        result_status: ResultStatus,
+        result_content: str,
+        parent_event_id: str,
+    ) -> str:
+        envelope = self._envelope(
+            agent_id, agent_hop_index, "tool_result", parent_event_id, None
+        )
         payload = {
             "tool_name": tool_name,
             "result_status": result_status,
@@ -290,12 +335,19 @@ class Trace:
         }
         return self.logger._write_event(envelope, payload)
 
-    def log_inter_agent_message(self, from_agent: str, to_agent: str, content: str,
-                                 carried_injection: bool, injection_verbatim: bool,
-                                 agent_hop_index: int = 0,
-                                 parent_event_id: str | None = None) -> str:
-        envelope = self._envelope(from_agent, agent_hop_index, "inter_agent_message",
-                                   parent_event_id, None)
+    def log_inter_agent_message(
+        self,
+        from_agent: str,
+        to_agent: str,
+        content: str,
+        carried_injection: bool,
+        injection_verbatim: bool,
+        agent_hop_index: int = 0,
+        parent_event_id: str | None = None,
+    ) -> str:
+        envelope = self._envelope(
+            from_agent, agent_hop_index, "inter_agent_message", parent_event_id, None
+        )
         payload = {
             "from_agent": from_agent,
             "to_agent": to_agent,
@@ -305,9 +357,15 @@ class Trace:
         }
         return self.logger._write_event(envelope, payload)
 
-    def log_judge_score(self, judge_model_id: str, attack_success: bool,
-                         attack_goal_achieved: str, confidence: float,
-                         rationale: str, rubric_version: str) -> str:
+    def log_judge_score(
+        self,
+        judge_model_id: str,
+        attack_success: bool,
+        attack_goal_achieved: str,
+        confidence: float,
+        rationale: str,
+        rubric_version: str,
+    ) -> str:
         envelope = self._envelope("judge", -1, "judge_score", None, None)
         payload = {
             "judge_model_id": judge_model_id,
@@ -320,9 +378,15 @@ class Trace:
         }
         return self.logger._write_event(envelope, payload)
 
-    def log_attack_metadata(self, injected_payload_id: str, attack_vector: str,
-                             attacker_goal: str, delivery_technique: str,
-                             is_benign_twin: bool, is_benign_but_weird: bool) -> str:
+    def log_attack_metadata(
+        self,
+        injected_payload_id: str,
+        attack_vector: str,
+        attacker_goal: str,
+        delivery_technique: str,
+        is_benign_twin: bool,
+        is_benign_but_weird: bool,
+    ) -> str:
         envelope = self._envelope("system", 0, "attack_metadata", None, None)
         payload = {
             "injected_payload_id": injected_payload_id,
@@ -334,8 +398,13 @@ class Trace:
         }
         return self.logger._write_event(envelope, payload)
 
-    def log_correction(self, corrects_event_id: str, reason: str, corrected_payload: dict) -> str:
+    def log_correction(
+        self, corrects_event_id: str, reason: str, corrected_payload: dict
+    ) -> str:
         envelope = self._envelope("system", -1, "correction", corrects_event_id, None)
-        payload = {"corrects_event_id": corrects_event_id, "reason": reason,
-                    "corrected_payload": corrected_payload}
+        payload = {
+            "corrects_event_id": corrects_event_id,
+            "reason": reason,
+            "corrected_payload": corrected_payload,
+        }
         return self.logger._write_event(envelope, payload)

@@ -41,7 +41,9 @@ def load_gated_payloads() -> dict[str, dict[str, str]] | None:
 
     table = getattr(payloads, "PAYLOADS", None)
     if not isinstance(table, dict):
-        raise ValueError("eduinject.corpus.payloads must define a PAYLOADS dict")
+        raise ValueError(  # noqa: TRY004 -- documented contract: malformed gated file -> ValueError
+            "eduinject.corpus.payloads must define a PAYLOADS dict"
+        )
     for workflow in ("w1", "w2", "w3"):
         entries = table.get(workflow)
         if not isinstance(entries, dict) or set(entries) != set(GOALS):

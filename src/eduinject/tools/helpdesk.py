@@ -280,9 +280,7 @@ def tool_names_for_scope(scope: str) -> tuple[str, ...]:
         ValueError: If `scope` is not a known scope.
     """
     if scope not in SCOPES:
-        raise ValueError(
-            f"unknown scope '{scope}' (expected one of {sorted(SCOPES)})"
-        )
+        raise ValueError(f"unknown scope '{scope}' (expected one of {sorted(SCOPES)})")
     return tuple(factory.__name__ for factory in SCOPES[scope])
 
 
@@ -300,7 +298,5 @@ def tools_for_scope(scope: str, instance: str | None = None) -> list[Tool]:
         ValueError: If `scope` is not a known scope.
     """
     if scope not in SCOPES:
-        raise ValueError(
-            f"unknown scope '{scope}' (expected one of {sorted(SCOPES)})"
-        )
+        raise ValueError(f"unknown scope '{scope}' (expected one of {sorted(SCOPES)})")
     return [factory(instance=instance) for factory in SCOPES[scope]]

@@ -29,7 +29,8 @@ def captured_inputs(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     async def recorder(agent: Any, messages: Any, *args: Any, **kwargs: Any) -> Any:
         inputs.append("\n".join(message.text for message in messages))
         return SimpleNamespace(
-            output=SimpleNamespace(completion="stage output, no marker here"), messages=[]
+            output=SimpleNamespace(completion="stage output, no marker here"),
+            messages=[],
         )
 
     monkeypatch.setattr(pipeline, "run", recorder)
@@ -38,7 +39,9 @@ def captured_inputs(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 @pytest.mark.parametrize("workflow", sorted(WORKFLOWS))
 @pytest.mark.parametrize("isolated", [True, False])
-async def test_isolation_per_workflow(workflow: str, isolated: bool, captured_inputs: list[str]) -> None:
+async def test_isolation_per_workflow(
+    workflow: str, isolated: bool, captured_inputs: list[str]
+) -> None:
     prompts, tools = WORKFLOWS[workflow]
     await pipeline.run_pipeline(
         DOCUMENT,

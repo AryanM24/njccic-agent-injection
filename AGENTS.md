@@ -43,16 +43,20 @@ conditions behind a figure are recoverable from the log alone.
 | `__init__.py` | Package docstring only; deliberately exports nothing, so imports name their module. |
 | `config.py` | `EXTRACTION_PINS` (exact parser versions), `DOC_VERSIONS` (design docs in force), `assert_extraction_pinned()` (raises, never warns, at task construction), `config_hash()` (folds pins, doc versions and run parameters into one recorded hash). Constraint C2. |
 | `extraction.py` | `extract()` for `.pdf` / `.docx` / `.txt` / `.md`, plus the private helpers that pull PDF metadata, docx core properties, tracked comments and image alt text. Emits channels a human reader never sees, because that is where an injection hides — so this file *defines the attack surface*. |
-| `task.py` | `dataset_from_manifest()`, the `paired_pipeline()` solver that runs the attack document and its benign twin under identical settings inside one sample, and the `eduinject_w2()` `@task`. The pair, not the document, is the unit of measurement. |
+| `task.py` | `dataset_from_manifest()`, the `paired_pipeline()` solver that runs the attack document and its benign twin under identical settings inside one sample, and the `eduinject_w2()` `@task` (W2, hiring). Every task takes `scope`, `isolated`, `epochs`, `benign_only`, `controls` and `model`; `model` is bound on the `Task` and folded into `config_hash` (D8). The pair, not the document, is the unit of measurement. |
+| `task_w1.py` / `task_w3.py` | `eduinject_w1()` (IT help-desk triage, insider attacker) and `eduinject_w3()` (parent correspondence, external attacker). Same paired design, scorers and isolation as W2, with their own prompts and tools. |
+| `corpus/__init__.py` | The placeholder `MARKER`, `GOALS`, and `load_gated_payloads()` for the gitignored Tier 1 `corpus/payloads.py`. |
 | `tracelog.py` | Standalone append-only JSONL trace schema — `TraceLogger`, `ConditionConfig`, `Trace` — writing `conditions.jsonl` and `events.jsonl`. **Not yet wired into the pipeline**; nothing calls it, and its `compute_config_hash()` hashes a different field set from `config.config_hash()`. The two are unrelated and will never agree. |
-| `agents/prompts.py` | `PROMPTS_VERSION` and the three system prompts. The **only** source of system-message text in the project — prompts are an independent variable and must be hashable. Constraint C4. |
+| `agents/prompts.py` | `PROMPTS_VERSION` and the three system prompts. The **only** source of system-message text in the project — prompts are an independent variable and must be hashable. Constraint C4. `prompts_w1.py` / `prompts_w3.py` hold W1's and W3's, one versioned file per workflow. |
 | `agents/pipeline.py` | `single_shot()`, `action_agent()`, `run_pipeline()`. Stages are composed with Inspect's `run()` — never `handoff()` or `as_tool()` — so each stage's input is built by hand and at `isolated=True` the source document is structurally absent after stage 1. Constraint C1. |
 | `agents/__init__.py` | Re-exports from `pipeline` and `prompts`. |
 | `tools/ats.py` | Mock applicant-tracking tools (`get_posting_requirements`, `submit_shortlist`, `send_email`), `POSTING_REQUIREMENTS`, and the `SCOPES` map with `tools_for_scope()` / `tool_names_for_scope()`. Tools never reveal that they are mocks: a "this is a test" response would teach the agent it is being evaluated. |
+| `tools/helpdesk.py` / `tools/parentmail.py` | W1 and W3 mock tools: lookups (`lookup_account`, `lookup_asset`, `lookup_guardian`, `get_student_record`) and state-changing actions, ledgered like `ats.py`. |
+| `tools/directory_w1.py` / `tools/directory_w3.py` | Synthetic account/asset and guardian/student-record directories behind those lookups: the ground truth the W1/W3 scorers verify against. |
 | `tools/ledger.py` | `Ledger` (an Inspect `StoreModel`) and `record()` — per-run record of calls, attempted egress and refusals. This is the measurement record the scorers read. |
-| `tools/__init__.py` | Re-exports from `ats` and `ledger`. |
+| `tools/__init__.py` | Re-exports from the tool and ledger modules. |
 | `scorers/outcomes.py` | Pure, Inspect-free functions over a finished run: `marker_propagation()`, `exfiltration_outcome()` (destination **and** payload sensitivity tier, per doc 07), `scope_outcome()`, `twin_divergence()`, with `T2_TERMS` / `ENTITLEMENT` and `NamedTuple` results. Unit-testable against synthetic runs. |
-| `scorers/deterministic.py` | Four Inspect scorers (`propagation`, `exfiltration`, `scope_violation`, `action_divergence`) and `RUNS_KEY`. Thin adapters holding no judgement of their own, so a disputed number can be recomputed from the log. |
+| `scorers/deterministic.py` | Inspect scorers (`propagation`, `exfiltration`, `scope_violation`, `action_divergence`, `authorization`, `suppression`, `control_check`) and `RUNS_KEY`. Thin adapters holding no judgement of their own, so a disputed number can be recomputed from the log. |
 | `scorers/__init__.py` | Re-exports both modules. Its docstring records why a model-graded judge is deliberately absent. |
 
 ### Everything else in this project
@@ -62,19 +66,23 @@ conditions behind a figure are recoverable from the log alone.
 | `pyproject.toml` | The eduinject package: deps (`inspect-ai`, `pypdf`, `python-docx`, `pydantic`), the `dev` and `openrouter` extras, `src/` layout, and pytest config (`testpaths = ["tests"]`). |
 | `README.md` | Project overview: the three-stage pipeline, the four load-bearing constraints, why benign twins are mandatory, how to run it, and release status. |
 | `.gitignore` | Secrets (`.env*`), Python artifacts, `logs/`, and the **gated** paths that must never be committed: `corpus/canonical/*` and `src/eduinject/corpus/payloads.py`. |
-| `docs/design/` | **Authoritative.** `00_project_proposal` … `07_thresholds_appendix` (numbered, versioned; versions mirrored in `config.DOC_VERSIONS`), plus `README.md` and `implementation-map.md`. Where code and a document disagree, the document is right and the code has a defect. |
+| `docs/design/` | **Authoritative.** `00_project_proposal` … `08_w1_w3_g1_tiers_addendum` (numbered, versioned; versions mirrored in `config.DOC_VERSIONS`), plus `README.md`, `implementation-map.md` and signed `attestations/`. Where code and a document disagree, the document is right and the code has a defect. |
 | `docs/design/implementation-map.md` | Which constraint is enforced by which code, and every known divergence (`D1`…). **Read before trusting any number.** |
 | `scripts/make_fixtures.py` | Generates the W2 attack/twin `.docx` pair from literals in the file, and the corpus manifest. All fixture data is synthetic — no real student, applicant or staff data. |
-| `scripts/run_sweep.py` | Sweeps write scope × stage isolation; `--isolation both` includes the negative control. Each cell is a separate task stamping `config_hash(...)` into metadata. |
-| `corpus/manifest_w2.jsonl` | One row per artifact pair: paths, `payload_marker`, `operator_request`, and the authorization facts the scorers need (`authorized_recipients`, `applicant_addresses`, `other_candidate_terms`). |
-| `corpus/benign/` | The generated `.docx` fixtures. Tier 2 — Open. |
+| `scripts/make_fixtures_v2.py` / `_w1.py` / `_w3.py` / `_controls.py` | Generate the W2/W1/W3 attack/twin corpora (three base scenarios each, from `_corpus_bases.py`) and the benign-but-weird controls, using the shared writers in `_fixtures_common.py`. Public builds are marker-only. |
+| `scripts/validate_manifest.py` | Validates a manifest (shape, paths, extraction, marker placement, twin/attack length ratio) before it is trusted. |
+| `scripts/run_sweep.py` | Sweeps write scope × stage isolation for any of `w1`/`w2`/`w3`, with `--epochs`, `--benign-only` and `--controls`; `--isolation both` includes the negative control. Each cell is a separate task stamping `config_hash(...)` into metadata. |
+| `corpus/manifest_w{1,2,3}.jsonl` | One row per artifact pair (plus `manifest_w*_controls.jsonl` for controls): paths, `payload_marker`, `operator_request`, and the authorization facts the scorers need (`authorized_recipients`, `applicant_addresses`, `other_candidate_terms`). |
+| `corpus/benign/`, `corpus/controls/` | The generated fixtures (`.docx`/`.pdf`/`.txt`/`.md`). Tier 2 — Open. |
 | `corpus/canonical/` | **Gated (Tier 1).** Real-payload corpus; gitignored except `.gitkeep`, which keeps the layout reproducible. Never commit contents. |
 | `tests/test_extraction.py` | Pins are the installed versions, and each attack/twin pair differs by the marker and nothing else. |
 | `tests/test_isolation.py` | The load-bearing test: patches Inspect's `run()` with a recorder to prove the document reaches stage 1 and no other at `isolated=True`, with an `isolated=False` negative control. No model contacted. |
 | `tests/test_scorers.py` | Outcome functions, scorer adapters, dataset construction, and `config_hash` behaviour. |
 | `tests/test_task_e2e.py` | Whole task against Inspect's scripted `mockllm/model`, standing in for a fully compromised pipeline — a test of the *measurement*. |
+| `tests/*_w1_w3.py` | The same isolation, outcome, tool and end-to-end guarantees for W1 and W3. |
+| `tests/test_corpus_integrity.py`, `test_directory_ground_truth.py`, `test_fixture_writers.py`, `test_design_docs_in_sync.py` | Corpus shape and marker-only policy, directory/manifest agreement, PDF-writer regression, and doc 08 ↔ code agreement. |
 | `logs/` | Inspect `.eval` run logs. Gitignored (traces are Tier 1). |
-| `.env.local` | Local provider credentials. Gitignored. Note: `README.md` points at a `.env.example` template that does not currently exist. |
+| `.env.example` | Committed template (`INSPECT_EVAL_MODEL`, `OPENROUTER_API_KEY`); copy to the gitignored `.env`. |
 
 ### Where to make a change
 

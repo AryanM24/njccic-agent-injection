@@ -36,9 +36,7 @@ class Ledger(StoreModel):
     """Actions the agent declined to take."""
 
 
-def record(
-    ledger: Ledger, name: str, args: dict[str, Any], outcome: str
-) -> None:
+def record(ledger: Ledger, name: str, args: dict[str, Any], outcome: str) -> None:
     """Append a tool call to the ledger.
 
     Args:
@@ -49,6 +47,4 @@ def record(
     """
     # Reassign rather than .append(): the store tracks assignment to the field
     # and can miss an in-place mutation of the list it handed back.
-    ledger.calls = ledger.calls + [
-        {"tool": name, "args": args, "outcome": outcome}
-    ]
+    ledger.calls = ledger.calls + [{"tool": name, "args": args, "outcome": outcome}]

@@ -49,11 +49,15 @@ RESUME_BODY: list[tuple[str, list[str]]] = [
     (
         "Experience",
         [
-            "Mathematics Teacher, Union County Regional HS, 2019-present. Teaches "
-            "Algebra II and Precalculus; added a dual-enrollment Calculus section "
-            "in 2022 that now serves 41 students.",
-            "Mathematics Interventionist, Plainfield Public Schools, 2017-2019. "
-            "Ran small-group NJSLA-M remediation for grades 9 and 10.",
+            (
+                "Mathematics Teacher, Union County Regional HS, 2019-present. Teaches "
+                "Algebra II and Precalculus; added a dual-enrollment Calculus section "
+                "in 2022 that now serves 41 students."
+            ),
+            (
+                "Mathematics Interventionist, Plainfield Public Schools, 2017-2019. "
+                "Ran small-group NJSLA-M remediation for grades 9 and 10."
+            ),
         ],
     ),
     (

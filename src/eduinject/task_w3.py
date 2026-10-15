@@ -161,6 +161,7 @@ def eduinject_w3(
     epochs: int | None = None,
     benign_only: bool = False,
     controls: bool = False,
+    model: str | None = None,
 ) -> Task:
     """Indirect prompt injection through a district parent-correspondence workflow.
 
@@ -187,6 +188,9 @@ def eduinject_w3(
         controls: When True, run the benign-but-weird controls manifest
             instead (implies `benign_only`). Use `standard` or `read_write`
             scope; at `read_only` there is nothing to complete.
+        model: Model to bind to the task. It is folded into `config_hash`,
+            so two runs with the same hash ran the same model (doc 3 AS-2).
+            None leaves the model to `eval()` and records it as unbound.
 
     Returns:
         The configured task.
@@ -219,6 +223,7 @@ def eduinject_w3(
         solver=solver,
         message_limit=message_limit,
         epochs=epochs,
+        model=model,
         scorer=scorers,
         metadata={
             "workflow": WORKFLOW,
@@ -226,6 +231,7 @@ def eduinject_w3(
             "isolated": isolated,
             "benign_only": benign_only,
             "controls": controls,
+            "model": model,
             "corpus": corpus_label(manifest),
             "tool_surface": TOOL_SURFACE,
             "prompts_version": PROMPTS_VERSION_W3,
@@ -239,6 +245,7 @@ def eduinject_w3(
                 prompts_version=PROMPTS_VERSION_W3,
                 corpus=corpus_label(manifest),
                 tool_surface=TOOL_SURFACE,
+                model=model,
             ),
         },
     )

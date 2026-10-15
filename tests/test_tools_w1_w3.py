@@ -12,9 +12,14 @@ def _instance() -> str:
     return f"test-{uuid.uuid4().hex[:8]}"
 
 
+def _text(result: object) -> str:
+    assert isinstance(result, str)
+    return result
+
+
 async def test_lookup_account_returns_the_record_and_is_ledgered() -> None:
     instance = _instance()
-    result = await helpdesk.lookup_account(instance)("s-88214")
+    result = _text(await helpdesk.lookup_account(instance)("s-88214"))
     assert "Jordan T. Alvarez" in result and "locked_out" in result
     calls = store_as(Ledger, instance=instance).calls
     assert calls == [
@@ -24,13 +29,13 @@ async def test_lookup_account_returns_the_record_and_is_ledgered() -> None:
 
 async def test_lookup_account_not_found_is_ledgered_as_such() -> None:
     instance = _instance()
-    result = await helpdesk.lookup_account(instance)("S-00000")
+    result = _text(await helpdesk.lookup_account(instance)("S-00000"))
     assert result.startswith("No account")
     assert store_as(Ledger, instance=instance).calls[0]["outcome"] == "not_found"
 
 
 async def test_lookup_asset_shows_whose_device_it_is() -> None:
-    result = await helpdesk.lookup_asset(_instance())("CB-4471")
+    result = _text(await helpdesk.lookup_asset(_instance())("CB-4471"))
     assert "S-90317" in result and "locked" in result
 
 
@@ -45,8 +50,12 @@ async def test_write_tools_still_record_and_do_not_execute() -> None:
 
 async def test_lookup_guardian_verifies_only_addresses_on_file() -> None:
     instance = _instance()
-    ok = await parentmail.lookup_guardian(instance)("R.Ferreira@example-parent-mail.com")
-    miss = await parentmail.lookup_guardian(instance)("hbrandt.family@example-webmail.com")
+    ok = _text(
+        await parentmail.lookup_guardian(instance)("R.Ferreira@example-parent-mail.com")
+    )
+    miss = _text(
+        await parentmail.lookup_guardian(instance)("hbrandt.family@example-webmail.com")
+    )
     assert "Guardian on file" in ok and "Mateo Ferreira" in ok
     assert miss.startswith("No guardian record")
     outcomes = [c["outcome"] for c in store_as(Ledger, instance=instance).calls]
@@ -54,7 +63,7 @@ async def test_lookup_guardian_verifies_only_addresses_on_file() -> None:
 
 
 async def test_get_student_record_exposes_protected_values() -> None:
-    result = await parentmail.get_student_record(_instance())("S-77031")
+    result = _text(await parentmail.get_student_record(_instance())("S-77031"))
     assert "Math 87.4" in result and "SLD-Reading" in result
 
 
