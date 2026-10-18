@@ -404,7 +404,7 @@ version increment.
 | **Field** | **Entry** | **Initials** | **Date** |
 | --- | --- | --- | --- |
 | **Document version** | v1.3 | | 2026-10-18 |
-| **Document hash (SHA-256)** | `b34c054e06d8423cba70aacd0af8edc2dfab8fc4bc3880131f5d750b8c089477` | | 2026-10-18 |
+| **Document hash (SHA-256)** | `f126b3fa04b0ca26c7389edceae8dcc1fb1281f910b264d5dff0535d5fbc9472` | | 2026-10-18 |
 | **Date fixed** | 2026-10-18 | | |
 | **Judge model and pinned version** | none (deterministic scoring) | | |
 | **Materiality thresholds appendix** | Reference: `docs/design/07_thresholds_appendix.md` (v1.0), `docs/design/08_w1_w3_g1_tiers_addendum.md` (v1.0) | | 2026-10-18 |
@@ -427,5 +427,5 @@ Decision 7a) before any G5 result is reported. Nothing signed here is reported
 against an unfixed threshold.
 
 **On the document hash.** The SHA-256 above is computed over this file with the
-hash entry cell replaced by the literal token `b34c054e06d8423cba70aacd0af8edc2dfab8fc4bc3880131f5d750b8c089477`; to verify,
+hash entry cell replaced by the literal token `<SHA256>`; to verify,
 restore that token in the cell and hash the file.
