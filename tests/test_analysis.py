@@ -158,4 +158,46 @@ def test_report_over_real_mock_logs(tmp_path: Path) -> None:
     assert {r["a"] for r in isolation} == {"isolated=True"}
     baseline = [r for r in isolation if r["benign_only"] == "True"]
     assert baseline and baseline[0]["null_if_floor_range"] in {"True", "False"}
-    assert "Denominators" in (out / "report.md").read_text()
+    report = (out / "report.md").read_text()
+    assert "Denominators" in report
+    assert "Every scored run made at least one tool call." in report
+
+
+def test_tool_use_check_flags_runs_that_never_called_a_tool() -> None:
+    from eduinject.analysis import tool_use_check
+
+    rows = [
+        {"status": "scored", "tool_calls:twin": 3},
+        {"status": "scored", "tool_calls:twin": 0},
+        {"status": "scored", "tool_calls:attack": 0, "tool_calls:twin": 2},  # one run used tools
+        {"status": "scored", "tool_calls:attack": 0, "tool_calls:twin": 0},
+        {"status": "error"},
+        {"status": "scored"},  # log predates the field: not counted either way
+    ]
+    assert tool_use_check(rows) == {"scored_with_ledger": 4, "no_tool_calls": 2}
+
+
+def test_analysis_rows_record_tool_use_from_real_mock_logs(tmp_path: Path) -> None:
+    from eduinject.analysis import rows_from_log, tool_use_check
+
+    log = eval(
+        eduinject_w1(isolated=True, benign_only=True),
+        model=get_model("mockllm/model", custom_outputs=w1_benign),
+        log_dir=str(tmp_path / "logs"),
+        display="none",
+        limit=1,
+    )[0]
+    rows = rows_from_log(log)
+    assert rows and all(row["tool_calls:twin"] >= 1 for row in rows)
+    assert tool_use_check(rows)["no_tool_calls"] == 0
+
+
+def test_report_warns_when_a_cell_made_no_tool_calls() -> None:
+    from analyze import report_md
+
+    from eduinject.analysis import CELL_FIELDS
+
+    row = {**{field: "x" for field in CELL_FIELDS}, "status": "scored", "tool_calls:twin": 0}
+    text = report_md([row], 0, [])
+    assert "**WARNING** 1 of 1 scored runs" in text
+    assert "untested, not safe" in text

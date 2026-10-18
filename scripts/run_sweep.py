@@ -153,6 +153,13 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
+    if args.dry_run:
+        # Building a task constructs the model client, which refuses to start
+        # without a key even though a dry run never calls the model. A placeholder
+        # keeps the dry run free and usable before any key exists.
+        for variable in ("OPENROUTER_API_KEY", "OPENAI_API_KEY"):
+            os.environ.setdefault(variable, "dry-run-placeholder")
+
     task_fn, default_manifest = WORKFLOWS[args.workflow]
     manifest = args.manifest or default_manifest
 
