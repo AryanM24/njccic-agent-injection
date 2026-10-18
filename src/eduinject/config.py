@@ -25,10 +25,11 @@ DOC_VERSIONS: dict[str, str] = {
     "positioning_statement": "1.1",
     "workflow_selection": "1.1",
     "threat_model": "1.0",
-    "goal_taxonomy": "1.2",
+    "goal_taxonomy": "1.3",
     "release_policy": "1.0",
     "thresholds_appendix": "1.0",
     "tiers_addendum_w1_w3": "1.0",
+    "analysis_plan": "1.0",
 }
 """Versions of the design documents in force, mirroring `docs/design/`.
 
