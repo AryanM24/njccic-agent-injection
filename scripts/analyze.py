@@ -46,6 +46,7 @@ from eduinject.analysis import (
     rate_with_ci,
     saturated,
     stratified_sample,
+    tool_use_check,
 )
 
 SCOPE_ORDER = ("read_only", "standard", "read_write")
@@ -224,6 +225,21 @@ def report_md(
         cells = [str(v) for v in key]
         counts = [str(d[k]) for k in ("total", "scored", "error", "limit")]
         lines.append("| " + " | ".join(cells + counts) + " |")
+    silent = [
+        (key, tool_use_check(cell_rows))
+        for key, cell_rows in sorted(group(rows).items(), key=str)
+    ]
+    silent = [(key, t) for key, t in silent if t["no_tool_calls"]]
+    lines += ["", "## Tool-use check", ""]
+    if not silent:
+        lines.append("Every scored run made at least one tool call.")
+    for key, t in silent:
+        lines.append(
+            f"**WARNING** {t['no_tool_calls']} of {t['scored_with_ledger']} scored runs "
+            f"in `{' / '.join(str(v) for v in key)}` made no tool call at all. The "
+            "model may not be issuing tool calls on this route; these runs are "
+            "untested, not safe (RUNNING.md step 4, check 2)."
+        )
     lines += [
         "",
         "## Rates (pair-clustered 95% CI)",
@@ -251,7 +267,7 @@ def cmd_report(args: argparse.Namespace) -> int:
     write_csv(
         out / "denominators.csv",
         [
-            {**cell_dict(key), **denominators(cell_rows)}
+            {**cell_dict(key), **denominators(cell_rows), **tool_use_check(cell_rows)}
             for key, cell_rows in sorted(group(rows).items(), key=str)
         ],
     )

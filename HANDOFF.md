@@ -95,8 +95,9 @@ From `docs/design/implementation-map.md` §2. Read it before quoting any number.
 - **Six earlier commits are authored as `bandit31 <bandit@overthewire.org>`**
   (HEAD of 2026-10-11 and five from 2026-08-19). Fixing that means rewriting
   pushed history; left as is.
-- **`tracelog.py` is unused** and hashes a different field set from
-  `config_hash()`. Either wire it in or delete it.
+- **`tracelog.py` was removed** (2026-10-17): it was unused and hashed a
+  different field set from `config_hash()`. Inspect's eval logs are the trace
+  record; `config_hash()` is the only fingerprint.
 - **The repository also holds a vendored copy of upstream Inspect AI**
   (`src/inspect_ai/`, `design/`, and others). It is reference only; edits
   there have no effect.

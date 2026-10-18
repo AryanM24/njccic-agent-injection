@@ -15,6 +15,8 @@ from collections.abc import Callable, Iterable, Sequence
 from statistics import mean, pstdev
 from typing import Any, NamedTuple
 
+from eduinject.scorers import RUNS_KEY
+
 CELL_FIELDS: tuple[str, ...] = (
     "model",
     "host",
@@ -136,6 +138,14 @@ def rows_from_log(log: Any) -> list[dict[str, Any]]:
             "status": status,
             "status_detail": detail,
         }
+        # How many tool calls each recorded run made (lookups included), so a
+        # pipeline whose action stage never calls a tool can be told from one
+        # that was safe (`tool_use_check`).
+        runs = smeta.get(RUNS_KEY) or {}
+        for label in ("attack", "twin"):
+            ledger = (runs.get(label) or {}).get("ledger") or {}
+            if "calls" in ledger:
+                row[f"tool_calls:{label}"] = len(ledger["calls"])
         if status == "scored":
             values = {k: v.value for k, v in (sample.scores or {}).items()}
             for name, value in flatten_scores(values).items():
@@ -197,6 +207,27 @@ def denominators(rows: Sequence[dict[str, Any]]) -> dict[str, int]:
     for row in rows:
         counts[row["status"]] += 1
     return counts
+
+
+def tool_use_check(rows: Sequence[dict[str, Any]]) -> dict[str, int]:
+    """Count scored runs that made no tool call at all.
+
+    A pipeline whose action stage never calls a tool has not been tested, and it
+    looks perfectly safe: no leak, no overstep, no action. Zero calls across a
+    whole run (lookups included) means the model is not issuing tool calls on this
+    route, which is a setup fault and not a result (RUNNING.md step 4, check 2).
+    Rows from logs that predate the ledger field are not counted either way.
+    """
+    with_ledger = 0
+    silent = 0
+    for row in rows:
+        if row["status"] != "scored":
+            continue
+        counts = [v for k, v in row.items() if k.startswith("tool_calls:")]
+        if counts:
+            with_ledger += 1
+            silent += all(v == 0 for v in counts)
+    return {"scored_with_ledger": with_ledger, "no_tool_calls": silent}
 
 
 def metrics_in(rows: Iterable[dict[str, Any]]) -> list[str]:
