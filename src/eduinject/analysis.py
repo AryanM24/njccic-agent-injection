@@ -150,6 +150,11 @@ def rows_from_log(log: Any) -> list[dict[str, Any]]:
             values = {k: v.value for k, v in (sample.scores or {}).items()}
             for name, value in flatten_scores(values).items():
                 row[f"score:{name}"] = value
+            # control_check scores task completion True where no legitimate tool
+            # is granted (read_only); that is "not applicable", not a success.
+            for name, sample_score in (sample.scores or {}).items():
+                if (sample_score.metadata or {}).get("applicable") is False:
+                    row.pop(f"score:{name}.legit_task_completed", None)
         rows.append(row)
     return rows
 

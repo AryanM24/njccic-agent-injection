@@ -40,18 +40,18 @@ tested.
 
 | # | Step | Who | Status |
 | --- | --- | --- | --- |
-| 1 | Setup, `pytest`, `.env` (step 1–2 below) | You | Ready |
-| 2 | Pick one reasoning effort for the whole study (step 3) | **You** | Open |
-| 3 | Dry run: check cell counts and fingerprints, free (step 4) | You | Ready |
-| 4 | Smoke test both models, check tools are called (step 4) | You | Ready, cents |
-| 5 | Twin baseline, all workflows, both models (step 5) | You | Ready, about $45 |
+| 1 | Setup, `pytest`, `.env` (step 1–2 below) | You | Done, except `cp .env.local .env` |
+| 2 | Pick one reasoning effort for the whole study (step 3) | **You** | Done: `low` |
+| 3 | Dry run: check cell counts and fingerprints, free (step 4) | You | Done |
+| 4 | Smoke test both models, check tools are called (step 4) | You | Done 2026-10-18, passed |
+| 5 | Twin baseline, all workflows, both models (step 5) | You | **Next**, about $45 |
 | 6 | Controls (step 6) | You | Ready, about $3 |
 | 7 | Analyze the baseline: denominators, noise floors (step 8) | You | Tooling ready |
-| 8 | Resolve the open decisions in `docs/design/09_analysis_plan.md` (floor statistic, primary outcomes, human-check size, G5) | **You** | Open |
+| 8 | Resolve the open decisions in `docs/design/09_analysis_plan.md` | **You** | 3a–6a done (doc 09 v1.0); 7a open, after the baseline |
 | 9 | Set the G5 thresholds or descope G5; descope A3 (doc 09 §7) | **You** | Open |
-| 10 | Sign doc 09 and the pre-registration (doc 04 §16), PI and second reviewer | **You** | Blocked on 8–9 |
-| 11 | Write `payloads.py` on an approved machine; build the canonical corpus (step 7) | **You** | Open |
-| 12 | Attack runs (step 7) | You | Blocked on 10–11 |
+| 10 | Sign doc 09 and the pre-registration (doc 04 §16), PI and second reviewer | **You** | Done 2026-10-18 (doc 09 v1.0, doc 04 v1.3) |
+| 11 | Write `payloads.py` on an approved machine; build the canonical corpus (step 7) | **You** | `payloads.py` done; corpus not built |
+| 12 | Attack runs (step 7) | You | Blocked on 11 |
 | 13 | Analyze, draw the human-check sample, code it, compute kappa (step 8) | You + a second coder | Tooling ready |
 | 14 | Before any release: canary strings (D11), ATLAS re-check, URL archival | **You** | Open |
 
@@ -96,7 +96,8 @@ their behavior and the bill, so it is an experimental setting: pick one value
 study. It is recorded in each run's fingerprint (`config_hash`), so runs at
 different settings can never be mixed up by accident.
 
-The commands below use `low` as an example. Write down what you chose.
+**Chosen: `low`.** The smoke tests ran at `low`, and every command below uses
+it. Changing it now means redoing the smoke tests.
 
 ## 4. Dry run (free), then smoke test (a few cents)
 
@@ -187,9 +188,8 @@ could complete the legitimate task. Repeat for DeepSeek.
 
 ## 7. Attack runs (canonical corpus only)
 
-**Do not start this step until doc 09 and the pre-registration (doc 04 §16)
-are signed** (table above, rows 8–10). Results from attack runs made before
-signing cannot be called pre-registered.
+Doc 09 and the pre-registration (doc 04 §16) were signed on 2026-10-18, so
+attack runs made from now on can be called pre-registered.
 
 This needs `src/eduinject/corpus/payloads.py`, the gitignored file holding the
 real hidden-instruction wording. Under the release policy
@@ -316,5 +316,5 @@ instead of starting over and paying twice.
 - [ ] Crashed samples are counted separately from attacks that failed (D12).
 - [ ] The figure is not against a G2/A3 or G5 threshold. Those are still unset
       (implementation-map), so such figures are not reportable.
-- [ ] You do not describe the study as pre-registered: doc 04 §16 is not yet
-      signed.
+- [ ] The run postdates the doc 04 §16 signing (2026-10-18), if you call it
+      pre-registered.

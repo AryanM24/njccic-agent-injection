@@ -1,6 +1,6 @@
 # Threat Model
 
-*Document 3 of 5 — v1.0*
+*Document 3 of 5 — v1.1*
 
 ## 1. Purpose and Standing
 
@@ -33,16 +33,18 @@ results.
 | **Framework** | **Element adopted** | **Use in this study** |
 | --- | --- | --- |
 | **NIST AI 100-2e2025** | Five classification dimensions: system type; lifecycle stage; attacker goal by property violated (availability, integrity, privacy); attacker capabilities and access; attacker knowledge. | Structural basis for Sections 5 and 6. Our adversary operates exclusively at the deployment stage against a generative system, seeking integrity and privacy violations. Availability is out of scope (Section 9). |
-| **MITRE ATLAS** | AML.T0051 LLM Prompt Injection, and specifically sub-technique AML.T0051.001 (Indirect). Related: AML.T0051.002 (Triggered), AML.T0024 and AML.T0086 (exfiltration paths), AML.T0043 (adversarial content staging). | Technique-level labels for each attack vector, so the risk matrix and deployment checklist map to identifiers a district SOC can already ingest. Note that AML.T0054 is LLM Jailbreak, a distinct technique that is out of scope here. |
+| **MITRE ATLAS** | AML.T0051 LLM Prompt Injection, and specifically sub-technique AML.T0051.001 (Indirect). Related: AML.T0051.002 (Triggered), AML.T0086 (Exfiltration via AI Agent Tool Invocation) and, more loosely, AML.T0024 (exfiltration paths), AML.T0080 (AI Agent Context Poisoning: injected content carried between pipeline stages), AML.T0053 (AI Agent Tool Invocation: the action stage's tool calls). | Technique-level labels for each attack vector, so the risk matrix and deployment checklist map to identifiers a district SOC can already ingest. Note that AML.T0054 is LLM Jailbreak, a distinct technique that is out of scope here. |
 | **OWASP Top 10 for LLM Applications (2025)** | LLM01 Prompt Injection (primary); LLM02 Sensitive Information Disclosure; LLM06 Excessive Agency; LLM07 System Prompt Leakage. | Control-mapping layer for the deployment checklist deliverable. LLM01 and LLM06 in combination describe the core hazard: untrusted instructions reaching an agent that holds more authority than the task requires. |
 
 **A note on identifier accuracy.** Secondary sources disagree on ATLAS numbering,
 and at least one widely-read vendor analysis labels indirect prompt injection as
 AML.T0054. The OWASP GenAI project's own mapping, and multiple detection-tooling
 catalogues, place indirect injection at AML.T0051.001 and reserve AML.T0054 for
-LLM Jailbreak. We adopt the latter and recommend re-verifying against the live
-ATLAS matrix before publication, since ATLAS versions have been advancing rapidly
-and added an agent-focused tactic in late 2025.
+LLM Jailbreak. We adopt the latter. Re-verified on 2026-10-19 against ATLAS data
+release v2026.09 (`docs/design/grounding_archive/atlas_verification_2026-10-19.md`):
+every identifier above exists with the name given. ATLAS covers agents through
+techniques under its existing tactics (e.g. AML.T0053, AML.T0080, AML.T0086), not
+through a separate agent tactic.
 
 ## 3. System Under Consideration
 
@@ -290,3 +292,8 @@ remain valid under that version and are reported with it; they are not silently
 reinterpreted under a later one. The version in force is recorded in each run's
 configuration hash so that the provenance of any figure is recoverable from the
 trace log alone.
+
+| Version | Date | Change | Why |
+| --- | --- | --- | --- |
+| 1.0 | — | Adopted. | — |
+| 1.1 | 2026-10-19 | §2: replaced AML.T0043 ("adversarial content staging") with AML.T0080 and added AML.T0053; recorded the ATLAS re-verification; corrected "agent-focused tactic" to agent techniques. | Re-verification against ATLAS v2026.09 found AML.T0043 is "Craft Adversarial Data" (perturbation attacks), not content staging, and that no agent tactic exists. Clarification only: Sections 5, 6 and 9 unchanged. |

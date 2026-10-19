@@ -17,14 +17,14 @@ are kept out of the repository entirely — see `.gitignore` and
 | --- | --- | --- | --- |
 | `00_project_proposal.md` | — | original | The original NJCCIC proposal the project was scoped from. |
 | `01_positioning_statement.md` | 1 of 5 | v1.1 | Prior art, the research gap, and the five claimed contributions. |
-| `02_workflow_selection_and_grounding_corpus.md` | 2 of 5 | v1.1 | The three workflows (W1–W3), the ten grounding documents, and the pipeline constraints. |
-| `03_threat_model.md` | 3 of 5 | v1.0 | The adversary, their capabilities, the six trust boundaries, and the assumptions. |
-| `04_attacker_goal_taxonomy.md` | 4 of 5 | v1.2 | The five attacker goals (G1–G5) and the pre-registered success criteria. |
+| `02_workflow_selection_and_grounding_corpus.md` | 2 of 5 | v1.2 | The three workflows (W1–W3), the ten grounding documents, and the pipeline constraints. |
+| `03_threat_model.md` | 3 of 5 | v1.1 | The adversary, their capabilities, the six trust boundaries, and the assumptions. |
+| `04_attacker_goal_taxonomy.md` | 4 of 5 | v1.3 | The five attacker goals (G1–G5) and the pre-registered success criteria. |
 | `05_dual_use_and_release_policy.md` | 5 of 5 | v1.0 | What is published, what is gated, what is never released. |
 | `06_implementation_decisions.md` | — | — | Settled and pending decisions not yet ratified into the numbered set. |
 | `07_thresholds_appendix.md` | — | v1.0 (signed, W2 G1 tiers only) | The W2 G1 sensitivity tiers and recipient entitlement. |
 | `08_w1_w3_g1_tiers_addendum.md` | — | v1.0 (signed 2026-10-11) | W1/W3 G1 tiers, the W1 authorization oracle, G5 signals and how controls are evaluated. |
-| `09_analysis_plan.md` | — | 0.1 (**draft, unsigned**) | How results are computed and reported: unit, denominators, intervals, the null rule, comparisons, human validation. Open decisions marked. |
+| `09_analysis_plan.md` | — | v1.1 (v1.0 signed 2026-10-18; v1.1 closes 7a, 2026-10-19) | How results are computed and reported: unit, denominators, intervals, the null rule, comparisons, human validation. |
 | `implementation-map.md` | — | — | Which document constraint is enforced by which code, and where they currently diverge. |
 
 The versions above are mirrored in `eduinject.config.DOC_VERSIONS` and folded
@@ -88,13 +88,14 @@ not a pre-registration, so this blocks signature.
 adoption) both have empty signature tables. Doc 5 §1 states the policy must be
 adopted before corpus construction begins.
 
-**Unverified identifiers.** Doc 3 §2 recommends re-verifying the ATLAS
-technique numbering against the live matrix before publication. The adopted
-position is AML.T0051.001 for indirect injection, AML.T0054 for LLM Jailbreak
-(out of scope).
+**ATLAS identifiers (verified).** Re-verified against ATLAS v2026.09 on
+2026-10-19 (`grounding_archive/atlas_verification_2026-10-19.md`); Doc 3 v1.1
+replaces the misfit AML.T0043 with AML.T0080.
 
-**Unarchived URLs.** Doc 2 §5.2 requires every grounding-corpus URL to be
-re-verified and a dated copy archived before the fidelity appendix is written.
+**Grounding URLs (partly archived).** Doc 2 §5.2 requires every grounding-corpus
+URL to be re-verified and archived before the fidelity appendix. Done 2026-10-19
+for 8 of 14 (`grounding_archive/2026-10-19/`); source 7 is cited by its Wayback
+capture; sources 3, 5, 6, 13 and 14 still need a manual browser save.
 
 **Pending validation step.** Doc 2 §5.2 names practitioner review of the three
 workflows by New Jersey district IT or HR staff as the recommended validation
