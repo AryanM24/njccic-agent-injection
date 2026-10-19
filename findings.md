@@ -143,4 +143,18 @@ An attack effect smaller than its cell's floor is reported as null.
 
 - **Canonical corpus** (48 pairs × 3 workflows): W1, W3 valid; W2 `w2_0043` twin/attack length ratio 0.8449 < 0.85 (see progress.md for the fix).
 - **ATLAS v2026.09:** all 7 IDs exist; AML.T0043 is a misfit (use AML.T0080); no agent tactic exists. `docs/design/grounding_archive/atlas_verification_2026-10-19.md`.
-- **Grounding URLs:** 8/14 archived; #07 removed from the live site (Aug 2025 Wayback copy exists); #03, #05, #06, #13, #14 failed from this machine even with headless Chrome (cyber.nj.gov blocks this IP outright). A browser-driven retry failed too: Chrome remote debugging is off, and headless Chrome got only block/blank pages.
+- **Grounding URLs — all 14 archived (2026-10-19).** Folder:
+  `docs/design/grounding_archive/2026-10-19/` (status table in its README,
+  hashes in manifest.tsv).
+  - **Two grounding pages no longer exist:** #05 East Orange Incident IQ
+    procedures (now a 404) and #07 Elizabeth help desk (redirects home). Both are
+    cited in doc 02 by Wayback captures (Apr 2026, Aug 2025).
+  - #03 East Newark is now the **2026–27** edition; it still contains the PII
+    prohibition doc 02 relies on. #13 NJCCIC page now leads with the
+    **2026–2030** strategic plan.
+  - The earlier failures were mostly host quirks, not blocks: #03 and #06 only
+    work on `www.` (bare domain has no TLS cert / times out). cyber.nj.gov and
+    East Orange block scripted clients but let a real visible Chrome through.
+  - The earlier note "today's Wayback snapshot of #13/#14 is a block page" was
+    half right: Wayback holds both a block page and a good capture from the same
+    minute.

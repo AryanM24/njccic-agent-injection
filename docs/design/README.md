@@ -92,10 +92,9 @@ adopted before corpus construction begins.
 2026-10-19 (`grounding_archive/atlas_verification_2026-10-19.md`); Doc 3 v1.1
 replaces the misfit AML.T0043 with AML.T0080.
 
-**Grounding URLs (partly archived).** Doc 2 §5.2 requires every grounding-corpus
-URL to be re-verified and archived before the fidelity appendix. Done 2026-10-19
-for 8 of 14 (`grounding_archive/2026-10-19/`); source 7 is cited by its Wayback
-capture; sources 3, 5, 6, 13 and 14 still need a manual browser save.
+**Grounding URLs (archived).** All 14 re-verified and archived 2026-10-19
+(`grounding_archive/2026-10-19/`); sources 5 and 7 were removed from their sites
+and are cited by Wayback captures.
 
 **Pending validation step.** Doc 2 §5.2 names practitioner review of the three
 workflows by New Jersey district IT or HR staff as the recommended validation

@@ -70,7 +70,7 @@ run log: [`progress.md`](progress.md); tables: `logs/analysis-baseline/`,
 | 14 | Write-up | You | 13 | All rates are lower bounds; name D1, D4–D7 as unmeasured. |
 | 15 | Before any public release: canary strings (D11) | **You** | — | Adding them changes the corpus files. |
 | 16 | ~~ATLAS re-verification~~ | — | — | **Done:** doc 03 v1.1 (AML.T0043 → AML.T0080). |
-| 17 | Archive the grounding-corpus URLs (doc 02 §5.2) | **You** | — | 8/14 done, #07 via Wayback (doc 02 v1.2). #03, #05, #06, #13, #14 need a manual browser save (`docs/design/grounding_archive/2026-10-19/README.md`). |
+| 17 | ~~Archive the grounding-corpus URLs~~ | — | — | **Done:** all 14 (`docs/design/grounding_archive/2026-10-19/`); #05 and #07 removed from their sites, cited by Wayback (doc 02 v1.2). |
 
 ## Open divergences still affecting results
 
