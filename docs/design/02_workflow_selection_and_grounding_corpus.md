@@ -1,6 +1,6 @@
 # Workflow Selection and Grounding Corpus
 
-*Document 2 of 5 — v1.1*
+*Document 2 of 5 — v1.2*
 
 ## 1. Purpose
 
@@ -107,7 +107,7 @@ workflow stage, which real district artifact it was derived from.
 | 4 | **Acceptable Use of Computer Network/Computers and Resources, Regulation R 2361** — Point Pleasant Borough School District. `pointpleasant.k12.nj.us/pdfs/District_Regulations//2000_Program/R_2361_Acceptable_Use_of_Computer_Network_Computers_and_Resources.pdf` | Full regulation text defining system administrator authority, prohibited actions, and account termination powers. Grounds the tool-permission scope levels in W1 and defines what "unauthorized action" means in district terms. |
 | 5 | **Information Technology — Incident IQ Ticketing Procedures** — East Orange School District. `eastorange.k12.nj.us/apps/pages/index.jsp?uREC_ID=2204311&type=d&pREC_ID=2193331` | Documents a live K-12 ticketing platform, the quick-ticket category structure, teacher-submits-on-behalf-of-student flow, and a FERPA statement. Primary structural model for the W1 mock ticketing API. |
 | 6 | **Technology Help Desk submission procedures** — West Windsor-Plainsboro Regional School District. `west-windsor-plainsboro.k12.nj.us/departments/Technology/technology_help_desk` | Grade-banded submission paths: grades 4–8 report to staff, grades 9–12 submit directly via media-center kiosk, staff submit over the secure network. Grounds the W1 trust-label variable, since submitter provenance genuinely differs by channel. |
-| 7 | **Technology and Information Systems — Help Desk** — Elizabeth Public Schools. `epsnj.org/Page/3369` | Single-point-of-contact model with ticket numbering and incident tracking, in one of the largest NJ districts. Provides a second, independent structural reference so W1 is not modeled on a single district's idiosyncrasies. |
+| 7 | **Technology and Information Systems — Help Desk** — Elizabeth Public Schools. `epsnj.org/Page/3369` (removed by 2026-10-19; cite the archived capture `web.archive.org/web/20250814203731/https://www.epsnj.org/Page/3369`) | Single-point-of-contact model with ticket numbering and incident tracking, in one of the largest NJ districts. Provides a second, independent structural reference so W1 is not modeled on a single district's idiosyncrasies. |
 | 8 | **Recruitment, Selection and Hiring, Policy 4211** — North Hunterdon-Voorhees Regional High School District. `go.boarddocs.com/nj/nhvrhs/Board.nsf/goto?open=&id=DJTHFG44D30F` | Requires that all staff be appointed only on superintendent nomination and by recorded roll-call majority of the full board, and that the application process conform to NJ Division on Civil Rights guidelines. Establishes the statutory human gate downstream of any AI screening in W2. |
 | 9 | **Employment of Teaching Staff Members** — Union City Public Schools. `ucboe.us/apps/pages/policy/teacher_staff/employment_staff` | Restates N.J.S.A. 18A:27-4.1 and the certification and criminal-history requirements. Grounds the W2 pipeline stages and identifies which screening attributes an injected resume would most plausibly target. |
 | 10 | **Frontline Recruiting and Hiring (AppliTrack) applicant portals** — Piscataway Township, Newark, Jersey City, and West Orange districts. `applitrack.com/piscataway/onlineapp/default.aspx` | The applicant tracking system actually used across NJ districts, including its intake fields and document upload flow. Primary structural model for the W2 mock ATS API and for realistic resume file constraints. |
@@ -196,3 +196,11 @@ and a dated copy archived, since district websites are reorganized frequently an
 BoardDocs links are session-sensitive. Practitioner review of the three workflows
 by New Jersey district IT or human resources staff remains the recommended
 validation step, subject to the institutional review determination.
+
+**Re-verification, 2026-10-19 (v1.2).** Dated copies, hashes and Wayback results
+are in `docs/design/grounding_archive/2026-10-19/` (manifest and status table in
+its `README.md`). Eight of the fourteen URLs were archived cleanly. Source 7 has
+been removed from the district site and is cited above by its August 2025 Wayback
+capture. Sources 3, 5, 6, 13 and 14 could not be fetched from the archiving
+machine (TLS failure, bot check, timeout, and an IP block on cyber.nj.gov) and
+still need a manual browser save before the fidelity appendix.
