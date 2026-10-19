@@ -150,6 +150,11 @@ Task 4 of HANDOFF: twin baseline, 3 workflows × 2 models × 10 epochs
     cyber.nj.gov blocks this IP). Still yours.
   - `.gitignore` was edited (logs no longer ignored) by someone else at 22:33
     UTC; left as is and **logs/ not committed**.
+- 2026-10-19 ~23:45 UTC — **All 14 grounding URLs archived** (task 17 done).
+  #03 and #06 via `www.`; #05, #06, #13, #14 printed from a separate visible
+  Chrome; Wayback copies for #05, #06, #13, #14. #05 turned out to be removed
+  (404), so doc 02 now cites its April 2026 Wayback capture, like #07.
+  Files: `docs/design/grounding_archive/2026-10-19/`.
 
 ## Live counts
 
