@@ -160,5 +160,5 @@ Tier 1, like the traces it is computed from.
 | Decisions resolved | 3a, 4a, 5a, 6a (7a/G5 deferred to a version increment after the baseline) | AMT | 2026-10-18 |
 | Principal investigator | Aryan Mittal | AMT | 2026-10-18 |
 | Second reviewer | Rohan Bhamidipati | RBP | 2026-10-18 |
-| Plan version | 1.1 (7a resolved: G5 descoped; §7.1 floors; §9 W1 breakdown) | | 2026-10-19 |
-| Principal investigator, v1.1 | Aryan Mittal | | |
+| Plan version | 1.1 (7a resolved: G5 descoped; §7.1 floors; §9 W1 breakdown) | AMT | 2026-10-19 |
+| Principal investigator, v1.1 | Aryan Mittal | AMT | 2026-10-19 |
