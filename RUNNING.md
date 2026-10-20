@@ -262,16 +262,25 @@ directories together, so every comparison can find its noise floor. Then
 draw the human-check sample:
 
 ```bash
-python scripts/analyze.py sample-human logs/attack-luna logs/attack-deepseek
+python scripts/analyze.py sample-human logs/attack-luna-rescored \
+  logs/attack-deepseek-rescored --fraction 0.02 --seed 0 --out logs/human-check
+python scripts/human_coding.py practice logs/analysis-attack-luna \
+  logs/analysis-attack-deepseek --exclude logs/human-check/coding_sheet.csv \
+  --out logs/human-check/practice
+python scripts/human_coding.py packets logs/human-check/practice/coding_sheet.csv \
+  --out logs/human-check/practice/packets
+python scripts/human_coding.py packets logs/human-check/coding_sheet.csv \
+  --out logs/human-check/packets
 ```
 
-Give each coder a copy of `logs/analysis/human/coding_sheet.csv` (not
-`answer_key.csv`). Each fills the `code:` columns with 1 or 0 by reading the
-run in `inspect view`. Then:
+`--fraction 0.02` is doc 09 decision 6a (about 2%, at least 5 per cell). Coders
+follow `docs/design/human_coding/CODEBOOK.md`: practice round first, then each
+fills a copy of `logs/human-check/coding_sheet.csv` (never `answer_key.csv`)
+from the readable packets, writing 1, 0 or n/a. Packets are Tier 1. Then:
 
 ```bash
 python scripts/analyze.py kappa coder_a.csv coder_b.csv \
-  --key logs/analysis/human/answer_key.csv
+  --key logs/human-check/answer_key.csv
 ```
 
 What each score means:

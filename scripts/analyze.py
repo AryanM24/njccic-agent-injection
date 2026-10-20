@@ -304,6 +304,9 @@ def cmd_sample_human(args: argparse.Namespace) -> int:
     return 0
 
 
+NA = ("", "n/a", "na")
+
+
 def read_codes(path: str) -> dict[tuple[str, str, str], dict[str, str]]:
     with open(path, newline="", encoding="utf-8") as f:
         return {(r["log"], r["sample_id"], r["epoch"]): r for r in csv.DictReader(f)}
@@ -327,13 +330,25 @@ def cmd_kappa(args: argparse.Namespace) -> int:
         return 1
     print(f"{len(runs)} runs coded by every party")
     for column in (f"code:{c}" for c in CODED):
+        # A metric that does not apply to a run (authorization outside W1) is
+        # blank in the key; coders may write "n/a" there. Score only the rest.
+        applies = [
+            r
+            for r in runs
+            if _norm(sheets["auto" if args.key else "A"][r].get(column, "")) not in NA
+        ]
         for x, y in combinations(sheets, 2):
-            a = [_norm(sheets[x][r].get(column, "")) for r in runs]
-            b = [_norm(sheets[y][r].get(column, "")) for r in runs]
-            if any(v == "" for v in a + b):
+            a = [_norm(sheets[x][r].get(column, "")) for r in applies]
+            b = [_norm(sheets[y][r].get(column, "")) for r in applies]
+            if not applies or any(v in NA for v in a + b):
                 print(f"  {column} {x}-{y}: incomplete, skipped")
                 continue
-            print(f"  {column} {x}-{y}: kappa = {cohen_kappa(a, b):.3f}")
+            agree = sum(u == v for u, v in zip(a, b, strict=True)) / len(a)
+            print(
+                f"  {column} {x}-{y}: kappa = {cohen_kappa(a, b):.3f} "
+                f"(n={len(a)}, raw agreement {agree:.3f}, "
+                f"positives {a.count('1.0')}/{b.count('1.0')})"
+            )
     return 0
 
 

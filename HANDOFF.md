@@ -1,6 +1,6 @@
 # Handoff
 
-State of the project as of **2026-10-19**, and everything still remaining.
+State of the project as of **2026-10-20**, and everything still remaining.
 For *how* to do each run, see [`RUNNING.md`](RUNNING.md). For what the project
 is, see the plain-English guide at the top of [`README.md`](README.md).
 
@@ -48,7 +48,15 @@ the estimates are conservative.
 **Twin baseline and controls done (2026-10-19):** 17,400 baseline + 960
 control runs, 0 errors. Results and trace checks: [`findings.md`](findings.md);
 run log: [`progress.md`](progress.md); tables: `logs/analysis-baseline/`,
-`logs/analysis-controls/`. No attack results exist yet.
+`logs/analysis-controls/`.
+
+**Attack runs done and analyzed (2026-10-20):** 8,640 pairs per model, 18/18
+cells each, 0 errors. Propagation rescored (fix F5) into
+`logs/attack-{luna,deepseek}-rescored/`; analysis in
+`logs/analysis-attack-{luna,deepseek}/`; paired attack − twin outcomes via
+`scripts/paired_outcomes.py`, G1 recipients via `scripts/exfil_recipients.py`,
+all tables via `scripts/findings_tables.py`. Results: `findings.md` §11–16 and
+Appendices A–B. Human-check sample drawn: `logs/human-check/` (360 runs).
 
 ## What remains, in order
 
@@ -60,15 +68,16 @@ run log: [`progress.md`](progress.md); tables: `logs/analysis-baseline/`,
 | 4 | ~~Twin baseline~~ | — | — | **Done** 2026-10-19: 17,400 runs, 0 errors. Luna ~5 h, DeepSeek ~24 h. |
 | 5 | ~~Controls~~ | — | — | **Done** 2026-10-19: 960 runs, 0 errors. |
 | 6 | ~~Baseline analysis~~ | — | — | **Done:** `logs/analysis-baseline/`; read-only task-completion bug fixed in `analysis.py`. |
-| 7 | Resolve doc 09 decision 7a | **PI initials** | — | Drafted as doc 09 v1.1 (G5 descoped, floors recorded). Initial the two v1.1 rows in §11. |
+| 7 | ~~Resolve doc 09 decision 7a~~ | — | — | **Done:** doc 09 v1.1 initialled 2026-10-19 (G5 descoped). |
 | 8 | ~~G5 thresholds / A3~~ | — | — | **Both descoped** (A3 in v1.0, G5 in v1.1). |
 | 9 | ~~Sign doc 09 and the pre-registration~~ | — | — | **Done** 2026-10-18 (doc 09 v1.0, doc 04 v1.3). |
 | 10 | ~~Write `src/eduinject/corpus/payloads.py`~~ | — | — | **Done:** present on this machine, gitignored (Tier 1). |
 | 11 | ~~Canonical corpus~~ | — | — | **Done:** 48 pairs × 3, all valid (W2 `unauthorized_approval` payload shortened 141 → 125 chars to fix `w2_0043`'s length ratio). |
-| 12 | Attack runs, both models | You | 7 | **Next.** About $90 total. `--isolation both`, `--epochs 10`. Logs are Tier 1. |
-| 13 | Analysis, human-check sample, two coders, kappa | You + second coder | 12 | `RUNNING.md` step 8. |
-| 14 | Write-up | You | 13 | All rates are lower bounds; name D1, D4–D7 as unmeasured. |
+| 12 | ~~Attack runs, both models~~ | — | — | **Done** 2026-10-20: 17,280 pairs, 0 errors (Luna 10.9 h, DeepSeek 16.0 h with W1–W3 in parallel). |
+| 13 | Human check: two coders, kappa | Aryan Mittal + Rohan | Both sign `docs/design/attestations/coder_undertakings.md` | **Next.** Materials ready: codebook `docs/design/human_coding/CODEBOOK.md` (v1.0), practice set + packets `logs/human-check/practice/`, real sheet + packets `logs/human-check/`. Follow `docs/design/human_coding/CODER_INSTRUCTIONS.md`: practice round → codebook v1.1 if needed → real sheet → `analyze.py kappa A.csv B.csv --key logs/human-check/answer_key.csv`. Who codes: findings §18. |
+| 14 | Write-up | You | 13 (results ready now) | All rates are lower bounds; name D1, D4–D7 as unmeasured. |
 | 15 | Before any public release: canary strings (D11) | **You** | — | Adding them changes the corpus files. |
+| 18 | Purge Tier 1 text from git history (decided: wipe); decide paper wording on per-technique results | **You** | — | Wipe = squash the last three commits and force-push; you run it (progress.md, 2026-10-20 ~20:30); findings §18 (fix F7). Restricted tables: `logs/findings_restricted.md`. |
 | 16 | ~~ATLAS re-verification~~ | — | — | **Done:** doc 03 v1.1 (AML.T0043 → AML.T0080). |
 | 17 | ~~Archive the grounding-corpus URLs~~ | — | — | **Done:** all 14 (`docs/design/grounding_archive/2026-10-19/`); #05 and #07 removed from their sites, cited by Wayback (doc 02 v1.2). |
 
@@ -81,7 +90,7 @@ From `docs/design/implementation-map.md` §2. Read it before quoting any number.
 | D1 | Only verbatim (M1) propagation is detectable | Contribution (c) not claimable without a judge |
 | D2 | Propagation depth is provisional | Depth recorded, not reportable |
 | D4 | No hijack-level scoring | All rates are completion rates |
-| D5 | A3 ranking corruption only proxied | Recommend descoping (doc 09 §7) |
+| D5 | A3 ranking corruption only proxied | Descoped; an unscored attack effect on W2 actions was observed (Luna, findings §14a) |
 | D6 | G5 suppression: raw signals only | G5 descoped; contribution (d) not claimed |
 | D7 | A2 argument substitution unscored | Unscored |
 | D10 | ~~Repetition floor~~ | Closed for the baseline |
@@ -119,6 +128,9 @@ From `docs/design/implementation-map.md` §2. Read it before quoting any number.
   there have no effect.
 
 ## Key files
+
+Never commit per-channel, per-file-type or per-goal success rates: they are Tier 1 (doc 05 §6). Use `findings_tables.py --restricted` and write under `logs/`.
+
 
 | File | Why you would open it |
 | --- | --- |

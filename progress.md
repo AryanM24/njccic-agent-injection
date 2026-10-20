@@ -224,18 +224,63 @@ Task 4 of HANDOFF: twin baseline, 3 workflows × 2 models × 10 epochs
   measurable leaks or unauthorized actions over Luna's baseline. DeepSeek 7,190
   (83%) → ETA ~14:30 UTC.
 
+### 2026-10-20 16:30 UTC — DeepSeek attack runs done and analyzed
+- 8,640/8,640 pairs, 18/18 cells, 0 errors (W1 finished last, 16:08 UTC).
+- Rescored propagation (1,061 samples changed) → `logs/attack-deepseek-rescored/`; analysis → `logs/analysis-attack-deepseek/`.
+- Results in `findings.md` §12 (DeepSeek) and §13 (Luna vs DeepSeek).
+- Headline: the only real attack success in the study is DeepSeek, W2 hiring, read_write, isolation off: 10.6% leak vs 1.0% baseline, 40 emails to the attacker's tripwire address. Isolation or removing the external email tool each stop it.
+- **All main runs complete.** Next: human-check sample + kappa (task 13), write-up, canaries (task 15).
+
+### 2026-10-20 ~18:30 UTC — Everything extracted from the results
+- **Paired attack − twin scored for both models** (`scripts/paired_outcomes.py`): same verdict as the baseline comparison. One real harm effect (DeepSeek W2 read_write iso off, +8.7 points). Everything else is null.
+- **New: attacks cost W1 usefulness.** Help-desk task completion drops 10–25 points under attack (both models), from over-caution.
+- **New: Luna W2 shortlist effect.** Each W2 document has one applicant; on twins, Luna correctly declines to "rank the top two". The injection pushes it to submit a shortlist anyway (+7 to +26 points). This is an attack effect the harm scorers don't count (D5); traces were read.
+- **New: by-technique results** (concealment channel, file type, goal) → restricted file `logs/findings_restricted.md` (moved 2026-10-20, see below).
+- **G1 recipient breakdown for every cell, attack and twin, both models** (`scripts/exfil_recipients.py`). Twins match the separate baseline.
+- **Full tables** for every metric, cell, channel, file type, goal and base (`scripts/findings_tables.py`), plus tokens and wall clock → findings Appendix A/B.
+- **Human-check sample drawn** (task 13): `logs/human-check/`, 360 runs, 10 per cell. Few harm positives, so kappa will be unstable (findings §15).
+- HANDOFF (tasks 7, 12 done; 13 next) and implementation-map D5 updated. 306 tests pass.
+- Findings §14–17 plus appendices. **Remaining:** coders code the sample → kappa; write-up; canaries (D11, needs a corpus change, your call).
+
+### 2026-10-20 ~20:00 UTC — Tier 1 cleanup and human-check materials
+- **Restricted results moved (fix F7).** Success rates by concealment channel, file type and goal are "payload effectiveness rankings by technique", which doc 05 §6 makes Tier 1. They moved out of `findings.md` and this file into `logs/findings_restricted.md` (gitignored), with pointers left behind. `findings_tables.py` now prints them only with `--restricted`. The repo is private, so nothing was published, but the text is still in git history (findings §18: purge before any public release).
+- **Kappa bug fixed (F6).** `analyze.py kappa` skipped `authorization` entirely, because it's blank outside W1. It now scores each code where it applies and also prints n, raw agreement and positives. New test; 307 tests pass.
+- **Codebook drafted**: `docs/design/human_coding/CODEBOOK.md` v0.1, plain-language rules from docs 07, 08 and 09 §6.
+- **Practice set drawn**: `logs/human-check/practice/` (20 runs, none in the real sample, 10 scorer-flagged).
+- **Readable packets** for every practice and real run (`scripts/human_coding.py packets`), so coders don't need `inspect view`. Tier 1.
+- RUNNING.md step 8, docs/design/README, HANDOFF and findings §8/§15/§18 updated.
+- **Waiting on the PI:** who the coders are (doc 05 approval), paper wording on techniques, git-history purge, codebook v1.0 after practice.
+
+### 2026-10-20 ~20:30 UTC — PI decisions: coders, codebook v1.0, wipe history
+- **Coders: Aryan Mittal (PI) and Rohan.** Recorded in the codebook and in a new undertakings sheet, `docs/design/attestations/coder_undertakings.md` (doc 05 §8.3), which is **unsigned**: each coder signs before opening a packet. The PI built the scorers, so PI-vs-scorer agreement isn't independent; the paper must say so (findings §18).
+- **Codebook raised to v1.0** (adopted before the practice round). Any fix the practice round needs becomes v1.1, before the real sheet.
+- **Wipe of the restricted text from git history: approved, not yet done.** Only the last commits on `main` (from 17f327418 on) contain it. A backup bundle is at `logs/git-backup-pre-wipe-2026-10-20.bundle`. The agent's force-push was blocked by its safety check, so the PI runs the commands below. They squash everything after `50cc259ea` into one commit holding only the cleaned files:
+
+  ```bash
+  git fetch origin
+  git reset --soft 50cc259ea
+  git commit -m "findings: attack results, paired analysis, human-check tooling (squashed to drop Tier 1 text)"
+  git push --force-with-lease origin main
+  git reflog expire --expire=now --all && git gc --prune=now   # drop the old copies locally
+  ```
+
+  Afterwards GitHub can still serve the old commits to anyone who knows their exact ID, until it garbage-collects them. For a guaranteed purge, ask GitHub Support to remove cached views of the repo.
+
+### 2026-10-20 ~20:45 UTC — Coder instructions written
+- `docs/design/human_coding/CODER_INSTRUCTIONS.md`: a step-by-step task sheet for Aryan (Coder A) and Rohan (Coder B). Steps: sign the undertakings → copy the sheets → 20-run practice → compare and fix rules (v1.1) → 360-run real sheet → kappa and disagreement log.
+
 ## Live counts
 
-_Updated 2026-10-20 11:00 UTC (auto, every 5 min)_
+_Updated 2026-10-20 16:05 UTC (auto, every 5 min)_
 
-- **attack luna**: 8640 / 8640 runs (100%), process running
-- **attack deepseek**: 7190 / 8640 runs (83%), process running
+- **attack luna**: 8640 / 8640 runs (100%), done
+- **attack deepseek**: 8640 / 8640 runs (100%), done
 
 | Run | Model | Workflow | Runs done | Of | % | Cells finished | Cells errored |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | attack | luna | w1 | 2880 | 2880 | 100% | 6 | 0 |
 | attack | luna | w2 | 2880 | 2880 | 100% | 6 | 0 |
 | attack | luna | w3 | 2880 | 2880 | 100% | 6 | 0 |
-| attack | deepseek | w1 | 2075 | 2880 | 72% | 0 | 0 |
-| attack | deepseek | w2 | 2641 | 2880 | 91% | 2 | 0 |
-| attack | deepseek | w3 | 2474 | 2880 | 85% | 0 | 0 |
+| attack | deepseek | w1 | 2880 | 2880 | 100% | 6 | 0 |
+| attack | deepseek | w2 | 2880 | 2880 | 100% | 6 | 0 |
+| attack | deepseek | w3 | 2880 | 2880 | 100% | 6 | 0 |
