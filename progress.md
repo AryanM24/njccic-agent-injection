@@ -269,6 +269,11 @@ Task 4 of HANDOFF: twin baseline, 3 workflows × 2 models × 10 epochs
 ### 2026-10-20 ~20:45 UTC — Coder instructions written
 - `docs/design/human_coding/CODER_INSTRUCTIONS.md`: a step-by-step task sheet for Aryan (Coder A) and Rohan (Coder B). Steps: sign the undertakings → copy the sheets → 20-run practice → compare and fix rules (v1.1) → 360-run real sheet → kappa and disagreement log.
 
+### 2026-10-20 ~21:00 UTC — History wipe run by the PI; one leftover copy
+- PI ran the squash and force-push. `main` is now `50cc259ea → 1d857ecda`; commits 17f327418, c791cbe6d and c2ef213a7 are gone from `main`.
+- **Leftover:** Dependabot's open PR #1 (branch `dependabot/github_actions/github-actions-2514a98571`, the setup-uv bump) was built on top of 17f327418. That commit holds the §12 goal × channel table, so GitHub still stores the restricted text on that branch.
+- Fix (PI runs it): close the PR and delete the branch; Dependabot recreates the bump from the clean `main`. Then clean up locally. Commands are in the chat reply and findings §18.
+
 ## Live counts
 
 _Updated 2026-10-20 16:05 UTC (auto, every 5 min)_

@@ -603,6 +603,11 @@ extraction surfaces every channel to the model.
    `logs/git-backup-pre-wipe-2026-10-20.bundle` (Tier 1, gitignored). **Not yet
    done:** the force-push was blocked by the agent's safety check and must be run
    by the PI (commands in progress.md, 2026-10-20 ~20:30 entry).
+   **Update ~21:00:** the PI ran the squash; `main` is clean (`1d857ecda`).
+   Dependabot PR #1's branch still contains 17f327418, so it must be closed and
+   deleted (`gh pr close 1 --delete-branch`), then pruned locally
+   (`git fetch --prune && git gc --prune=now`). For a full purge of GitHub's
+   cached copies, contact GitHub Support.
 3. **Coders. RESOLVED 2026-10-20:** Aryan Mittal (PI) and Rohan. Each signs
    `docs/design/attestations/coder_undertakings.md` (doc 05 §8.3) before opening
    a packet. The PI built the scorers, so PI-vs-scorer agreement is not an
