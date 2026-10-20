@@ -199,19 +199,43 @@ Task 4 of HANDOFF: twin baseline, 3 workflows × 2 models × 10 epochs
   Fixed in code (running processes unaffected); attack logs will be rescored
   offline before analysis (`scripts/rescore_propagation.py`). See findings F5 and
   §10 (Luna W1 interim table).
+- 2026-10-20 05:45 UTC — Hourly check: no 429s, no errors. Luna 4,278 (49%; W2
+  48%), ~12 pairs/min → ETA ~11:45 UTC. DeepSeek 3,355 (38%), ~12 pairs/min →
+  W2 ~11:45, W3 ~12:20, W1 ~14:45 UTC.
+- 2026-10-20 06:46 UTC — Hourly check: no 429s, no errors. Luna 4,964 (57%; W2
+  72%) → ETA ~12:10 UTC. DeepSeek 4,047 (46%) → W1 (slowest) ~15:00 UTC.
+  Claude's monitoring stopped here (usage limit); runs and the 5-minute watcher
+  continue on their own. When done: rescore with
+  `scripts/rescore_propagation.py logs/attack-<model> logs/attack-<model>-rescored`,
+  then `scripts/analyze.py report` on the rescored dirs + baseline.
+- 2026-10-20 07:41 UTC — Monitoring resumed. No 429s, no errors, all 4 processes
+  and the watcher alive. Luna 5,651 (65%; W2 96%) → ETA ~12:00 UTC. DeepSeek
+  4,727 (54%) → ETA ~15:00 UTC (W1 slowest).
+- 2026-10-20 08:41 UTC — Hourly check: no 429s, no errors. **Luna W2 finished**
+  (07:47, 6/6 cells, exit 0; interim table in findings §10); Luna 6,390 (74%; W3
+  22%) → ETA ~12:00 UTC. DeepSeek 5,483 (63%) → ETA ~14:40 UTC (W1 slowest).
+- 2026-10-20 09:42 UTC — Hourly check: no 429s, no errors. Luna 7,368 (85%; W3
+  56%, ~16 pairs/min) → ETA ~11:00 UTC. DeepSeek 6,241 (72%) → ETA ~14:50 UTC
+  (W1 62%, slowest).
+- 2026-10-20 10:58 UTC — **Luna attack runs DONE**: 8,640/8,640, 18/18 cells,
+  0 errors. Rescored (2,742 samples changed) and analyzed →
+  `logs/analysis-attack-luna/`; results in findings §11. Headline: isolation cuts
+  action-stage propagation in all 9 cells (W2 ~20% → ~1%); the attack adds no
+  measurable leaks or unauthorized actions over Luna's baseline. DeepSeek 7,190
+  (83%) → ETA ~14:30 UTC.
 
 ## Live counts
 
-_Updated 2026-10-20 04:40 UTC (auto, every 5 min)_
+_Updated 2026-10-20 11:00 UTC (auto, every 5 min)_
 
-- **attack luna**: 3526 / 8640 runs (40%), process running
-- **attack deepseek**: 2603 / 8640 runs (30%), process running
+- **attack luna**: 8640 / 8640 runs (100%), process running
+- **attack deepseek**: 7190 / 8640 runs (83%), process running
 
 | Run | Model | Workflow | Runs done | Of | % | Cells finished | Cells errored |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | attack | luna | w1 | 2880 | 2880 | 100% | 6 | 0 |
-| attack | luna | w2 | 646 | 2880 | 22% | 0 | 0 |
-| attack | luna | w3 | 0 | 2880 | 0% | 0 | 0 |
-| attack | deepseek | w1 | 763 | 2880 | 26% | 0 | 0 |
-| attack | deepseek | w2 | 960 | 2880 | 33% | 0 | 0 |
-| attack | deepseek | w3 | 880 | 2880 | 30% | 0 | 0 |
+| attack | luna | w2 | 2880 | 2880 | 100% | 6 | 0 |
+| attack | luna | w3 | 2880 | 2880 | 100% | 6 | 0 |
+| attack | deepseek | w1 | 2075 | 2880 | 72% | 0 | 0 |
+| attack | deepseek | w2 | 2641 | 2880 | 91% | 2 | 0 |
+| attack | deepseek | w3 | 2474 | 2880 | 85% | 0 | 0 |
