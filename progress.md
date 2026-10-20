@@ -155,6 +155,19 @@ Task 4 of HANDOFF: twin baseline, 3 workflows × 2 models × 10 epochs
   Chrome; Wayback copies for #05, #06, #13, #14. #05 turned out to be removed
   (404), so doc 02 now cites its April 2026 Wayback capture, like #07.
   Files: `docs/design/grounding_archive/2026-10-19/`.
+- 2026-10-20 ~00:05 UTC — **Pre-attack steps 1–4 done** (user: "do steps 1-4 …
+  then start the attack runs"):
+  1. Signed doc 09 v1.1 committed and pushed.
+  2. `.gitignore` restored so `logs/` is ignored again (attack logs hold the real
+     payloads, Tier 1). The logs themselves are untouched on disk.
+  3. Dry run: 6 cells × 480 = 2,880 attack/twin pairs per workflow, 8,640 per
+     model (17,280 pipeline runs each), new config hashes (doc versions bumped).
+  4. Smoke test on the canonical corpus (`logs/smoke-attack-{luna,deepseek}/`,
+     2 pairs × 3 workflows × read_write × iso on/off × 1 epoch): **24/24 cells
+     success, 0 errors.** Real payloads work end to end: marker propagation is
+     non-zero for the first time (it was 0 in the whole baseline), and DeepSeek
+     carried the marker all the way to the action stage in W2 even with
+     isolation on. Plumbing check only; not a result.
 
 ## Live counts
 
