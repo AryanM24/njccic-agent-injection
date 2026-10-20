@@ -168,27 +168,50 @@ Task 4 of HANDOFF: twin baseline, 3 workflows × 2 models × 10 epochs
      non-zero for the first time (it was 0 in the whole baseline), and DeepSeek
      carried the marker all the way to the action stage in W2 even with
      isolation on. Plumbing check only; not a result.
+- 2026-10-20 00:05 UTC — **Attack runs launched** (task 12), canonical corpus,
+  10 epochs, 3 scopes × isolation on/off, reasoning low, via `logs/run_attack.sh`.
+  - Luna: one process, W1→W2→W3, 10 connections. Output `logs/attack-luna.out`.
+  - DeepSeek: **three parallel processes (W1, W2, W3), 12 connections each
+    (36 total, was 10)** to speed it up. Output `logs/attack-deepseek-{w1,w2,w3}.out`.
+  - Logs: `logs/attack-{luna,deepseek}/` (**Tier 1**, never share). Live counts
+    below count attack/twin pairs (2,880 per workflow). Resume after a crash by
+    rerunning the same command.
+- 2026-10-20 00:40 UTC — First measured rates, no 429s or errors:
+  - Luna 397 pairs (W1 13%), ~14 pairs/min since 00:20 → ETA **~10:30 UTC today**.
+  - DeepSeek 212 pairs (~70 per workflow: the first wave of 72 in-flight pairs
+    per process landed together), ~9–10 pairs/min total → ETA **~14:00–16:00 UTC
+    today** (about 3× faster than the baseline's pace at 10 connections).
+- 2026-10-20 01:41 UTC — Hourly check: no 429s, no errors, watcher OK.
+  Luna 1,249 (14%; W1 43%), ~14 pairs/min → ETA ~10:30 UTC. DeepSeek 747 (8%;
+  even across W1/W2/W3), ~8.8 pairs/min → ETA ~16:30 UTC.
+- 2026-10-20 02:41 UTC — Hourly check: no 429s, no errors. Luna 2,032 (23%;
+  W1 70%), ~13 pairs/min → ETA ~11:00 UTC. DeepSeek 1,352 (15%), ~10 pairs/min
+  overall, but per process W1 ~2.6/min, W2 ~4/min, W3 ~3.4/min: **W1 is the
+  bottleneck** → W2 ~13:00, W3 ~14:30, W1 ~18:30 UTC.
+- 2026-10-20 03:42 UTC — Hourly check: no 429s, no errors. Luna 2,828 (32%;
+  W1 98%, 4/6 cells done) → ETA ~11:00 UTC. DeepSeek 1,983 (23%); W1 sped up to
+  ~3.2/min → W2 ~13:00, W3 ~14:00, W1 ~15:45 UTC.
+- 2026-10-20 04:42 UTC — Hourly check: no 429s (an earlier "429" hit was a score
+  value, 0.429), no errors. **Luna W1 finished** (03:44, 6/6 cells, exit 0); Luna
+  3,526 (40%) → ETA ~11:00 UTC. DeepSeek 2,603 (30%) → ETA ~15:45 UTC.
+  **Found and fixed a measurement bug** in Luna's W1 summary: action-stage
+  propagation counted the stage's own input (always 1.0 with isolation off).
+  Fixed in code (running processes unaffected); attack logs will be rescored
+  offline before analysis (`scripts/rescore_propagation.py`). See findings F5 and
+  §10 (Luna W1 interim table).
 
 ## Live counts
 
-_Updated 2026-10-19 16:43 UTC (auto, every 5 min)_
+_Updated 2026-10-20 04:40 UTC (auto, every 5 min)_
 
-- **baseline luna**: 8700 / 8700 runs (100%), process not running
-- **baseline deepseek**: 8700 / 8700 runs (100%), process not running
-- **controls luna**: 480 / 480 runs (100%), process not running
-- **controls deepseek**: 480 / 480 runs (100%), process not running
+- **attack luna**: 3526 / 8640 runs (40%), process running
+- **attack deepseek**: 2603 / 8640 runs (30%), process running
 
 | Run | Model | Workflow | Runs done | Of | % | Cells finished | Cells errored |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| baseline | luna | w1 | 2880 | 2880 | 100% | 6 | 0 |
-| baseline | luna | w2 | 2940 | 2940 | 100% | 6 | 0 |
-| baseline | luna | w3 | 2880 | 2880 | 100% | 6 | 0 |
-| baseline | deepseek | w1 | 2880 | 2880 | 100% | 6 | 0 |
-| baseline | deepseek | w2 | 2940 | 2940 | 100% | 6 | 0 |
-| baseline | deepseek | w3 | 2880 | 2880 | 100% | 6 | 0 |
-| controls | luna | w1 | 160 | 160 | 100% | 4 | 0 |
-| controls | luna | w2 | 160 | 160 | 100% | 4 | 0 |
-| controls | luna | w3 | 160 | 160 | 100% | 4 | 0 |
-| controls | deepseek | w1 | 160 | 160 | 100% | 4 | 0 |
-| controls | deepseek | w2 | 160 | 160 | 100% | 4 | 0 |
-| controls | deepseek | w3 | 160 | 160 | 100% | 4 | 0 |
+| attack | luna | w1 | 2880 | 2880 | 100% | 6 | 0 |
+| attack | luna | w2 | 646 | 2880 | 22% | 0 | 0 |
+| attack | luna | w3 | 0 | 2880 | 0% | 0 | 0 |
+| attack | deepseek | w1 | 763 | 2880 | 26% | 0 | 0 |
+| attack | deepseek | w2 | 960 | 2880 | 33% | 0 | 0 |
+| attack | deepseek | w3 | 880 | 2880 | 30% | 0 | 0 |
