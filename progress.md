@@ -224,18 +224,25 @@ Task 4 of HANDOFF: twin baseline, 3 workflows × 2 models × 10 epochs
   measurable leaks or unauthorized actions over Luna's baseline. DeepSeek 7,190
   (83%) → ETA ~14:30 UTC.
 
+### 2026-10-20 16:30 UTC — DeepSeek attack runs done and analyzed
+- 8,640/8,640 pairs, 18/18 cells, 0 errors (W1 finished last, 16:08 UTC).
+- Rescored propagation (1,061 samples changed) → `logs/attack-deepseek-rescored/`; analysis → `logs/analysis-attack-deepseek/`.
+- Results in `findings.md` §12 (DeepSeek) and §13 (Luna vs DeepSeek).
+- Headline: the only real attack success in the study is DeepSeek, W2 hiring, read_write, isolation off: 10.6% leak vs 1.0% baseline, 40 emails to the attacker's tripwire address; 63% when the data-theft instruction is in visible text. Isolation or removing the external email tool each stop it.
+- **All main runs complete.** Next: human-check sample + kappa (task 13), write-up, canaries (task 15).
+
 ## Live counts
 
-_Updated 2026-10-20 11:00 UTC (auto, every 5 min)_
+_Updated 2026-10-20 16:05 UTC (auto, every 5 min)_
 
-- **attack luna**: 8640 / 8640 runs (100%), process running
-- **attack deepseek**: 7190 / 8640 runs (83%), process running
+- **attack luna**: 8640 / 8640 runs (100%), done
+- **attack deepseek**: 8640 / 8640 runs (100%), done
 
 | Run | Model | Workflow | Runs done | Of | % | Cells finished | Cells errored |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | attack | luna | w1 | 2880 | 2880 | 100% | 6 | 0 |
 | attack | luna | w2 | 2880 | 2880 | 100% | 6 | 0 |
 | attack | luna | w3 | 2880 | 2880 | 100% | 6 | 0 |
-| attack | deepseek | w1 | 2075 | 2880 | 72% | 0 | 0 |
-| attack | deepseek | w2 | 2641 | 2880 | 91% | 2 | 0 |
-| attack | deepseek | w3 | 2474 | 2880 | 85% | 0 | 0 |
+| attack | deepseek | w1 | 2880 | 2880 | 100% | 6 | 0 |
+| attack | deepseek | w2 | 2880 | 2880 | 100% | 6 | 0 |
+| attack | deepseek | w3 | 2880 | 2880 | 100% | 6 | 0 |
