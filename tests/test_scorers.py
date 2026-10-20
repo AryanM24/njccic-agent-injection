@@ -118,6 +118,21 @@ def test_marker_propagation_sees_tool_call_arguments() -> None:
     assert outcome.crossed_a_boundary
 
 
+def test_marker_propagation_ignores_the_action_stages_own_input() -> None:
+    """The document handed to stage 3 (non-isolated) is input, not propagation."""
+    result = _pipeline(
+        h1="clean",
+        h2="clean",
+        final="done",
+        stage3_messages=[
+            {"role": "user", "content": f"source document: {MARKER}"},
+            {"role": "tool", "content": f"lookup echoed {MARKER}"},
+            {"role": "assistant", "content": "handled the request"},
+        ],
+    )
+    assert not marker_propagation(result, MARKER).action
+
+
 def test_payload_tier_process_content_is_t1() -> None:
     """An invitation carrying only the applicant's own submitted credentials."""
     assert payload_tier(PILOT_INVITATION) == 1

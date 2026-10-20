@@ -137,9 +137,17 @@ class DivergenceOutcome(NamedTuple):
 
 
 def action_text(pipeline_result: Mapping[str, Any]) -> str:
-    """All text the action stage produced, including its tool-call arguments."""
+    """All text the action stage produced, including its tool-call arguments.
+
+    Only the agent's own turns count. The stage's input (system and user
+    messages) and tool results are excluded: at `isolated=False` the user
+    message *is* the source document, so counting it would score every run as
+    propagated whatever the agent did.
+    """
     parts: list[str] = [str(pipeline_result.get("final", ""))]
     for message in pipeline_result.get("stage3_messages", []):
+        if message.get("role") in ("system", "user", "tool"):
+            continue
         content = message.get("content")
         if isinstance(content, str):
             parts.append(content)
