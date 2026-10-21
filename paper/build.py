@@ -203,17 +203,20 @@ def table_propagation(d: dict) -> str:
 
 
 def table_hashes(d: dict) -> str:
-    """Appendix table: config hash of every cell, baseline and attack."""
-    out = []
-    for m in ("Luna", "DeepSeek"):
-        for wf in WFS:
-            for sc in SCOPES:
-                for iso in ("False", "True"):
-                    h = d["hashes"][f"{m}|{wf}|{sc}|{iso}"]
-                    out.append(f"{m} & {wf.upper()} & {sc.replace('_', '-')} & {'on' if iso == 'True' else 'off'} & "
-                               rf"\texttt{{{h['baseline']}}} & \texttt{{{h['attack']}}} \\")
-    head = r"\begin{tabular}{@{}llllll@{}}" "\n" r"\toprule" "\n" r"Model & WF & Scope & Isolation & Baseline hash & Attack hash \\" "\n" r"\midrule"
-    return "\n".join([head, *out, r"\bottomrule", r"\end{tabular}"])
+    """Appendix table: config hash of every cell, baseline and attack, Luna and DeepSeek side by side."""
+    out = [r"\begin{tabular}{@{}lll ll ll@{}}", r"\toprule",
+           r"& & & \multicolumn{2}{c}{Luna} & \multicolumn{2}{c}{DeepSeek} \\",
+           r"\cmidrule(lr){4-5}\cmidrule(l){6-7}",
+           r"WF & Scope & Isolation & Baseline & Attack & Baseline & Attack \\", r"\midrule"]
+    for wf in WFS:
+        for sc in SCOPES:
+            for iso in ("False", "True"):
+                cells = [rf"\texttt{{{d['hashes'][f'{m}|{wf}|{sc}|{iso}'][k]}}}"
+                         for m in ("Luna", "DeepSeek") for k in ("baseline", "attack")]
+                out.append(f"{wf.upper()} & {sc.replace('_', '-')} & {'on' if iso == 'True' else 'off'} & "
+                           + " & ".join(cells) + r" \\")
+        out.append(r"\addlinespace[2pt]")
+    return "\n".join([*out[:-1], r"\bottomrule", r"\end{tabular}"])
 
 
 def main() -> None:
