@@ -713,7 +713,18 @@ reported:**
   scorers. The κ = 1.00 A–B and scope agreement are only both sheets being all
   zeros.
 
-**What to do:** redo the real sheet from blank copies, actually reading each
+**How the sheets were produced (found 2026-10-20):** four untracked files in
+the repo root (`code_all_packets.py`, `extract_packet_codes.py`,
+`process_packets_helper.py`, `CODING_B_SUMMARY.md`) parsed the packets
+automatically. The summary says "Baseline filled: All rows have 0,0,0,0",
+with a handful of rows then edited. So the submission was not human coding.
+The files were moved to `logs/human-check/submission1_tools/` (Tier 1,
+gitignored) and kept as evidence. This is recorded in DEV-1.
+
+**Superseded the same day by DEV-1** (doc 09 v1.2): the human check is dropped
+and no redo is planned. The text below is kept for the record.
+
+**What to do (superseded):** redo the real sheet from blank copies, actually reading each
 packet (CODER_INSTRUCTIONS step 4). The submitted files stay unchanged as
 `coding_sheet_A.csv` / `coding_sheet_B.csv`, and should be renamed before the
 redo so the record shows this submission. Doc 09 §6 fixes the sample at 360

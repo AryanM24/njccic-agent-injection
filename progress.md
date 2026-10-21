@@ -321,6 +321,12 @@ Task 4 of HANDOFF: twin baseline, 3 workflows × 2 models × 10 epochs
   - attach the NJCCIC confirmation to DEV-1;
   - coders delete any personal copies.
 
+### 2026-10-20 ~21:50 UTC — Human check dropped (DEV-1) confirmed; record restored
+- The PI confirmed dropping kappa (NJCCIC confirmation reported by the PI). This was already committed as DEV-1 / doc 09 v1.2 in `7b65f5f2a`.
+- The working tree had deleted the DEV-1 record (`attestations/preregistration_deviations.md`) and the "NOT IN USE" banner in CODER_INSTRUCTIONS. Both were restored: doc 09 v1.2 cites the record, and it's what lets the paper report the change openly.
+- Four untracked root files showed the real sheets were script-filled, not hand-coded. Moved to `logs/human-check/submission1_tools/` (Tier 1). DEV-1 and findings §20 now say so.
+- **Still open for DEV-1:** PI initials, and the NJCCIC confirmation (sender, date, reference) attached in the record.
+
 ## Live counts
 
 _Updated 2026-10-20 16:05 UTC (auto, every 5 min)_
