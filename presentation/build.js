@@ -142,19 +142,21 @@ async function main() {
   pres.addSection({ title: "Method" });
   s = pres.addSlide({ masterName: "Content", sectionTitle: "Method" });
   s.addText("Each job runs through three AI agents in a row", { placeholder: "title" });
+  // Color by role: yellow = untrusted file, dark = AI agent, pale = record kept.
+  const ROLE = { file: [HEX.hi, HEX.ink, "5C4A12"], agent: [HEX.chalk, HEX.white, "B9C4BF"], record: ["DCE5E1", HEX.ink, HEX.muted] };
   const boxes = [
-    ["File", "attack or twin", 0.6, HEX.tint, HEX.tint],
-    ["1  Intake", "describes the file", 3.0, HEX.white, HEX.chalk],
-    ["2  Analysis", "assesses the summary", 5.75, HEX.white, HEX.chalk],
-    ["3  Action", "uses tools", 8.5, HEX.white, HEX.chalk],
-    ["Ledger", "logs every call", 11.0, HEX.tint, HEX.tint],
+    ["File", "attack or twin", 0.6, "file"],
+    ["1  Intake", "describes the file", 3.0, "agent"],
+    ["2  Analysis", "assesses the summary", 5.75, "agent"],
+    ["3  Action", "uses tools", 8.5, "agent"],
+    ["Ledger", "logs every call", 11.0, "record"],
   ];
   const by = 2.45, bh = 1.35, bw = 2.15;
-  boxes.forEach(([h, sub, x, fill, line], i) => {
-    const w = i === 4 ? 1.73 : bw;
-    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y: by, w, h: bh, rectRadius: 0.12, fill: { color: fill }, line: { color: line, width: 1.5 } });
-    text(s, h, { x, y: by + 0.3, w, h: 0.45, fontSize: 18, bold: true, align: "center" });
-    text(s, sub, { x, y: by + 0.78, w, h: 0.35, fontSize: 12, color: HEX.muted, align: "center" });
+  boxes.forEach(([h, sub, x, role], i) => {
+    const w = i === 4 ? 1.73 : bw, [fill, ink, subInk] = ROLE[role];
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y: by, w, h: bh, rectRadius: 0.12, fill: { color: fill }, line: { color: fill } });
+    text(s, h, { x, y: by + 0.3, w, h: 0.45, fontSize: 18, bold: true, align: "center", color: ink });
+    text(s, sub, { x, y: by + 0.78, w, h: 0.35, fontSize: 12, color: subInk, align: "center" });
   });
   [[2.75, 3.0], [5.15, 5.75], [7.9, 8.5], [10.65, 11.0]].forEach(([a, b]) => arrow(s, a, by + bh / 2, b - 0.02, by + bh / 2));
   // isolation-off wire: file -> under analysis and action
@@ -163,7 +165,20 @@ async function main() {
   s.addShape(pres.shapes.LINE, { x: 1.675, y: wy, w: 9.575 - 1.675, h: 0.001, line: { color: HEX.ds, width: 2, dashType: "dash" } });
   arrow(s, 6.825, wy, 6.825, by + bh + 0.02, HEX.ds, "dash");
   arrow(s, 9.575, wy, 9.575, by + bh + 0.02, HEX.ds, "dash");
-  card(s, M, 5.2, 5.9, 1.3, "FDE7DC", "iso-off");
+  // small key
+  const ky = 1.62, kz = 0.2;
+  let kx = M;
+  const keyText = (t, w) => { text(s, t, { x: kx, y: ky - 0.04, w, h: 0.28, fontSize: 11, color: HEX.muted, valign: "middle" }); kx += w + 0.3; };
+  for (const [role, label, w] of [["file", "Untrusted file", 1.2], ["agent", "AI agent", 0.8], ["record", "Record kept", 1.05]]) {
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: kx, y: ky, w: kz, h: kz, rectRadius: 0.04, fill: { color: ROLE[role][0] }, line: { color: ROLE[role][0] } });
+    kx += kz + 0.1; keyText(label, w);
+  }
+  s.addShape(pres.shapes.LINE, { x: kx, y: ky + kz / 2, w: 0.45, h: 0.001, line: { color: HEX.muted, width: 2, endArrowType: "triangle" } });
+  kx += 0.55; keyText("Passes its output on", 1.65);
+  s.addShape(pres.shapes.LINE, { x: kx, y: ky + kz / 2, w: 0.45, h: 0.001, line: { color: HEX.ds, width: 2, dashType: "dash", endArrowType: "triangle" } });
+  kx += 0.55; keyText("Raw file, only with isolation off", 2.6);
+  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: M, y: 5.2, w: 5.9, h: 1.3, rectRadius: 0.12, fill: { color: "FDE7DC" },
+    line: { color: HEX.ds, width: 1.5, dashType: "dash" }, objectName: "iso-off" });
   text(s, "Isolation off", { x: M + 0.3, y: 5.35, w: 5.3, h: 0.4, fontSize: 18, bold: true, color: "B0471E" });
   text(s, "Every agent reads the original file", { x: M + 0.3, y: 5.8, w: 5.3, h: 0.4, fontSize: 16 });
   card(s, 6.83, 5.2, 5.9, 1.3, HEX.tint, "iso-on");
