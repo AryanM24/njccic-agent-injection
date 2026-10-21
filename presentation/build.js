@@ -347,14 +347,14 @@ async function main() {
     ["code", "Text extraction with parser", "FaFileExport"],
     ["agent", "Intake agent", "FaInbox"],
     ["agent", "Analysis agent", "FaMagnifyingGlassChart"],
-    ["agent", "Action agent", "FaGears", "uses its allowed tools"],
+    ["agent", "Action agent", "FaGears", "uses allowed tools"],
     ["code", "Mock tools", "FaToolbox"],
     ["record", "Ledger", "FaBook"],
     ["code", "Scoring", "FaListCheck"],
     ["code", "Attack vs. twin comparison", "FaCodeCompare"],
-    ["result", "Findings", "FaLightbulb"],
+    ["result", "Findings", "FaChartColumn"],
   ];
-  const cols = 5, ng = 0.4, nw = (W - 2 * M - (cols - 1) * ng) / cols, nh = 1.3, r1 = 1.7, r2 = 4.2;
+  const cols = 5, ng = 0.4, nw = (W - 2 * M - (cols - 1) * ng) / cols, nh = 1.3, r1 = 1.6, r2 = 4.45;
   const npos = (i) => i < cols ? { x: M + i * (nw + ng), y: r1 } : { x: M + (2 * cols - 1 - i) * (nw + ng), y: r2 };
   for (const [i, [role, h, iconName, sub]] of nodes.entries()) {
     const { x, y } = npos(i), n = `fc-s${i + 1}`, [fill, ink, subInk] = FC[role];
@@ -381,13 +381,15 @@ async function main() {
   }
   // isolation off: raw text also reaches the analysis and action agents (enters left of the downward arrow)
   {
-    const ex = npos(1).x + nw / 2, an = npos(3).x + nw / 2, ac = npos(4).x + nw * 0.3, wy2 = r1 + nh + 0.55;
+    const ex = npos(1).x + nw / 2, an = npos(3).x + nw / 2, ac = npos(4).x + nw * 0.3, wy2 = r1 + nh + 0.32;
     const iso = { color: HEX.ds, width: 2, dashType: "dash" };
     s.addShape(pres.shapes.LINE, { x: ex, y: r1 + nh, w: 0.001, h: wy2 - r1 - nh, line: iso, objectName: "fc-iso-1" });
     s.addShape(pres.shapes.LINE, { x: ex, y: wy2, w: ac - ex, h: 0.001, line: iso, objectName: "fc-iso-2" });
     [an, ac].forEach((x, k) => s.addShape(pres.shapes.LINE, { x, y: r1 + nh + 0.06, w: 0.001, h: wy2 - r1 - nh - 0.06, flipV: true,
       line: { ...iso, endArrowType: "triangle" }, objectName: `fc-iso-${3 + k}` }));
   }
+  text(s, "EduInject", { x: W / 2 - 2, y: r1 + nh + 0.5, w: 4, h: r2 - r1 - nh - 0.65, fontSize: 30, bold: true,
+    color: HEX.chalk, align: "center", valign: "middle" });
   // small key, same style and wording as the pipeline slide
   {
     const ky = 0.6, kz = 0.2;
