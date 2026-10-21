@@ -433,12 +433,11 @@ async function main() {
   });
   const team = [["Aryan Mittal", "John P. Stevens HS"], ["Rohan Bhamidipati", "The Peddie School"],
     ["Chaitanya Palasamudrum", "John P. Stevens HS"], ["Bibhuti Swain", "John P. Stevens HS"]];
-  team.forEach(([n, sch], i) => {
+  team.forEach(([n], i) => {
     const cx = 1.85 + i * 3.2, d = 1.3, y = 4.25;
     s.addShape(pres.shapes.OVAL, { x: cx - d / 2, y, w: d, h: d, fill: { color: "2E3E3A" }, line: { color: HEX.hi, width: 2 }, objectName: `photo-${n}` });
     s.addImage({ data: ic.user, x: cx - 0.27, y: y + 0.35, w: 0.54, h: 0.54, transparency: 40 });
     text(s, n, { x: cx - 1.5, y: y + d + 0.15, w: 3.0, h: 0.4, fontSize: 16, bold: true, color: HEX.white, align: "center" });
-    text(s, sch, { x: cx - 1.5, y: y + d + 0.55, w: 3.0, h: 0.35, fontSize: 12, color: "B9C4BF", align: "center" });
   });
   notes(s, "These are the parts of the planned study we have not finished yet. First, the pre-registered two-person check of the scoring, which we could not complete (deviation DEV-1). " +
     "Second, propagation that is reworded or carries no attacker text at all, which our exact-match scorer cannot see. Third, harms that leave no unauthorized action: a shifted ranking, or something left out of the summary staff read. " +
