@@ -333,6 +333,9 @@ Task 4 of HANDOFF: twin baseline, 3 workflows × 2 models × 10 epochs
 ### 2026-10-20 ~22:10 UTC — DEV-1 initialled
 - The PI initialled DEV-1 (AM, 2026-10-20). Still open: the NJCCIC confirmation's sender, date and reference in the record's "External confirmation" row.
 
+### 2026-10-20 ~22:15 UTC — DEV-1 closed
+- The PI decided the NJCCIC confirmation won't be attached. The record now says the confirmation is "reported by the PI" with no written copy attached, and DEV-1 is marked complete.
+
 ## Live counts
 
 _Updated 2026-10-20 16:05 UTC (auto, every 5 min)_

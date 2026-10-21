@@ -1,6 +1,6 @@
 # Deviations from the Pre-Registration
 
-**STATUS: DEV-1 INITIALLED by the PI (2026-10-20); NJCCIC confirmation reference not yet attached.** Every departure from the signed
+**STATUS: DEV-1 INITIALLED by the PI (2026-10-20). Complete.** Every departure from the signed
 pre-registration (Doc 4 §16, v1.3, hash
 `f126b3fa04b0ca26c7389edceae8dcc1fb1281f910b264d5dff0535d5fbc9472`) is recorded
 here and reported in the paper. The pre-registration text itself is not
@@ -15,7 +15,7 @@ edited.
 | Deviation | No human validation. No kappa is computed or reported. |
 | Reason | The study could not field two coders who would code the 360-run sample reliably. |
 | Decided | 2026-10-20, by the PI |
-| External confirmation | NJCCIC, as reported by the PI. *Attach the confirmation (sender, date, message or reference) here:* |
+| External confirmation | NJCCIC, as reported by the PI. No written confirmation is attached (PI decision, 2026-10-20); the paper should describe it as reported by the PI, not as documented. |
 | Analysis plan | Doc 09 v1.2 §6 and §9 |
 | Effect on results | No rate changes. All rates remain the output of the deterministic rules alone, and remain lower bounds. The scorers' agreement with human judgement is **unmeasured**. |
 | Reported in the paper as | "The pre-registered two-coder validation (n = 360) was not performed; this is a recorded deviation. A 20-run calibration exercise found no scorer error on the rows the scorer decided, and two scorer misses under the strict G1 rule." |
