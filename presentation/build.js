@@ -43,8 +43,8 @@ async function main() {
 
   pres.defineSlideMaster({
     title: "Dark", background: { color: HEX.chalk },
-    objects: [{ placeholder: { options: { name: "title", type: "title", x: M, y: 2.2, w: W - 2 * M, h: 1.6,
-      fontSize: 60, bold: true, color: C.background1, fontFace: "Lato", valign: "bottom", margin: 0, align: "left" }, text: "" } }],
+    objects: [{ placeholder: { options: { name: "title", type: "title", x: M, y: 1.2, w: 7.5, h: 3.6,
+      fontSize: 40, bold: true, color: C.background1, fontFace: "Lato", valign: "bottom", margin: 0, align: "left" }, text: "" } }],
   });
   pres.defineSlideMaster({
     title: "Content", background: { color: HEX.white },
@@ -81,9 +81,7 @@ async function main() {
   // ---- 1. Title -------------------------------------------------------------
   pres.addSection({ title: "Opening" });
   let s = pres.addSlide({ masterName: "Dark", sectionTitle: "Opening" });
-  s.addText("EduInject", { placeholder: "title" });
-  text(s, "Hidden instructions in school paperwork, and what they make AI agents do", {
-    x: M, y: 3.95, w: 7.4, h: 1.0, fontSize: 24, color: HEX.white });
+  s.addText("EduInject: Indirect Prompt Injection in Staged AI Agents for School Administration", { placeholder: "title" });
   // names block matches the poster header: names in bold, advisor muted
   text(s, [
     { text: "Aryan Mittal,  Rohan Bhamidipati,  Chaitanya Palasamudrum,  Bibhuti Swain", options: { bold: true, breakLine: true } },
