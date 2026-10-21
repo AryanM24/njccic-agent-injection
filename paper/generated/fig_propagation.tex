@@ -1,0 +1,26 @@
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=3 by 1, horizontal sep=0.75cm, yticklabels at=edge left},
+  width=4.75cm, height=5.2cm, ymin=-0.02, ymax=1.02, xmin=-0.15, xmax=2.15,
+  xtick={0,1,2}, xticklabels={Intake,Analysis,Action}, ytick={0,0.25,0.5,0.75,1},
+  yticklabels={0\%,25\%,50\%,75\%,100\%}, clip=false, figaxis]
+\nextgroupplot[title={W1: IT help desk}]
+\addplot[deepseek, isooff] coordinates {(0,0.829) (1,0.702) (2,0.733)};
+\addplot[deepseek, isoon] coordinates {(0,0.819) (1,0.615) (2,0.537)};
+\addplot[luna, isooff] coordinates {(0,0.310) (1,0.298) (2,0.223)};
+\addplot[luna, isoon] coordinates {(0,0.312) (1,0.271) (2,0.065)};
+\nextgroupplot[title={W2: Applicant screening}]
+\addplot[deepseek, isooff] coordinates {(0,0.869) (1,0.769) (2,0.867)};
+\addplot[deepseek, isoon] coordinates {(0,0.896) (1,0.642) (2,0.571)};
+\addplot[luna, isooff] coordinates {(0,0.410) (1,0.235) (2,0.173)};
+\addplot[luna, isoon] coordinates {(0,0.412) (1,0.148) (2,0.006)};
+\nextgroupplot[title={W3: Parent correspondence}]
+\addplot[deepseek, isooff] coordinates {(0,0.983) (1,0.635) (2,0.819)};
+\addplot[deepseek, isoon] coordinates {(0,0.977) (1,0.542) (2,0.496)};
+\addplot[luna, isooff] coordinates {(0,0.119) (1,0.146) (2,0.177)};
+\addplot[luna, isoon] coordinates {(0,0.102) (1,0.087) (2,0.069)};
+\node[dlabel, text=luna!70!black] at (axis cs:2.12,0.069) {Luna on};
+\node[dlabel, text=luna!70!black] at (axis cs:2.12,0.177) {Luna off};
+\node[dlabel, text=deepseek!70!black] at (axis cs:2.12,0.496) {DeepSeek on};
+\node[dlabel, text=deepseek!70!black] at (axis cs:2.12,0.819) {DeepSeek off};
+\end{groupplot}
+\end{tikzpicture}

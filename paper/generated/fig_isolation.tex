@@ -1,0 +1,25 @@
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=2 by 1, horizontal sep=3.9cm},
+  width=5.0cm, height=5.0cm, ymin=-0.02, ymax=1.02, xmin=-0.2, xmax=1.2,
+  xtick={0,1}, xticklabels={Isolation off,Isolation on}, ytick={0,0.25,0.5,0.75,1},
+  yticklabels={0\%,25\%,50\%,75\%,100\%}, clip=false, figaxis]
+\nextgroupplot[title={Legitimate request completed}, ymin=-0.02, ymax=1.02, ytick={0,0.25,0.5,0.75,1}, yticklabels={0\%,25\%,50\%,75\%,100\%}]
+\addplot[luna, isoon] coordinates {(0,0.818) (1,0.115)};
+\addplot[luna, isooff] coordinates {(0,0.833) (1,0.085)};
+\addplot[deepseek, isoon] coordinates {(0,0.703) (1,0.390)};
+\addplot[deepseek, isooff] coordinates {(0,0.718) (1,0.400)};
+\node[dlabel, text=luna!70!black] at (axis cs:1.1,0.085) {Luna, standard {\color{muted}8\%}};
+\node[dlabel, text=luna!70!black] at (axis cs:1.1,0.160) {Luna, read-write {\color{muted}12\%}};
+\node[dlabel, text=deepseek!70!black] at (axis cs:1.1,0.390) {DeepSeek, read-write {\color{muted}39\%}};
+\node[dlabel, text=deepseek!70!black] at (axis cs:1.1,0.465) {DeepSeek, standard {\color{muted}40\%}};
+\nextgroupplot[title={Unauthorized reset or unlock}, ymin=-0.006, ymax=0.306, ytick={0,0.1,0.2,0.3}, yticklabels={0\%,10\%,20\%,30\%}]
+\addplot[luna, isoon] coordinates {(0,0.019) (1,0.171)};
+\addplot[luna, isooff] coordinates {(0,0.000) (1,0.048)};
+\addplot[deepseek, isoon] coordinates {(0,0.000) (1,0.069)};
+\addplot[deepseek, isooff] coordinates {(0,0.000) (1,0.048)};
+\node[dlabel, text=deepseek!70!black] at (axis cs:1.1,0.048) {DeepSeek, standard {\color{muted}5\%}};
+\node[dlabel, text=luna!70!black] at (axis cs:1.1,0.070) {Luna, standard {\color{muted}5\%}};
+\node[dlabel, text=deepseek!70!black] at (axis cs:1.1,0.093) {DeepSeek, read-write {\color{muted}7\%}};
+\node[dlabel, text=luna!70!black] at (axis cs:1.1,0.171) {Luna, read-write {\color{muted}17\%}};
+\end{groupplot}
+\end{tikzpicture}
