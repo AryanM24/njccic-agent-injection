@@ -346,68 +346,101 @@ async function main() {
     slideNumber: { x: W - M - 0.6, y: 7.0, w: 0.6, h: 0.3, fontSize: 10, color: C.accent4, fontFace: "Inter", align: "right" },
   });
   s = pres.addSlide({ masterName: "Plain", sectionTitle: "Takeaways" });
-  const steps = [
-    ["Build a fake school office", "3 jobs, invented records"],
-    ["Write attack files", "hidden note + clean twin"],
-    ["Extract the text", "fixed parsers read hidden parts"],
-    ["Run three AI agents", "intake → analysis → action"],
-    ["Log every tool call", "nothing is really sent"],
-    ["Score with fixed rules", "signed before any run"],
-    ["Compare attack vs. twin", "must beat the noise floor"],
-    ["Findings and advice", "what districts should do"],
+  // Same role colors as the pipeline slide, plus two roles that only appear here.
+  const FC = { file: [HEX.hi, HEX.ink, "5C4A12"], agent: [HEX.chalk, HEX.white, "B9C4BF"], record: ["DCE5E1", HEX.ink, HEX.muted],
+    code: [HEX.white, HEX.ink, HEX.muted], result: ["2E7D5B", HEX.white, "D3E8DD"] };
+  const nodes = [
+    ["file", "Attack file + clean twin", "note hidden in comments, properties or alt text"],
+    ["code", "Text extraction", "pinned parsers also read hidden parts"],
+    ["agent", "Intake agent", "describes the file"],
+    ["agent", "Analysis agent", "assesses the summary"],
+    ["agent", "Action agent", "calls the tools its permission level allows"],
+    ["code", "Mock tools", "reset, unlock, email, reply; nothing really sent"],
+    ["record", "Ledger", "every tool call, plus a settings fingerprint"],
+    ["code", "Fixed scoring rules", "leaks, wrong actions, spread"],
+    ["code", "Attack vs. twin", "same sample, same settings"],
+    ["code", "Noise-floor check", "must beat clean-run swings"],
+    ["result", "Findings", "4 results, 3 recommendations"],
   ];
-  const fw = 2.55, fh = 2.25, fg = 0.62, rowY = [0.9, 4.25];
-  const pos = (i) => i < 4 ? { x: M + i * (fw + fg), y: rowY[0] } : { x: M + (7 - i) * (fw + fg), y: rowY[1] };
-  steps.forEach(([h, sub], i) => {
-    const { x, y } = pos(i), n = `fc-s${i + 1}`, last = i === steps.length - 1;
-    const fill = last ? HEX.chalk : HEX.tint, ink = last ? HEX.white : HEX.ink, sub2 = last ? "B9C4BF" : HEX.muted;
-    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y, w: fw, h: fh, rectRadius: 0.12, fill: { color: fill }, line: { color: fill }, objectName: `${n}-box` });
-    s.addShape(pres.shapes.OVAL, { x: x + 0.25, y: y + 0.25, w: 0.5, h: 0.5, fill: { color: last ? HEX.hi : HEX.chalk }, line: { color: last ? HEX.hi : HEX.chalk }, objectName: `${n}-dot` });
-    text(s, `${i + 1}`, { x: x + 0.25, y: y + 0.25, w: 0.5, h: 0.5, fontSize: 16, bold: true, color: last ? HEX.chalk : HEX.white, align: "center", valign: "middle", objectName: `${n}-num` });
-    text(s, h, { x: x + 0.25, y: y + 0.88, w: fw - 0.45, h: 0.62, fontSize: 16, bold: true, color: ink, valign: "top", objectName: `${n}-title` });
-    text(s, sub, { x: x + 0.25, y: y + 1.55, w: fw - 0.45, h: 0.55, fontSize: 12, color: sub2, valign: "top", objectName: `${n}-sub` });
+  const nw = 1.75, nh = 1.85, ng = 0.326, r1 = 1.25, r2 = 4.4;
+  const npos = (i) => i < 6 ? { x: M + i * (nw + ng), y: r1 } : { x: M + (11 - i) * (nw + ng), y: r2 };
+  nodes.forEach(([role, h, sub], i) => {
+    const { x, y } = npos(i), n = `fc-s${i + 1}`, [fill, ink, subInk] = FC[role];
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y, w: nw, h: nh, rectRadius: 0.1, fill: { color: fill },
+      line: { color: role === "code" ? "9AA5A0" : fill, width: 1.25 }, objectName: `${n}-box` });
+    text(s, h, { x: x + 0.15, y: y + 0.18, w: nw - 0.3, h: 0.62, fontSize: 14, bold: true, color: ink, valign: "top", objectName: `${n}-title` });
+    text(s, sub, { x: x + 0.15, y: y + 0.85, w: nw - 0.3, h: 0.85, fontSize: 11, color: subInk, valign: "top", objectName: `${n}-sub` });
   });
-  // arrows between consecutive steps (row 1 left to right, a drop, row 2 right to left)
-  for (let i = 0; i < steps.length - 1; i++) {
-    const a = pos(i), b = pos(i + 1), name = `fc-a${i + 1}`;
+  for (let i = 0; i < nodes.length - 1; i++) {
+    const a = npos(i), b = npos(i + 1), name = `fc-a${i + 1}`;
     const line = (x1, y1, x2, y2) => s.addShape(pres.shapes.LINE, { x: Math.min(x1, x2), y: Math.min(y1, y2),
       w: Math.abs(x2 - x1) || 0.001, h: Math.abs(y2 - y1) || 0.001, flipH: x2 < x1, flipV: y2 < y1,
       line: { color: HEX.muted, width: 2, endArrowType: "triangle" }, objectName: name });
     if (a.y === b.y) {
-      const my = a.y + fh / 2;
-      b.x > a.x ? line(a.x + fw + 0.08, my, b.x - 0.08, my) : line(a.x - 0.08, my, b.x + fw + 0.08, my);
-    } else line(a.x + fw / 2, a.y + fh + 0.08, b.x + fw / 2, b.y - 0.08);
+      const my = a.y + nh / 2;
+      b.x > a.x ? line(a.x + nw + 0.04, my, b.x - 0.04, my) : line(a.x - 0.04, my, b.x + nw + 0.04, my);
+    } else line(a.x + nw / 2, a.y + nh + 0.06, b.x + nw / 2, b.y - 0.06);
   }
-  notes(s, "Click to build the study one step at a time. 1: a simulated district office with three jobs and invented records. 2: 144 attack files, each with a clean twin. " +
-    "3: the parsers that turn files into text also read hidden places like comments. 4: three AI agents in a row, with isolation on or off. " +
-    "5: every tool call is recorded, nothing is sent. 6: fixed scoring rules, signed before any run. 7: each attack is compared with its twin and must beat the noise floor. " +
-    "8: the findings and the three recommendations.");
+  // isolation off: the raw extracted text also goes to the analysis and action agents
+  {
+    const ex = npos(1).x + nw / 2, an = npos(3).x + nw / 2, ac = npos(4).x + nw / 2, wy2 = r1 + nh + 0.5;
+    const iso = { color: HEX.ds, width: 2, dashType: "dash" };
+    s.addShape(pres.shapes.LINE, { x: ex, y: r1 + nh, w: 0.001, h: wy2 - r1 - nh, line: iso, objectName: "fc-iso-1" });
+    s.addShape(pres.shapes.LINE, { x: ex, y: wy2, w: ac - ex, h: 0.001, line: iso, objectName: "fc-iso-2" });
+    [an, ac].forEach((x, k) => s.addShape(pres.shapes.LINE, { x, y: r1 + nh + 0.06, w: 0.001, h: wy2 - r1 - nh - 0.06, flipV: true,
+      line: { ...iso, endArrowType: "triangle" }, objectName: `fc-iso-${3 + k}` }));
+  }
+  // small key, same style as the pipeline slide
+  {
+    const ky = 0.55, kz = 0.2;
+    let kx = M;
+    const keyText = (t, w) => { text(s, t, { x: kx, y: ky - 0.04, w, h: 0.28, fontSize: 11, color: HEX.muted, valign: "middle" }); kx += w + 0.25; };
+    for (const [role, label, w] of [["file", "Untrusted file", 1.15], ["agent", "AI agent", 0.75], ["code", "Our fixed code", 1.15],
+      ["record", "Record kept", 1.0], ["result", "Result", 0.6]]) {
+      s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: kx, y: ky, w: kz, h: kz, rectRadius: 0.04, fill: { color: FC[role][0] },
+        line: { color: role === "code" ? "9AA5A0" : FC[role][0], width: 1 } });
+      kx += kz + 0.1; keyText(label, w);
+    }
+    s.addShape(pres.shapes.LINE, { x: kx, y: ky + kz / 2, w: 0.4, h: 0.001, line: { color: HEX.muted, width: 2, endArrowType: "triangle" } });
+    kx += 0.5; keyText("Passes output on", 1.3);
+    s.addShape(pres.shapes.LINE, { x: kx, y: ky + kz / 2, w: 0.4, h: 0.001, line: { color: HEX.ds, width: 2, dashType: "dash", endArrowType: "triangle" } });
+    kx += 0.5; keyText("Raw text, isolation off only", 2.2);
+  }
+  notes(s, "Click through the full pipeline. The attack file and its clean twin go through text extraction, which also reads hidden places like comments. " +
+    "The intake, analysis and action agents run in a row; with isolation off, the raw text also reaches the analysis and action agents (dashed line). " +
+    "The action agent calls mock tools that record but never send. Every call lands in the ledger with a fingerprint of the settings. " +
+    "Fixed rules score each run, the attack is compared with its twin from the same sample, and the difference has to beat the noise floor measured on clean runs. That gives the four findings and three recommendations.");
 
   // ---- 13. What comes next + team ---------------------------------------------
   s = pres.addSlide({ masterName: "Dark", sectionTitle: "Takeaways" });
   text(s, "What comes next", { x: M, y: 0.5, w: 8, h: 0.8, fontSize: 36, bold: true, color: HEX.white });
-  text(s, "Today's limit", { x: M, y: 1.45, w: 5.2, h: 0.35, fontSize: 13, bold: true, color: "B9C4BF" });
-  text(s, "Future work that closes it", { x: 6.55, y: 1.45, w: 6.2, h: 0.35, fontSize: 13, bold: true, color: HEX.hi });
-  [["No human check of the scoring", "Two independent people check the scoring"],
-   ["Exact repeats only, so rates are minimums", "Score paraphrased and indirect spread"],
-   ["Two models; isolation hides who asked", "More models, isolation with verified identity"]].forEach(([lim, next], i) => {
-    const y = 1.95 + i * 0.68;
-    text(s, lim, { x: M, y, w: 5.2, h: 0.5, fontSize: 16, color: "B9C4BF", valign: "middle" });
-    s.addShape(pres.shapes.LINE, { x: 5.85, y: y + 0.25, w: 0.5, h: 0.001, line: { color: HEX.hi, width: 2, endArrowType: "triangle" } });
-    text(s, next, { x: 6.55, y, w: 6.2, h: 0.5, fontSize: 18, bold: true, color: HEX.white, valign: "middle" });
+  const nexts = [
+    ["Human check of the scoring", "two independent coders, agreement reported"],
+    ["Catch reworded spread", "paraphrased and effect-only propagation"],
+    ["Measure quiet harms", "ranking shifts and omissions in staff summaries"],
+    ["Isolation + verified identity", "give the acting agent who really asked"],
+    ["Wider attack conditions", "more models, prompt knowledge, memory"],
+    ["A checklist for districts", "risk matrix mapped to OWASP, NIST, ATLAS"],
+  ];
+  nexts.forEach(([h, b], i) => {
+    const x = M + (i % 3) * 4.1, y = 1.5 + Math.floor(i / 3) * 1.15;
+    s.addShape(pres.shapes.OVAL, { x, y: y + 0.08, w: 0.18, h: 0.18, fill: { color: HEX.hi }, line: { color: HEX.hi } });
+    text(s, h, { x: x + 0.35, y, w: 3.55, h: 0.4, fontSize: 18, bold: true, color: HEX.white, valign: "top" });
+    text(s, b, { x: x + 0.35, y: y + 0.42, w: 3.55, h: 0.55, fontSize: 13, color: "B9C4BF", valign: "top" });
   });
   const team = [["Aryan Mittal", "John P. Stevens HS"], ["Rohan Bhamidipati", "The Peddie School"],
     ["Chaitanya Palasamudrum", "John P. Stevens HS"], ["Bibhuti Swain", "John P. Stevens HS"]];
   team.forEach(([n, sch], i) => {
-    const cx = 1.85 + i * 3.2, d = 1.35, y = 4.35;
+    const cx = 1.85 + i * 3.2, d = 1.3, y = 4.25;
     s.addShape(pres.shapes.OVAL, { x: cx - d / 2, y, w: d, h: d, fill: { color: "2E3E3A" }, line: { color: HEX.hi, width: 2 }, objectName: `photo-${n}` });
-    s.addImage({ data: ic.user, x: cx - 0.28, y: y + 0.36, w: 0.56, h: 0.56, transparency: 40 });
+    s.addImage({ data: ic.user, x: cx - 0.27, y: y + 0.35, w: 0.54, h: 0.54, transparency: 40 });
     text(s, n, { x: cx - 1.5, y: y + d + 0.15, w: 3.0, h: 0.4, fontSize: 16, bold: true, color: HEX.white, align: "center" });
     text(s, sch, { x: cx - 1.5, y: y + d + 0.55, w: 3.0, h: 0.35, fontSize: 12, color: "B9C4BF", align: "center" });
   });
-  notes(s, "Each next step closes a limit of this study. We did not complete the pre-registered two-coder check of the scoring (deviation DEV-1), and we used a stricter noise floor than planned (DEV-2; no verdict changes). " +
-    "Rates are lower bounds because the rules only catch verbatim repeats and listed protected terms. Results come from two models in a simulated office, so they describe relative risk, not any named product. " +
-    "The most valuable next experiment keeps isolation but hands the acting agent the logged-in requester and the record owner as fixed fields.\n\n" +
+  notes(s, "These are the parts of the planned study we have not finished yet. First, the pre-registered two-person check of the scoring, which we could not complete (deviation DEV-1). " +
+    "Second, propagation that is reworded or carries no attacker text at all, which our exact-match scorer cannot see. Third, harms that leave no unauthorized action: a shifted ranking, or something left out of the summary staff read. " +
+    "Fourth, isolation that still hands the acting agent the logged-in requester and record owner. Fifth, the attack conditions we did not vary: more models, attackers who know the system prompt, hardened prompts, trust labels, and agent memory. " +
+    "Last, the deliverable for NJCCIC and districts: a risk matrix and deployment checklist mapped to OWASP, NIST and MITRE ATLAS.\n\n" +
     "To add photos: right-click each circle, choose Format Shape, then Fill, Picture or texture fill, and insert the photo; delete the person icon on top of it.\n\n" +
     "Thank you. The paper, code and clean corpus are in the project repository; the attack files and run traces are gated under the release policy.");
 
@@ -416,7 +449,9 @@ async function main() {
   const { applyTheme } = require("./apply_theme.js");
   await applyTheme(out, THEME);
   await fixSlideNumberIds(out);
-  await animateFlowchart(out, 12, steps.length);
+  const order = [["fc-s1"]];
+  for (let n = 2; n <= nodes.length; n++) { order.push([`fc-a${n - 1}`, `fc-s${n}`]); if (n === 5) order.push(["fc-iso"]); }
+  await animateFlowchart(out, 12, order);
   console.log("wrote", out);
 }
 
@@ -440,7 +475,7 @@ async function fixSlideNumberIds(file) {
 // Click-by-click entrance for the flowchart slide: click 1 fades in step 1; each later click fades in the
 // arrow from the previous step, then the step itself. pptxgenjs cannot write animations, so the
 // <p:timing> tree is added to the slide XML by hand.
-async function animateFlowchart(file, slideNo, nSteps) {
+async function animateFlowchart(file, slideNo, order) {
   const JSZip = require(require.resolve("jszip", { paths: [require.resolve("pptxgenjs")] }));
   const zip = await JSZip.loadAsync(fs.readFileSync(file));
   const part = `ppt/slides/slide${slideNo}.xml`;
@@ -459,17 +494,21 @@ async function animateFlowchart(file, slideNo, nSteps) {
       `<p:animEffect transition="in" filter="fade"><p:cBhvr><p:cTn id="${c}" dur="400"/><p:tgtEl><p:spTgt spid="${spid}"/></p:tgtEl></p:cBhvr></p:animEffect>` +
       `</p:childTnLst></p:cTn></p:par>`;
   };
-  const clicks = [];
-  for (let n = 1; n <= nSteps; n++) {
-    const arrow = n > 1 ? group(`fc-a${n - 1}`) : [];
-    const step = group(`fc-s${n}`);
-    if (!step.length || (n > 1 && !arrow.length)) throw new Error(`flowchart shapes missing for step ${n}`);
-    const shapes = [...arrow.map((sp) => [sp, 0]), ...step.map((sp) => [sp, arrow.length ? 250 : 0])];
+  const used = new Set();
+  const clicks = order.map((prefixes) => {
+    const shapes = [];
+    prefixes.forEach((pre, k) => {
+      const g = group(pre);
+      if (!g.length) throw new Error(`flowchart shapes missing for ${pre}`);
+      g.forEach((sp) => { used.add(sp); shapes.push([sp, k * 250]); });
+    });
     const outer = ++id, inner = ++id;
-    clicks.push(`<p:par><p:cTn id="${outer}" fill="hold"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst><p:childTnLst>` +
+    return `<p:par><p:cTn id="${outer}" fill="hold"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst><p:childTnLst>` +
       `<p:par><p:cTn id="${inner}" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst>` +
-      shapes.map(([sp, d], k) => effect(sp, d, k === 0)).join("") + `</p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par>`);
-  }
+      shapes.map(([sp, d], k) => effect(sp, d, k === 0)).join("") + `</p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par>`;
+  });
+  const all = Object.values(ids).flat();
+  if (all.some((sp) => !used.has(sp))) throw new Error("some flowchart shapes are never animated in");
   const timing = `<p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst>` +
     `<p:seq concurrent="1" nextAc="seek"><p:cTn id="2" dur="indefinite" nodeType="mainSeq"><p:childTnLst>${clicks.join("")}</p:childTnLst></p:cTn>` +
     `<p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst>` +
