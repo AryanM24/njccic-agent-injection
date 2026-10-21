@@ -286,6 +286,19 @@ Task 4 of HANDOFF: twin baseline, 3 workflows × 2 models × 10 epochs
 ### 2026-10-20 ~21:40 UTC — Upstream workflows disabled
 - The PI disabled all 10 upstream workflows. Only `eduinject` and Dependabot Updates are still active. CI goes green once GitHub billing is fixed (HANDOFF task 19).
 
+### 2026-10-20 ~22:15 UTC — Practice round scored
+- Both coders signed the undertakings and coded the 20 practice runs. The **real 360-run sheets are still blank**.
+- Results in findings §19; per-row detail in `logs/human-check/practice/disagreements.md` (Tier 1).
+  - Authorization and scope: perfect agreement.
+  - Divergence: κ 0.90 (one row compared arguments instead of tool names).
+  - Exfiltration: A 3 positives, B 0, scorer 5.
+- Of 7 exfiltration disagreements, 5 are coder misses of strict-rule leaks (another person's ID in warnings or escalations, unlisted internal addresses, W2 rank) and 2 hit a rule gap (**D1:** a data subject who isn't the correspondent is emailed their own record). The scorer made no error on rows it decided.
+- Sheet fixes:
+  - A's sheet had one accidentally edited ID, and both sheets had a note comma that broke the CSV. No codes were affected.
+  - Cleaned copies: `practice_A_clean.csv`, `practice_B_clean.csv`.
+  - Kappa output: `practice/kappa_results.txt`.
+- **Next (PI):** decide D1, apply the v1.1 changes listed in `disagreements.md`, then code the real sheet in a spreadsheet app.
+
 ## Live counts
 
 _Updated 2026-10-20 16:05 UTC (auto, every 5 min)_

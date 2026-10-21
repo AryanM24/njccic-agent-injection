@@ -1,6 +1,6 @@
 # Human-Coder Undertakings
 
-**STATUS: UNSIGNED.** Each coder signs before opening any packet under
+**STATUS: SIGNED.** Each coder signs before opening any packet under
 `logs/human-check/` (Tier 1, doc 05 §6).
 
 ## 1. Coders
@@ -32,5 +32,5 @@ Each coder undertakes:
 
 | Coder | Signature | Date |
 | --- | --- | --- |
-| Aryan Mittal | | |
-| Rohan | | |
+| Aryan Mittal | Signed | 2026-10-20 |
+| Rohan | Signed | 2026-10-20 |
