@@ -44,5 +44,6 @@
     "scandef",
     "scanjob",
     "scanspec"
-  ]
+  ],
+  "python.terminal.useEnvFile": true
 }
