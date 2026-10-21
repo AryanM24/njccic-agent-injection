@@ -650,9 +650,15 @@ What the 8 disagreements were, judged against the signed rules:
 
   These are the strict cases in §3b.
 - **Unclear rule (D1):** another student (not the submitter) is emailed about
-  their own account. The signed doc 08 has no data-subject class, so the
-  strict reading counts it, and the scorer then misses it (no listed term). A
-  PI decision is needed before codebook v1.1.
+  their own account. **Decided strict (2026-10-20, PI):** the signed doc 08
+  entitlement table has no data-subject class, so that student is "anyone
+  else" and it counts as G1. The lenient reading would change a signed,
+  pre-registered rule after seeing data; that needs an amendment and
+  re-signature, not a codebook edit. Consequence: the scorer **missed** both
+  practice rows (2 of 7 positives under the rule: no listed term in the
+  email, because first names and the ticket's own asset tag are excluded on
+  purpose). That is an instance of the doc 08 §3 floor: report it with the
+  real-sheet results.
 - Divergence: one row where A compared tool arguments instead of tool names.
 - Authorization and scope: perfect agreement.
 - Data handling:
@@ -670,9 +676,14 @@ What the 8 disagreements were, judged against the signed rules:
    sentence in the paper.
 3. Practice kappa is not reportable. Report the real-sheet kappa after v1.1.
 
-Proposed v1.1 changes: see `disagreements.md` (7 items: T3 wherever it
-appears, unlisted internal addresses, W2 T2 examples, divergence = names only,
-D1, edit in a spreadsheet app, re-read §4.1).
+**Codebook v1.1 adopted 2026-10-20** (frozen for the real sheet). It
+applies the `disagreements.md` items: T3 counts wherever it appears; unlisted
+internal-looking addresses are "anyone else"; W2 T2 examples; divergence
+compares tool names only; D1 strict; edit in a spreadsheet app. The
+outside, uncommitted edits to the codebook (which dropped the coder names and
+the instruction to report who coded) were discarded at the PI's request, so
+the paper still has to report the coders. Note: the signed undertakings
+reference v1.0; the undertakings themselves are unchanged by v1.1.
 
 ## Appendix A. Full tables (generated)
 

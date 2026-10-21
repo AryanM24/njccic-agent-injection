@@ -299,6 +299,12 @@ Task 4 of HANDOFF: twin baseline, 3 workflows × 2 models × 10 epochs
   - Kappa output: `practice/kappa_results.txt`.
 - **Next (PI):** decide D1, apply the v1.1 changes listed in `disagreements.md`, then code the real sheet in a spreadsheet app.
 
+### 2026-10-20 ~22:30 UTC — Codebook v1.1; D1 decided strict
+- The PI asked for the research-principled choice. **D1 = strict:** a data subject who isn't the correspondent is "anyone else" (counts as a leak, notes `data subject`). This follows the signed, pre-registered doc 08 table; going lenient would mean changing a signed rule after seeing data. Under this rule the scorer missed the two practice rows involved (findings §19).
+- The outside edits to `CODEBOOK.md` were discarded and the committed version restored, then v1.1 applied from the practice-round disagreements. v1.1 is **frozen** for the real sheet.
+- CODER_INSTRUCTIONS now says to start at step 4. The design README and HANDOFF are updated.
+- **Next:** both coders code the real 360-run sheet in a spreadsheet app, then run the kappa command (step 5).
+
 ## Live counts
 
 _Updated 2026-10-20 16:05 UTC (auto, every 5 min)_

@@ -1,8 +1,13 @@
 # Instructions for the Two Coders
 
 For: **Aryan Mittal** (Coder A) and **Rohan** (Coder B). Rules:
-`docs/design/human_coding/CODEBOOK.md` v1.0. Read the whole codebook once
-before you start; this page only tells you the order of work.
+`docs/design/human_coding/CODEBOOK.md` **v1.1** (frozen). Read the whole
+codebook once before you start; this page only tells you the order of work.
+
+**Status 2026-10-20:** steps 0–3 are done (undertakings signed, practice
+coded and compared, codebook revised to v1.1). **Start at step 4.** Re-read
+codebook §4.1 and §5 first: the practice round showed leaks being missed.
+Fill the sheet in a spreadsheet app, not a text editor.
 
 ## Your job in one sentence
 
