@@ -26,3 +26,8 @@ test_sandbox/
 
 # local git worktrees for isolated implementation work
 .worktrees/
+# macOS Finder metadata
+.DS_Store
+
+# Superseded local draft of the paper, kept on disk only
+paper/_previous_draft/
