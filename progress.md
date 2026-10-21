@@ -309,6 +309,18 @@ Task 4 of HANDOFF: twin baseline, 3 workflows × 2 models × 10 epochs
 - Kappa run (`logs/human-check/kappa_results.txt`). Sheet A is all zeros; B has one non-zero row. The scorer marked 125/360 divergence, and a 6-row spot-check confirmed each one. Both sheets were finished about 50 minutes after being blank (12–20 h expected).
 - Findings §20: **not a valid human check; nothing reportable.** Redo from blank sheets. The submitted files are kept as they are.
 
+### 2026-10-20 ~22:45 UTC — Human validation dropped (deviation DEV-1)
+- PI decision: no two-coder check and no kappa. The PI reports NJCCIC confirmed it.
+- Recorded as a deviation, not deleted:
+  - doc 09 → **v1.2** (§6, §9), `DOC_VERSIONS.analysis_plan` = 1.2;
+  - new `docs/design/attestations/preregistration_deviations.md` (DEV-1);
+  - doc 04 left untouched (it's hashed).
+- findings §21 says what the paper can and can't claim. CODER_INSTRUCTIONS is marked not in use; HANDOFF tasks 13 and 14 updated.
+- **PI to do:**
+  - initial doc 09 v1.2 (§11) and DEV-1;
+  - attach the NJCCIC confirmation to DEV-1;
+  - coders delete any personal copies.
+
 ## Live counts
 
 _Updated 2026-10-20 16:05 UTC (auto, every 5 min)_

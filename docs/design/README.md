@@ -24,7 +24,7 @@ are kept out of the repository entirely — see `.gitignore` and
 | `06_implementation_decisions.md` | — | — | Settled and pending decisions not yet ratified into the numbered set. |
 | `07_thresholds_appendix.md` | — | v1.0 (signed, W2 G1 tiers only) | The W2 G1 sensitivity tiers and recipient entitlement. |
 | `08_w1_w3_g1_tiers_addendum.md` | — | v1.0 (signed 2026-10-11) | W1/W3 G1 tiers, the W1 authorization oracle, G5 signals and how controls are evaluated. |
-| `09_analysis_plan.md` | — | v1.1 (v1.0 signed 2026-10-18; v1.1 closes 7a, 2026-10-19) | How results are computed and reported: unit, denominators, intervals, the null rule, comparisons, human validation. |
+| `09_analysis_plan.md` | — | v1.2 (v1.0 signed 2026-10-18; v1.1 closes 7a, 2026-10-19; v1.2 drops human validation, 2026-10-20, awaiting PI initials) | How results are computed and reported: unit, denominators, intervals, the null rule, comparisons, human validation. |
 | `implementation-map.md` | — | — | Which document constraint is enforced by which code, and where they currently diverge. |
 | `human_coding/CODEBOOK.md` | — | v1.1 (2026-10-20, after the practice round; frozen for the real sheet) | Plain-language rules the two human coders follow for the doc 09 §6 check. Unnumbered and not in `DOC_VERSIONS`: it restates docs 07–08 and must not change what is measured. |
 

@@ -29,7 +29,7 @@ DOC_VERSIONS: dict[str, str] = {
     "release_policy": "1.0",
     "thresholds_appendix": "1.0",
     "tiers_addendum_w1_w3": "1.0",
-    "analysis_plan": "1.1",
+    "analysis_plan": "1.2",
 }
 """Versions of the design documents in force, mirroring `docs/design/`.
 

@@ -1,5 +1,9 @@
 # Instructions for the Two Coders
 
+**NOT IN USE (2026-10-20).** The human check was dropped as a recorded
+deviation (doc 09 v1.2 §6, `attestations/preregistration_deviations.md`).
+Kept for the record. Coders: delete any personal copies, per the undertakings.
+
 For: **Aryan Mittal** (Coder A) and **Rohan** (Coder B). Rules:
 `docs/design/human_coding/CODEBOOK.md` **v1.1** (frozen). Read the whole
 codebook once before you start; this page only tells you the order of work.

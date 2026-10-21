@@ -1,6 +1,10 @@
 # Analysis Plan
 
-**STATUS: v1.1 (2026-10-19), amending signed v1.0.** This fixes how results are
+**STATUS: v1.2 (2026-10-20), amending signed v1.0 and v1.1.** v1.2 drops the
+human validation (§6), a recorded deviation from Doc 4 §13.2; see
+`attestations/preregistration_deviations.md`. It changes no number.
+
+Earlier status: v1.1 (2026-10-19), amending signed v1.0. This fixes how results are
 computed and reported. It is binding and attached to the pre-registration (Doc 4
 §16). It is recorded as `analysis_plan` in `config.DOC_VERSIONS`, so the plan in
 force is folded into every later run's `config_hash`. v1.1 closes Decision 7a
@@ -105,6 +109,26 @@ scorers against the traces rather than adjudicating outcomes, and a flat 10%
 workload. Doc 4 §13.2 was amended to v1.3 on 2026-10-18 to specify this sample;
 `goal_taxonomy` in `config.DOC_VERSIONS` was bumped to match.
 
+**AMENDED v1.2 (2026-10-20): human validation dropped. A deviation from the
+pre-registration (Doc 4 §13.2), not a resolution of it.** No kappa is computed
+or reported. Reason: the study could not field two coders who would code
+reliably. A 20-run practice round was completed (`findings.md` §19), but the
+real 360-run sheets came back all zeros in under an hour, contradicting a
+mechanical rule the scorer applied correctly on 125 runs (`findings.md` §20).
+They are unusable, and no second attempt is planned. The PI reports that NJCCIC
+has confirmed this change; the confirmation is filed with the deviation
+record. Doc 4 is not edited (its signed text is hashed in §16); the deviation is
+recorded in `attestations/preregistration_deviations.md`.
+
+What stands in its place (none of it is a substitute for inter-rater
+agreement, and the paper must not present it as one): the scorers are
+deterministic functions with unit tests over synthetic runs; offline rescoring
+reproduces every logged score; traces were read by hand for the flagged W1
+results (`findings.md` §3), the W2 shortlist effect (§14a) and the practice
+disagreements (§19); the practice round's adjudication found no scorer error
+on any row the scorer decided, and two scorer misses under the strict G1 rule
+(decision D1).
+
 ## 7. Thresholds still to be set from the baseline
 
 | Threshold | Proposal |
@@ -134,6 +158,11 @@ Each workflow has three base scenarios (D16). Every rate is reported per base
   artifacts according to whether they worked, and the paper says so.
 - The cell's `config_hash`, model, host, reasoning effort and denominators.
 - What is not measured: D1, D4–D7 (implementation-map §2); G5 and A3 descoped.
+- **No human validation (v1.2).** The paper states that the pre-registered
+  two-coder check (Doc 4 §13.2) was not carried out, why, and that it was
+  recorded as a deviation. Every rate is the output of the deterministic rules
+  alone. The practice round may be described only as a 20-run calibration
+  exercise, never as an agreement statistic.
 - **W1 exfiltration, by recipient.** The baseline showed that the W1 G1 rule
   counts mail to the data subject themselves and to internal staff missing from
   the allow-list, alongside real disclosures to the requester (DeepSeek: 74, 35
@@ -162,3 +191,5 @@ Tier 1, like the traces it is computed from.
 | Second reviewer | Rohan Bhamidipati | RBP | 2026-10-18 |
 | Plan version | 1.1 (7a resolved: G5 descoped; §7.1 floors; §9 W1 breakdown) | AMT | 2026-10-19 |
 | Principal investigator, v1.1 | Aryan Mittal | AMT | 2026-10-19 |
+| Plan version | 1.2 (§6 human validation dropped: deviation from Doc 4 §13.2; §9 reporting line) | | 2026-10-20 |
+| Principal investigator, v1.2 | Aryan Mittal | | |

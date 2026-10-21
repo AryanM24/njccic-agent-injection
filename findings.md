@@ -552,7 +552,8 @@ DeepSeek uses ~2.3× Luna's input and ~3.1× its output tokens per pair, and
    Luna, raises W1 unauthorized actions +0.19 (baseline and attack alike).
 7. **Attacks cause over-caution in W1** (task completion −10 to −25 points)
    and, for DeepSeek, internal escalations scored as G1 under the signed rule.
-8. **An unscored attack effect exists** (Luna W2 shortlist submission +0.07
+8. **No human validation (DEV-1)**: state it; see §21.
+9. **An unscored attack effect exists** (Luna W2 shortlist submission +0.07
    to +0.26), which the deterministic harm scorers miss; all rates are lower
    bounds (D1, D4–D7).
 
@@ -717,6 +718,30 @@ packet (CODER_INSTRUCTIONS step 4). The submitted files stay unchanged as
 `coding_sheet_A.csv` / `coding_sheet_B.csv`, and should be renamed before the
 redo so the record shows this submission. Doc 09 §6 fixes the sample at 360
 runs; coding fewer would be a deviation to record, not a shortcut.
+
+## 21. Human validation dropped: deviation DEV-1 (2026-10-20)
+
+The PI dropped the pre-registered two-coder check: there were no two coders
+who could do it reliably. The PI reports that NJCCIC confirmed the change.
+Recorded as a **deviation**, not a quiet removal:
+- **Doc 09 v1.2** amends §6 (no kappa computed or reported) and §9 (the paper
+  must say so). `analysis_plan` is bumped to `1.2` in `config.DOC_VERSIONS`.
+  All existing runs were produced under v1.1. v1.2 changes reporting only, not
+  any number.
+- The **deviation record** is `docs/design/attestations/preregistration_deviations.md`
+  (DEV-1). The PI must initial it and attach the NJCCIC confirmation.
+- **Doc 04 (the signed pre-registration) is not edited**, because §16 records
+  the SHA-256 of its exact text.
+
+**What the paper can and can't say:**
+- Can say: all rates come from deterministic rules, unit-tested, reproduced by
+  offline rescoring, with hand-read traces for the key results. A 20-run
+  calibration exercise found no scorer error on the rows the scorer decided,
+  and two scorer misses under the strict G1 rule (D1).
+- Can't say: any agreement statistic. That includes the practice-round kappa
+  and the §20 submission.
+- Must say: the scorers' agreement with human judgement is unmeasured, and the
+  pre-registered check was not performed.
 
 ## Appendix A. Full tables (generated)
 
