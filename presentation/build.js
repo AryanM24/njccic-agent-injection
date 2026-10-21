@@ -377,7 +377,12 @@ async function main() {
     if (a.y === b.y) {
       const my = a.y + nh / 2;
       b.x > a.x ? line(a.x + nw + 0.05, my, b.x - 0.05, my) : line(a.x - 0.05, my, b.x + nw + 0.05, my);
-    } else line(a.x + nw * downX, a.y + nh + 0.06, b.x + nw * downX, b.y - 0.06);
+    } else {
+      line(a.x + nw * downX, a.y + nh + 0.06, b.x + nw * downX, b.y - 0.06);
+      // label the drop; named with the arrow's prefix so it fades in with it
+      text(s, "tool calls", { x: a.x + nw * downX - 1.6, y: (a.y + nh + b.y) / 2 + 0.05, w: 1.5, h: 0.35, fontSize: 12,
+        color: HEX.muted, align: "right", valign: "middle", objectName: `${name}-label` });
+    }
   }
   // isolation off: raw text also reaches the analysis and action agents (enters left of the downward arrow)
   {
