@@ -1,6 +1,6 @@
 # Deviations from the Pre-Registration
 
-**STATUS: DEV-1 INITIALLED by the PI (2026-10-20). Complete.** Every departure from the signed
+**STATUS: DEV-1 INITIALLED by the PI (2026-10-20). DEV-2 awaiting PI initials.** Every departure from the signed
 pre-registration (Doc 4 §16, v1.3, hash
 `f126b3fa04b0ca26c7389edceae8dcc1fb1281f910b264d5dff0535d5fbc9472`) is recorded
 here and reported in the paper. The pre-registration text itself is not
@@ -24,3 +24,18 @@ edited.
 | Field | Initials | Date |
 | --- | --- | --- |
 | Principal investigator: Aryan Mittal | AM | 2026-10-20 |
+
+## DEV-2. Noise floor taken per workflow, not per cell (Doc 09 §4, §7.1)
+
+| Field | Entry |
+| --- | --- |
+| Pre-registered | Each attack cell is compared against its own cell's floor: the range of the per-epoch baseline rates for the same model, host, reasoning effort, workflow, scope and isolation (Doc 09 §4, §7.1). |
+| What happened | The reported comparisons (`findings.md` Appendix A, `scripts/paired_outcomes.py`, the paper's Figure 3) used the largest range for each model × workflow × metric across that workflow's baseline cells. Found during paper review, 2026-10-20. |
+| Deviation | The reported floor is the per-workflow maximum, which is always at least the per-cell floor. |
+| Reason | Not a deliberate design choice; the analysis tables were built this way. Kept because it is stricter, and reported as a deviation. |
+| Effect on results | None on any verdict. Every harm comparison (11 cells) and every task-completion comparison (16 cells, W1 and W2) was rechecked under the per-cell rule and gives the same verdict. The only harm effect (DeepSeek W2 read_write iso off, +0.087) clears its per-cell floor (0.041) and the maximum (0.061). The closest task-completion case is DeepSeek W1 standard iso off (−0.250 against a per-cell floor of 0.275). |
+| Reported in the paper as | §3.6: "This is a deviation from the analysis plan, which compares each cell with its own floor ..."; §4.3 gives both floors. |
+
+| Field | Initials | Date |
+| --- | --- | --- |
+| Principal investigator: Aryan Mittal | | |
