@@ -283,6 +283,9 @@ Task 4 of HANDOFF: twin baseline, 3 workflows × 2 models × 10 epochs
   `for w in build.yml build_sandbox_tools.yml changelog-lint.yml docker.yml log_viewer.yml npm-publish.yml pr-gate.yml pr-stale.yml sync_model_data.yml test.yml; do gh workflow disable "$w"; done`
 - Uncommitted edits to `CODEBOOK.md` appeared from outside this session (coder names and "report who the coders were" removed). Left for the PI; not committed or reverted.
 
+### 2026-10-20 ~21:40 UTC — Upstream workflows disabled
+- The PI disabled all 10 upstream workflows. Only `eduinject` and Dependabot Updates are still active. CI goes green once GitHub billing is fixed (HANDOFF task 19).
+
 ## Live counts
 
 _Updated 2026-10-20 16:05 UTC (auto, every 5 min)_
