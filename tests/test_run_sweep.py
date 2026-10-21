@@ -55,10 +55,20 @@ def test_dry_run_needs_no_api_key(
         monkeypatch.setenv(variable, "x")  # registers the original (absent) state
         monkeypatch.delenv(variable)
     argv = [
-        "--workflow", "w2", "--benign-only", "--epochs", "1", "--limit", "1",
-        "--model", "openrouter/deepseek/deepseek-v4-flash-0731",
-        "-M", 'provider={"order":["DeepInfra"],"allow_fallbacks":false}',
-        "--reasoning-effort", "low", "--dry-run",
+        "--workflow",
+        "w2",
+        "--benign-only",
+        "--epochs",
+        "1",
+        "--limit",
+        "1",
+        "--model",
+        "openrouter/deepseek/deepseek-v4-flash-0731",
+        "-M",
+        'provider={"order":["DeepInfra"],"allow_fallbacks":false}',
+        "--reasoning-effort",
+        "low",
+        "--dry-run",
     ]
     assert main(argv) == 0
     assert "config_hash=" in capsys.readouterr().out

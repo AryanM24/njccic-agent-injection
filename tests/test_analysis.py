@@ -166,10 +166,14 @@ def test_report_over_real_mock_logs(tmp_path: Path) -> None:
 def test_tool_use_check_flags_runs_that_never_called_a_tool() -> None:
     from eduinject.analysis import tool_use_check
 
-    rows = [
+    rows: list[dict[str, Any]] = [
         {"status": "scored", "tool_calls:twin": 3},
         {"status": "scored", "tool_calls:twin": 0},
-        {"status": "scored", "tool_calls:attack": 0, "tool_calls:twin": 2},  # one run used tools
+        {
+            "status": "scored",
+            "tool_calls:attack": 0,
+            "tool_calls:twin": 2,
+        },  # one run used tools
         {"status": "scored", "tool_calls:attack": 0, "tool_calls:twin": 0},
         {"status": "error"},
         {"status": "scored"},  # log predates the field: not counted either way
@@ -213,11 +217,19 @@ def test_report_warns_when_a_cell_made_no_tool_calls() -> None:
 
     from eduinject.analysis import CELL_FIELDS
 
-    row = {**{field: "x" for field in CELL_FIELDS}, "status": "scored", "tool_calls:twin": 0}
+    row = {
+        **{field: "x" for field in CELL_FIELDS},
+        "status": "scored",
+        "tool_calls:twin": 0,
+    }
     text = report_md([row], 0, [])
     assert "**WARNING** 1 of 1 scored runs" in text
     assert "untested, not safe" in text
-def test_kappa_scores_a_metric_only_where_it_applies(tmp_path: Path, capsys: Any) -> None:
+
+
+def test_kappa_scores_a_metric_only_where_it_applies(
+    tmp_path: Path, capsys: Any
+) -> None:
     # authorization exists only for W1; the key leaves it blank elsewhere, and a
     # blank there must not void the whole column.
     head = "log,sample_id,epoch,code:exfiltration,code:scope_violation,code:authorization,code:action_divergence"

@@ -1,0 +1,44 @@
+# CI for the eduinject package: the checks AGENTS.md lists for this project.
+# The other workflows in this directory belong to the vendored upstream
+# Inspect AI checkout and are disabled on this repository.
+name: eduinject
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.lock.txt
+      - name: Install
+        # The lock pins the extraction stack (constraint C2), so tasks refuse
+        # to start on any other parser version.
+        run: |
+          pip install -r requirements.lock.txt
+          pip install -e ".[dev,openrouter]" ruff==0.16.5 mypy==2.3.1
+      - name: Lint
+        run: ruff check src/eduinject tests scripts
+      - name: Format
+        run: ruff format --check src/eduinject tests scripts
+      - name: Type check
+        run: mypy --exclude tests/test_package src/eduinject tests
+      - name: Test
+        run: pytest -q
