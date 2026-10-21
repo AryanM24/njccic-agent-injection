@@ -274,6 +274,15 @@ Task 4 of HANDOFF: twin baseline, 3 workflows × 2 models × 10 epochs
 - **Leftover:** Dependabot's open PR #1 (branch `dependabot/github_actions/github-actions-2514a98571`, the setup-uv bump) was built on top of 17f327418. That commit holds the §12 goal × channel table, so GitHub still stores the restricted text on that branch.
 - Fix (PI runs it): close the PR and delete the branch; Dependabot recreates the bump from the clean `main`. Then clean up locally. Commands are in the chat reply and findings §18.
 
+### 2026-10-20 ~21:30 UTC — Wipe finished; CI diagnosed and fixed on the code side
+- **History wipe complete.** The PI closed Dependabot PR #1 and deleted its branch. The agent removed the local `ORIG_HEAD` marker and pruned, so the old commits are gone locally and on every remote branch. **Left on GitHub:** `refs/pull/1/head` (read-only; only GitHub Support can remove it) and any cached views. The backup bundle `logs/git-backup-pre-wipe-2026-10-20.bundle` still holds the text.
+- **Why CI fails:** GitHub never started any job ("recent account payments have failed or your spending limit needs to be increased"). It's a billing problem, not code. Fix it in GitHub → Settings → Billing & plans.
+- **Also:** the existing workflows are upstream Inspect AI's (they lint, type-check and test the vendored `src/inspect_ai`). They would fail on this repo even with billing fixed: pinned ruff 0.9.6 finds 662 errors.
+- **Added `.github/workflows/eduinject.yml`**, which runs this project's own checks (ruff, mypy on `src/eduinject` + `tests`, pytest). It passed in a fresh environment: 307 tests, lint/format/mypy clean. Fixed a pre-existing mypy error and formatting in two test files.
+- **PI to do** (the agent's safety check blocked this): disable the upstream workflows so they stop failing and using minutes:
+  `for w in build.yml build_sandbox_tools.yml changelog-lint.yml docker.yml log_viewer.yml npm-publish.yml pr-gate.yml pr-stale.yml sync_model_data.yml test.yml; do gh workflow disable "$w"; done`
+- Uncommitted edits to `CODEBOOK.md` appeared from outside this session (coder names and "report who the coders were" removed). Left for the PI; not committed or reverted.
+
 ## Live counts
 
 _Updated 2026-10-20 16:05 UTC (auto, every 5 min)_
