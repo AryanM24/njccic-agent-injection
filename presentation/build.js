@@ -14,8 +14,8 @@ const base = (m, wf, sc, iso, metric) => D.baseline[`${m}|${wf}|${sc}|${iso}|${m
 
 const THEME = {
   name: "EduInject",
-  headFontFace: "Inter",
-  bodyFontFace: "Inter",
+  headFontFace: "Lato",
+  bodyFontFace: "Lato",
   colors: {
     dk1: "1F1E1C", lt1: "FFFFFF", dk2: "1E2A27", lt2: "F2F5F3",
     accent1: "2A78D6", accent2: "EB6834", accent3: "F2C14E", accent4: "5F6B66",
@@ -37,23 +37,23 @@ async function main() {
   pres.title = "EduInject";
   pres.author = "Aryan Mittal, Rohan Bhamidipati, Chaitanya Palasamudrum, Bibhuti Swain";
   pres.subject = "Indirect prompt injection in staged AI agents for school administration";
-  pres.theme = { headFontFace: "Inter", bodyFontFace: "Inter" };
+  pres.theme = { headFontFace: "Lato", bodyFontFace: "Lato" };
   const C = pres.SchemeColor;
   const W = 13.333, M = 0.6;
 
   pres.defineSlideMaster({
     title: "Dark", background: { color: HEX.chalk },
     objects: [{ placeholder: { options: { name: "title", type: "title", x: M, y: 2.2, w: W - 2 * M, h: 1.6,
-      fontSize: 60, bold: true, color: C.background1, fontFace: "Inter", valign: "bottom", margin: 0, align: "left" }, text: "" } }],
+      fontSize: 60, bold: true, color: C.background1, fontFace: "Lato", valign: "bottom", margin: 0, align: "left" }, text: "" } }],
   });
   pres.defineSlideMaster({
     title: "Content", background: { color: HEX.white },
     objects: [
       { placeholder: { options: { name: "title", type: "title", x: M, y: 0.42, w: W - 2 * M, h: 0.85,
-        fontSize: 32, bold: true, color: C.text1, fontFace: "Inter", valign: "top", margin: 0, align: "left" }, text: "" } },
-      { text: { text: "EduInject", options: { x: M, y: 7.0, w: 3, h: 0.3, fontSize: 10, color: C.accent4, fontFace: "Inter", margin: 0 } } },
+        fontSize: 32, bold: true, color: C.text1, fontFace: "Lato", valign: "top", margin: 0, align: "left" }, text: "" } },
+      { text: { text: "EduInject", options: { x: M, y: 7.0, w: 3, h: 0.3, fontSize: 10, color: C.accent4, fontFace: "Lato", margin: 0 } } },
     ],
-    slideNumber: { x: W - M - 0.6, y: 7.0, w: 0.6, h: 0.3, fontSize: 10, color: C.accent4, fontFace: "Inter", align: "right" },
+    slideNumber: { x: W - M - 0.6, y: 7.0, w: 0.6, h: 0.3, fontSize: 10, color: C.accent4, fontFace: "Lato", align: "right" },
   });
 
   const ic = {};
@@ -67,7 +67,7 @@ async function main() {
   ]) ic[k] = await icon(name, col);
 
   const notes = (s, t) => s.addNotes(t);
-  const text = (s, t, o) => s.addText(t, { isTextBox: true, fontFace: "Inter", margin: 0, color: HEX.ink, ...o });
+  const text = (s, t, o) => s.addText(t, { isTextBox: true, fontFace: "Lato", margin: 0, color: HEX.ink, ...o });
   const card = (s, x, y, w, h, fill = HEX.tint, name = "card") =>
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y, w, h, rectRadius: 0.12, fill: { color: fill }, line: { color: fill }, objectName: name });
   const circleIcon = (s, x, y, d, data, fill) => {
@@ -335,35 +335,40 @@ async function main() {
   // ---- 12. Study flowchart (no title; animated in build step below) ------------
   pres.defineSlideMaster({
     title: "Plain", background: { color: HEX.white },
-    objects: [{ text: { text: "EduInject", options: { x: M, y: 7.0, w: 3, h: 0.3, fontSize: 10, color: C.accent4, fontFace: "Inter", margin: 0 } } }],
-    slideNumber: { x: W - M - 0.6, y: 7.0, w: 0.6, h: 0.3, fontSize: 10, color: C.accent4, fontFace: "Inter", align: "right" },
+    objects: [{ text: { text: "EduInject", options: { x: M, y: 7.0, w: 3, h: 0.3, fontSize: 10, color: C.accent4, fontFace: "Lato", margin: 0 } } }],
+    slideNumber: { x: W - M - 0.6, y: 7.0, w: 0.6, h: 0.3, fontSize: 10, color: C.accent4, fontFace: "Lato", align: "right" },
   });
   s = pres.addSlide({ masterName: "Plain", sectionTitle: "Takeaways" });
-  // Same role colors as the pipeline slide, plus two roles that only appear here.
+  // Same role colors as the pipeline slide, plus two roles that only appear here. No white fills, no borders.
   const FC = { file: [HEX.hi, HEX.ink, "5C4A12"], agent: [HEX.chalk, HEX.white, "B9C4BF"], record: ["DCE5E1", HEX.ink, HEX.muted],
-    code: [HEX.white, HEX.ink, HEX.muted], result: ["2E7D5B", HEX.white, "D3E8DD"] };
+    code: ["3D5A80", HEX.white, "D5E0EE"], result: ["2E7D5B", HEX.white, "D3E8DD"] };
   const nodes = [
-    ["file", "Attack file + clean twin", "note hidden in comments, properties or alt text"],
-    ["code", "Text extraction", "pinned parsers also read hidden parts"],
-    ["agent", "Intake agent", "describes the file"],
-    ["agent", "Analysis agent", "assesses the summary"],
-    ["agent", "Action agent", "calls the tools its permission level allows"],
-    ["code", "Mock tools", "reset, unlock, email, reply; nothing really sent"],
-    ["record", "Ledger", "every tool call, plus a settings fingerprint"],
-    ["code", "Fixed scoring rules", "leaks, wrong actions, spread"],
-    ["code", "Attack vs. twin", "same sample, same settings"],
-    ["code", "Noise-floor check", "must beat clean-run swings"],
-    ["result", "Findings", "4 results, 3 recommendations"],
+    ["file", "Attack file + clean twin", "FaFileLines"],
+    ["code", "Text extraction with parser", "FaFileExport"],
+    ["agent", "Intake agent", "FaInbox"],
+    ["agent", "Analysis agent", "FaMagnifyingGlassChart"],
+    ["agent", "Action agent", "FaGears", "uses its allowed tools"],
+    ["code", "Mock tools", "FaToolbox"],
+    ["record", "Ledger", "FaBook"],
+    ["code", "Scoring", "FaListCheck"],
+    ["code", "Attack vs. twin comparison", "FaCodeCompare"],
+    ["result", "Findings", "FaLightbulb"],
   ];
-  const nw = 1.75, nh = 1.85, ng = 0.326, r1 = 1.25, r2 = 4.4;
-  const npos = (i) => i < 6 ? { x: M + i * (nw + ng), y: r1 } : { x: M + (11 - i) * (nw + ng), y: r2 };
-  nodes.forEach(([role, h, sub], i) => {
+  const cols = 5, ng = 0.4, nw = (W - 2 * M - (cols - 1) * ng) / cols, nh = 1.3, r1 = 1.7, r2 = 4.2;
+  const npos = (i) => i < cols ? { x: M + i * (nw + ng), y: r1 } : { x: M + (2 * cols - 1 - i) * (nw + ng), y: r2 };
+  for (const [i, [role, h, iconName, sub]] of nodes.entries()) {
     const { x, y } = npos(i), n = `fc-s${i + 1}`, [fill, ink, subInk] = FC[role];
-    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y, w: nw, h: nh, rectRadius: 0.1, fill: { color: fill },
-      line: { color: role === "code" ? "9AA5A0" : fill, width: 1.25 }, objectName: `${n}-box` });
-    text(s, h, { x: x + 0.15, y: y + 0.18, w: nw - 0.3, h: 0.62, fontSize: 14, bold: true, color: ink, valign: "top", objectName: `${n}-title` });
-    text(s, sub, { x: x + 0.15, y: y + 0.85, w: nw - 0.3, h: 0.85, fontSize: 11, color: subInk, valign: "top", objectName: `${n}-sub` });
-  });
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y, w: nw, h: nh, rectRadius: 0.06, fill: { color: fill }, line: { type: "none" }, objectName: `${n}-box` });
+    s.addImage({ data: await icon(iconName, ink), x: x + 0.18, y: y + (nh - 0.4) / 2, w: 0.4, h: 0.4, objectName: `${n}-icon` });
+    const tx = x + 0.7, tw = nw - 0.8;
+    if (sub) {
+      text(s, h, { x: tx, y: y + 0.27, w: tw, h: 0.4, fontSize: 14, bold: true, color: ink, valign: "top", objectName: `${n}-title` });
+      text(s, sub, { x: tx, y: y + 0.66, w: tw, h: 0.45, fontSize: 11, color: subInk, valign: "top", objectName: `${n}-sub` });
+    } else {
+      text(s, h, { x: tx, y, w: tw, h: nh, fontSize: 14, bold: true, color: ink, valign: "middle", objectName: `${n}-title` });
+    }
+  }
+  const downX = 0.68; // where the row-to-row arrow leaves/enters, as a share of node width
   for (let i = 0; i < nodes.length - 1; i++) {
     const a = npos(i), b = npos(i + 1), name = `fc-a${i + 1}`;
     const line = (x1, y1, x2, y2) => s.addShape(pres.shapes.LINE, { x: Math.min(x1, x2), y: Math.min(y1, y2),
@@ -371,38 +376,37 @@ async function main() {
       line: { color: HEX.muted, width: 2, endArrowType: "triangle" }, objectName: name });
     if (a.y === b.y) {
       const my = a.y + nh / 2;
-      b.x > a.x ? line(a.x + nw + 0.04, my, b.x - 0.04, my) : line(a.x - 0.04, my, b.x + nw + 0.04, my);
-    } else line(a.x + nw / 2, a.y + nh + 0.06, b.x + nw / 2, b.y - 0.06);
+      b.x > a.x ? line(a.x + nw + 0.05, my, b.x - 0.05, my) : line(a.x - 0.05, my, b.x + nw + 0.05, my);
+    } else line(a.x + nw * downX, a.y + nh + 0.06, b.x + nw * downX, b.y - 0.06);
   }
-  // isolation off: the raw extracted text also goes to the analysis and action agents
+  // isolation off: raw text also reaches the analysis and action agents (enters left of the downward arrow)
   {
-    const ex = npos(1).x + nw / 2, an = npos(3).x + nw / 2, ac = npos(4).x + nw / 2, wy2 = r1 + nh + 0.5;
+    const ex = npos(1).x + nw / 2, an = npos(3).x + nw / 2, ac = npos(4).x + nw * 0.3, wy2 = r1 + nh + 0.55;
     const iso = { color: HEX.ds, width: 2, dashType: "dash" };
     s.addShape(pres.shapes.LINE, { x: ex, y: r1 + nh, w: 0.001, h: wy2 - r1 - nh, line: iso, objectName: "fc-iso-1" });
     s.addShape(pres.shapes.LINE, { x: ex, y: wy2, w: ac - ex, h: 0.001, line: iso, objectName: "fc-iso-2" });
     [an, ac].forEach((x, k) => s.addShape(pres.shapes.LINE, { x, y: r1 + nh + 0.06, w: 0.001, h: wy2 - r1 - nh - 0.06, flipV: true,
       line: { ...iso, endArrowType: "triangle" }, objectName: `fc-iso-${3 + k}` }));
   }
-  // small key, same style as the pipeline slide
+  // small key, same style and wording as the pipeline slide
   {
-    const ky = 0.55, kz = 0.2;
+    const ky = 0.6, kz = 0.2;
     let kx = M;
-    const keyText = (t, w) => { text(s, t, { x: kx, y: ky - 0.04, w, h: 0.28, fontSize: 11, color: HEX.muted, valign: "middle" }); kx += w + 0.25; };
-    for (const [role, label, w] of [["file", "Untrusted file", 1.15], ["agent", "AI agent", 0.75], ["code", "Our fixed code", 1.15],
-      ["record", "Record kept", 1.0], ["result", "Result", 0.6]]) {
-      s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: kx, y: ky, w: kz, h: kz, rectRadius: 0.04, fill: { color: FC[role][0] },
-        line: { color: role === "code" ? "9AA5A0" : FC[role][0], width: 1 } });
+    const keyText = (t, w) => { text(s, t, { x: kx, y: ky - 0.04, w, h: 0.28, fontSize: 11, color: HEX.muted, valign: "middle" }); kx += w + 0.22; };
+    for (const [role, label, w] of [["file", "Untrusted file", 1.0], ["agent", "AI agent", 0.65], ["code", "Our code", 0.7],
+      ["record", "Record kept", 0.9], ["result", "Result", 0.5]]) {
+      s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: kx, y: ky, w: kz, h: kz, rectRadius: 0.03, fill: { color: FC[role][0] }, line: { type: "none" } });
       kx += kz + 0.1; keyText(label, w);
     }
     s.addShape(pres.shapes.LINE, { x: kx, y: ky + kz / 2, w: 0.4, h: 0.001, line: { color: HEX.muted, width: 2, endArrowType: "triangle" } });
-    kx += 0.5; keyText("Passes output on", 1.3);
+    kx += 0.5; keyText("Passes its output on", 1.5);
     s.addShape(pres.shapes.LINE, { x: kx, y: ky + kz / 2, w: 0.4, h: 0.001, line: { color: HEX.ds, width: 2, dashType: "dash", endArrowType: "triangle" } });
-    kx += 0.5; keyText("Raw text, isolation off only", 2.2);
+    kx += 0.5; keyText("Isolation off, so raw files passed along", 2.8);
   }
   notes(s, "Click through the full pipeline. The attack file and its clean twin go through text extraction, which also reads hidden places like comments. " +
     "The intake, analysis and action agents run in a row; with isolation off, the raw text also reaches the analysis and action agents (dashed line). " +
     "The action agent calls mock tools that record but never send. Every call lands in the ledger with a fingerprint of the settings. " +
-    "Fixed rules score each run, the attack is compared with its twin from the same sample, and the difference has to beat the noise floor measured on clean runs. That gives the four findings and three recommendations.");
+    "Fixed rules score each run, and the attack is compared with its twin from the same sample; the difference has to beat the noise floor measured on clean runs. That gives the four findings and three recommendations.");
 
   // ---- 13. What comes next + team ---------------------------------------------
   s = pres.addSlide({ masterName: "Dark", sectionTitle: "Takeaways" });
