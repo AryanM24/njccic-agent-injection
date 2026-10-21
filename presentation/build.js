@@ -394,17 +394,17 @@ async function main() {
   {
     const ky = 0.55, kz = 0.2;
     let kx = M;
-    const keyText = (t, w) => { text(s, t, { x: kx, y: ky - 0.04, w, h: 0.28, fontSize: 11, color: HEX.muted, valign: "middle" }); kx += w + 0.25; };
-    for (const [role, label, w] of [["file", "Untrusted file", 1.15], ["agent", "AI agent", 0.75], ["code", "Our fixed code", 1.15],
-      ["record", "Record kept", 1.0], ["result", "Result", 0.6]]) {
+    const keyText = (t, w) => { text(s, t, { x: kx, y: ky - 0.04, w, h: 0.28, fontSize: 11, color: HEX.muted, valign: "middle", wrap: false }); kx += w + 0.16; };
+    for (const [role, label, w] of [["file", "Untrusted file", 1.05], ["agent", "AI agent", 0.62], ["code", "Our fixed code", 1.1],
+      ["record", "Record kept", 0.88], ["result", "Result", 0.5]]) {
       s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: kx, y: ky, w: kz, h: kz, rectRadius: 0.04, fill: { color: FC[role][0] },
         line: { color: role === "code" ? "9AA5A0" : FC[role][0], width: 1 } });
       kx += kz + 0.1; keyText(label, w);
     }
     s.addShape(pres.shapes.LINE, { x: kx, y: ky + kz / 2, w: 0.4, h: 0.001, line: { color: HEX.muted, width: 2, endArrowType: "triangle" } });
-    kx += 0.5; keyText("Passes output on", 1.3);
+    kx += 0.5; keyText("Passes output on", 1.25);
     s.addShape(pres.shapes.LINE, { x: kx, y: ky + kz / 2, w: 0.4, h: 0.001, line: { color: HEX.ds, width: 2, dashType: "dash", endArrowType: "triangle" } });
-    kx += 0.5; keyText("Raw text, isolation off only", 2.2);
+    kx += 0.5; keyText("Isolation off, so raw files passed along", 2.9);
   }
   notes(s, "Click through the full pipeline. The attack file and its clean twin go through text extraction, which also reads hidden places like comments. " +
     "The intake, analysis and action agents run in a row; with isolation off, the raw text also reaches the analysis and action agents (dashed line). " +
