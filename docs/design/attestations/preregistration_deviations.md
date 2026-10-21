@@ -1,6 +1,6 @@
 # Deviations from the Pre-Registration
 
-**STATUS: AWAITING PI INITIALS.** Every departure from the signed
+**STATUS: DEV-1 INITIALLED by the PI (2026-10-20); NJCCIC confirmation reference not yet attached.** Every departure from the signed
 pre-registration (Doc 4 §16, v1.3, hash
 `f126b3fa04b0ca26c7389edceae8dcc1fb1281f910b264d5dff0535d5fbc9472`) is recorded
 here and reported in the paper. The pre-registration text itself is not
@@ -23,4 +23,4 @@ edited.
 
 | Field | Initials | Date |
 | --- | --- | --- |
-| Principal investigator: Aryan Mittal | | |
+| Principal investigator: Aryan Mittal | AM | 2026-10-20 |

@@ -330,6 +330,9 @@ Task 4 of HANDOFF: twin baseline, 3 workflows × 2 models × 10 epochs
 ### 2026-10-20 ~22:00 UTC — Correction: no AI tool processed the packets
 - The agent's chat reply had said an AI appeared to help process the packets. **That was wrong.** The PI states no AI tool was used; the packets were processed by local scripts only. No committed file had made the AI claim. DEV-1 and findings §20 now record the PI's statement explicitly.
 
+### 2026-10-20 ~22:10 UTC — DEV-1 initialled
+- The PI initialled DEV-1 (AM, 2026-10-20). Still open: the NJCCIC confirmation's sender, date and reference in the record's "External confirmation" row.
+
 ## Live counts
 
 _Updated 2026-10-20 16:05 UTC (auto, every 5 min)_
