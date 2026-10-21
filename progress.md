@@ -305,6 +305,10 @@ Task 4 of HANDOFF: twin baseline, 3 workflows × 2 models × 10 epochs
 - CODER_INSTRUCTIONS now says to start at step 4. The design README and HANDOFF are updated.
 - **Next:** both coders code the real 360-run sheet in a spreadsheet app, then run the kappa command (step 5).
 
+### 2026-10-20 ~21:35 UTC — Real sheets submitted; not usable
+- Kappa run (`logs/human-check/kappa_results.txt`). Sheet A is all zeros; B has one non-zero row. The scorer marked 125/360 divergence, and a 6-row spot-check confirmed each one. Both sheets were finished about 50 minutes after being blank (12–20 h expected).
+- Findings §20: **not a valid human check; nothing reportable.** Redo from blank sheets. The submitted files are kept as they are.
+
 ## Live counts
 
 _Updated 2026-10-20 16:05 UTC (auto, every 5 min)_
