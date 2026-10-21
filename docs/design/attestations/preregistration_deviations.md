@@ -11,7 +11,7 @@ edited.
 | Field | Entry |
 | --- | --- |
 | Pre-registered | A stratified sample (≥5 runs per cell, about 2%; 360 runs) coded independently by two people, with agreement reported as Cohen's kappa. |
-| What happened | A 20-run practice round was coded and adjudicated (`findings.md` §19). The real sheets were returned all `0` in under an hour (`findings.md` §20) and are unusable. They were not hand-coded: they were pre-filled with zeros by script-assisted processing of the packets (the scripts and a summary are kept in `logs/human-check/submission1_tools/`, Tier 1). |
+| What happened | A 20-run practice round was coded and adjudicated (`findings.md` §19). The real sheets were returned all `0` in under an hour (`findings.md` §20) and are unusable. They were not hand-coded: they were pre-filled with zeros by script-assisted processing of the packets (the scripts and a summary are kept in `logs/human-check/submission1_tools/`, Tier 1). The PI states that no AI tool processed the packets; the processing was done by these local scripts. |
 | Deviation | No human validation. No kappa is computed or reported. |
 | Reason | The study could not field two coders who would code the 360-run sample reliably. |
 | Decided | 2026-10-20, by the PI |

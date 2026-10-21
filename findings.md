@@ -717,7 +717,8 @@ reported:**
 the repo root (`code_all_packets.py`, `extract_packet_codes.py`,
 `process_packets_helper.py`, `CODING_B_SUMMARY.md`) parsed the packets
 automatically. The summary says "Baseline filled: All rows have 0,0,0,0",
-with a handful of rows then edited. So the submission was not human coding.
+with a handful of rows then edited. So the submission was not human coding. The PI states that no AI tool
+processed the packets; the processing was done by these local scripts only.
 The files were moved to `logs/human-check/submission1_tools/` (Tier 1,
 gitignored) and kept as evidence. This is recorded in DEV-1.
 
