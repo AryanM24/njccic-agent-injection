@@ -50,7 +50,7 @@ control runs, 0 errors. Results and trace checks: [`findings.md`](findings.md);
 run log: [`progress.md`](progress.md); tables: `logs/analysis-baseline/`,
 `logs/analysis-controls/`.
 
-**Attack runs done and analyzed (2026-10-20):** 8,640 pairs per model, 18/18
+**Attack runs done and analyzed (2026-10-20):** 8,640 paired samples per model, 18/18
 cells each, 0 errors. Propagation rescored (fix F5) into
 `logs/attack-{luna,deepseek}-rescored/`; analysis in
 `logs/analysis-attack-{luna,deepseek}/`; paired attack − twin outcomes via

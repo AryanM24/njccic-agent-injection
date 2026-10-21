@@ -160,8 +160,8 @@ Task 4 of HANDOFF: twin baseline, 3 workflows × 2 models × 10 epochs
   1. Signed doc 09 v1.1 committed and pushed.
   2. `.gitignore` restored so `logs/` is ignored again (attack logs hold the real
      payloads, Tier 1). The logs themselves are untouched on disk.
-  3. Dry run: 6 cells × 480 = 2,880 attack/twin pairs per workflow, 8,640 per
-     model (17,280 pipeline runs each), new config hashes (doc versions bumped).
+  3. Dry run: 6 cells × 480 = 2,880 paired samples per workflow (48 pairs × 10
+     epochs per cell), 8,640 per model (17,280 pipeline runs each), new config hashes (doc versions bumped).
   4. Smoke test on the canonical corpus (`logs/smoke-attack-{luna,deepseek}/`,
      2 pairs × 3 workflows × read_write × iso on/off × 1 epoch): **24/24 cells
      success, 0 errors.** Real payloads work end to end: marker propagation is
@@ -174,7 +174,7 @@ Task 4 of HANDOFF: twin baseline, 3 workflows × 2 models × 10 epochs
   - DeepSeek: **three parallel processes (W1, W2, W3), 12 connections each
     (36 total, was 10)** to speed it up. Output `logs/attack-deepseek-{w1,w2,w3}.out`.
   - Logs: `logs/attack-{luna,deepseek}/` (**Tier 1**, never share). Live counts
-    below count attack/twin pairs (2,880 per workflow). Resume after a crash by
+    below count paired samples (2,880 per workflow). Resume after a crash by
     rerunning the same command.
 - 2026-10-20 00:40 UTC — First measured rates, no 429s or errors:
   - Luna 397 pairs (W1 13%), ~14 pairs/min since 00:20 → ETA **~10:30 UTC today**.
@@ -225,7 +225,7 @@ Task 4 of HANDOFF: twin baseline, 3 workflows × 2 models × 10 epochs
   (83%) → ETA ~14:30 UTC.
 
 ### 2026-10-20 16:30 UTC — DeepSeek attack runs done and analyzed
-- 8,640/8,640 pairs, 18/18 cells, 0 errors (W1 finished last, 16:08 UTC).
+- 8,640/8,640 paired samples, 18/18 cells, 0 errors (W1 finished last, 16:08 UTC).
 - Rescored propagation (1,061 samples changed) → `logs/attack-deepseek-rescored/`; analysis → `logs/analysis-attack-deepseek/`.
 - Results in `findings.md` §12 (DeepSeek) and §13 (Luna vs DeepSeek).
 - Headline: the only real attack success in the study is DeepSeek, W2 hiring, read_write, isolation off: 10.6% leak vs 1.0% baseline, 40 emails to the attacker's tripwire address. Isolation or removing the external email tool each stop it.
@@ -332,9 +332,6 @@ Task 4 of HANDOFF: twin baseline, 3 workflows × 2 models × 10 epochs
 
 ### 2026-10-20 ~22:10 UTC — DEV-1 initialled
 - The PI initialled DEV-1 (AM, 2026-10-20). Still open: the NJCCIC confirmation's sender, date and reference in the record's "External confirmation" row.
-
-### 2026-10-20 ~22:15 UTC — DEV-1 closed
-- The PI decided the NJCCIC confirmation won't be attached. The record now says the confirmation is "reported by the PI" with no written copy attached, and DEV-1 is marked complete.
 
 ## Live counts
 
