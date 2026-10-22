@@ -15,6 +15,28 @@ Cell (NJCCIC). This README has two parts:
 
 To actually run the study, see **[`RUNNING.md`](RUNNING.md)**.
 
+## Citation
+
+If you use this testbed or its findings, please cite the paper (source in
+[`paper/`](paper/), compiled [`paper/main.pdf`](paper/main.pdf)):
+
+> Aryan Mittal and Rohan Bhamidipati. *EduInject: Indirect Prompt Injection in
+> Staged AI Agents for School Administration.* NJCCIC Advanced Cybersecurity
+> Internship Program (ACIP '26), 2026.
+
+```bibtex
+@inproceedings{mittal2026eduinject,
+  title     = {EduInject: Indirect Prompt Injection in Staged AI Agents for School Administration},
+  author    = {Mittal, Aryan and Bhamidipati, Rohan},
+  booktitle = {NJCCIC Advanced Cybersecurity Internship Program (ACIP '26)},
+  year      = {2026}
+}
+```
+
+GitHub's **Cite this repository** button uses [`CITATION.cff`](CITATION.cff).
+This testbed is built on [Inspect AI](https://inspect.aisi.org.uk/) (UK AISI);
+please cite it too if you build on the harness.
+
 ---
 
 ## Part 1: Plain-English guide
