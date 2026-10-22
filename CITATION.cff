@@ -1,13 +1,43 @@
 cff-version: 1.2.0
-title: "Inspect AI: Framework for Large Language Model Evaluations"
+title: "EduInject: an indirect-prompt-injection testbed for staged AI agents in school administration"
 message: >-
-  If you cite this software, please do so using the
-  metadata from this file.
+  If you use this software, please cite both the EduInject paper
+  (see preferred-citation) and the Inspect AI framework it is built on
+  (see references).
 type: software
 authors:
-  - name: UK AI Security Institute
-    website: "https://www.aisi.gov.uk/"
-repository-code: "https://github.com/UKGovernmentBEIS/inspect_ai"
-url: "https://inspect.aisi.org.uk/"
+  - given-names: Aryan
+    family-names: Mittal
+  - given-names: Rohan
+    family-names: Bhamidipati
+  - given-names: Chaitanya
+    family-names: Palasamudrum
+  - given-names: Bibhuti
+    family-names: Swain
+repository-code: "https://github.com/AryanM24/njccic-agent-injection"
 license: MIT
-date-released: "2024-05-10"
+preferred-citation:
+  type: conference-paper
+  title: "EduInject: Indirect Prompt Injection in Staged AI Agents for School Administration"
+  authors:
+    - given-names: Aryan
+      family-names: Mittal
+    - given-names: Rohan
+      family-names: Bhamidipati
+    - given-names: Chaitanya
+      family-names: Palasamudrum
+    - given-names: Bibhuti
+      family-names: Swain
+  collection-title: "NJCCIC Advanced Cybersecurity Internship Program (ACIP '26)"
+  year: 2026
+  month: 10
+references:
+  - type: software
+    title: "Inspect AI: Framework for Large Language Model Evaluations"
+    authors:
+      - name: UK AI Security Institute
+        website: "https://www.aisi.gov.uk/"
+    repository-code: "https://github.com/UKGovernmentBEIS/inspect_ai"
+    url: "https://inspect.aisi.org.uk/"
+    license: MIT
+    date-released: "2024-05-10"
