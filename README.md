@@ -1,19 +1,11 @@
-# eduinject
+# EduInject: Indirect Prompt Injection in Staged AI Agents for School Administration
 
 **Can a hidden note inside an ordinary school document trick an AI assistant
 into doing something harmful?** This project builds a safe, simulated school
 office to find out, and measures how often it happens.
 
-It was prepared for the New Jersey Cybersecurity and Communications Integration
-Cell (NJCCIC). This README has two parts:
-
-1. **[Plain-English guide](#part-1-plain-english-guide)**: everything you need
-   to understand the project and explain it to someone else. No cybersecurity
-   or programming background needed.
-2. **[Technical reference](#part-2-technical-reference)**: the precise design
-   rules, for people working on the code.
-
-To actually run the study, see **[`RUNNING.md`](RUNNING.md)**.
+This research was prepared for the New Jersey Cybersecurity and Communications Integration
+Cell (NJCCIC).
 
 ## Citation
 
@@ -39,7 +31,7 @@ please cite it too if you build on the harness.
 
 ---
 
-## Part 1: Plain-English guide
+## Part 1: Simplified Overview
 
 ### The 30-second version
 
@@ -270,33 +262,6 @@ tests in parallel, and saving logs.
   `docs/design/implementation-map.md`. All rates are reported as minimums
   (lower bounds).
 
-### Explaining it to someone else
-
-If you remember three sentences, make them these:
-
-1. *AI assistants in schools read documents from strangers, and a stranger can
-   hide instructions in those documents that the AI may follow.*
-2. *We built a fully fake school office, ran AI assistants through it with
-   tricky documents and identical clean copies, and counted how often the
-   tricky copy made them misbehave.*
-3. *We then tested two defenses, giving the AI fewer permissions and keeping
-   the original document away from the AI that takes action, to see which
-   actually reduces the harm.*
-
-**Questions people usually ask:**
-
-- *"Did you hack a real school?"* No. Everything is simulated and invented.
-  Nothing real is touched or sent.
-- *"Isn't publishing this dangerous?"* The public version contains no working
-  attacks, only a placeholder word. Real attack wording is kept private.
-- *"How do you know it wasn't just random AI weirdness?"* Every tricky
-  document is compared with its clean twin, and every test is repeated at
-  least ten times.
-- *"Why not just tell the AI to ignore hidden instructions?"* That is a
-  request the AI may or may not honor. The defenses tested here, fewer
-  permissions and isolation, are built into the system, so they don't rely on
-  the AI's cooperation.
-
 ### Glossary
 
 | Term | Meaning |
@@ -324,8 +289,7 @@ If you remember three sentences, make them these:
 
 ## Part 2: Technical reference
 
-**Indirect prompt injection against AI agents in educational administrative
-workflows.** A research testbed prepared for the New Jersey Cybersecurity and
+A research testbed prepared for the New Jersey Cybersecurity and
 Communications Integration Cell (NJCCIC), built on
 [Inspect AI](https://inspect.aisi.org.uk/) (`inspect-ai`, from UK AISI) as a pip
 dependency.
