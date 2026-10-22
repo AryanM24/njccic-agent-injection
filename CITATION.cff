@@ -10,10 +10,6 @@ authors:
     family-names: Mittal
   - given-names: Rohan
     family-names: Bhamidipati
-  - given-names: Chaitanya
-    family-names: Palasamudrum
-  - given-names: Bibhuti
-    family-names: Swain
 repository-code: "https://github.com/AryanM24/njccic-agent-injection"
 license: MIT
 preferred-citation:
@@ -24,10 +20,6 @@ preferred-citation:
       family-names: Mittal
     - given-names: Rohan
       family-names: Bhamidipati
-    - given-names: Chaitanya
-      family-names: Palasamudrum
-    - given-names: Bibhuti
-      family-names: Swain
   collection-title: "NJCCIC Advanced Cybersecurity Internship Program (ACIP '26)"
   year: 2026
   month: 10
