@@ -34,3 +34,7 @@ paper/_previous_draft/
 
 # Node packages for the presentation and poster builds
 node_modules/
+
+# NJCCIC logo and wiki QR: build inputs kept on disk, not published
+njccic-logo_crop.png
+njccic-wiki-qr.png
