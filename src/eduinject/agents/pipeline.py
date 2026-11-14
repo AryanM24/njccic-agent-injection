@@ -158,6 +158,8 @@ class _HandoffParseError(Exception):
     """A typed stage's output failed validation; carries the stage name."""
 
 
+HANDOFF_MODES = ("free_text", "typed")
+
 HANDOFF_SCHEMAS: dict[str, type[BaseModel]] = {
     "intake": IntakeHandoff,
     "analysis": AnalysisHandoff,
@@ -234,6 +236,8 @@ async def run_pipeline(
     """
     if relay_stages and relay_system is None:
         raise ValueError("relay_stages > 0 needs a relay_system prompt")
+    if handoff_mode not in HANDOFF_MODES:
+        raise ValueError(f"handoff_mode must be one of {HANDOFF_MODES}")
     typed = handoff_mode == "typed"
     if typed and (trusted_block is None or task_facts is not None):
         raise ValueError("typed hand-off needs trusted_block and no task_facts")

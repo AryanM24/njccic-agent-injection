@@ -29,7 +29,12 @@ from inspect_ai.util import store_as
 
 from .agents import prompts
 from .agents.handoff_schemas import HANDOFF_VERSION, trusted_fields
-from .agents.pipeline import ToolNamesForScope, ToolsForScope, run_pipeline
+from .agents.pipeline import (
+    HANDOFF_MODES,
+    ToolNamesForScope,
+    ToolsForScope,
+    run_pipeline,
+)
 from .agents.prompts_handoff import HANDOFF_PROMPTS_VERSION
 from .agents.prompts_relay import RELAY_PROMPTS_VERSION, RELAY_SYSTEM
 from .agents.task_facts import (
@@ -139,7 +144,6 @@ class Workflow(NamedTuple):
 
 
 RELAY_MAX = 3
-HANDOFF_MODES = ("free_text", "typed")
 HandoffMode = Literal["free_text", "typed"]
 
 WORKFLOWS: dict[str, Workflow] = {}

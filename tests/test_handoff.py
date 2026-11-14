@@ -178,6 +178,8 @@ async def test_typed_needs_trusted_block_and_no_facts() -> None:
     }
     with pytest.raises(ValueError, match="trusted_block"):
         await pipeline.run_pipeline("d", "r", **kwargs)
+    with pytest.raises(ValueError, match="handoff_mode"):
+        await pipeline.run_pipeline("d", "r", **{**kwargs, "handoff_mode": "json"})
     with pytest.raises(ValueError, match="trusted_block"):
         await pipeline.run_pipeline(
             "d", "r", trusted_block="{}", task_facts="facts", **kwargs
