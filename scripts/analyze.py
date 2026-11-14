@@ -64,6 +64,7 @@ from eduinject.analysis import (
     rate_with_ci,
     saturated,
     sheet_problems,
+    stale_scores,
     stratified_sample,
     tool_use_check,
     verdict,
@@ -466,7 +467,29 @@ def report_md(
     return "\n".join(lines) + "\n"
 
 
+def refuse_stale(args: argparse.Namespace) -> bool:
+    """True (after listing them) if logged scores are stale and not allowed."""
+    if args.allow_stale:
+        return False
+    stale = stale_scores(args.log_dirs)
+    for s in stale:
+        print(
+            f"stale: {s.log} sample {s.sample_id} epoch {s.epoch} {s.score}: "
+            f"logged {s.logged} != recomputed {s.recomputed}",
+            file=sys.stderr,
+        )
+    if stale:
+        print(
+            f"refused: {len(stale)} stale score(s); rescore the logs or pass "
+            "--allow-stale",
+            file=sys.stderr,
+        )
+    return bool(stale)
+
+
 def cmd_report(args: argparse.Namespace) -> int:
+    if refuse_stale(args):
+        return 4
     rows, dropped = load_rows(args.log_dirs)
     if not rows:
         print(f"no eduinject logs under {args.log_dirs}", file=sys.stderr)
@@ -494,6 +517,8 @@ def cmd_report(args: argparse.Namespace) -> int:
 
 
 def cmd_sample_human(args: argparse.Namespace) -> int:
+    if refuse_stale(args):
+        return 4
     rows, _ = load_rows(args.log_dirs)
     chosen = stratified_sample(
         rows, args.fraction, args.min_per_cell, args.seed, args.enrich_positive
@@ -635,6 +660,8 @@ def pair_export_rows(rows: list[dict[str, Any]], salt: str) -> list[dict[str, An
 
 
 def cmd_export_pairs(args: argparse.Namespace) -> int:
+    if refuse_stale(args):
+        return 4
     rows, _ = load_rows(args.log_dirs)
     out = pair_export_rows(rows, args.salt)
     write_csv(Path(args.out), out)
@@ -650,6 +677,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     report = sub.add_parser("report", help="tables, comparisons and summary")
     report.add_argument("log_dirs", nargs="+")
+    report.add_argument(
+        "--allow-stale",
+        action="store_true",
+        help="analyze logs whose scores no longer match the current scorers",
+    )
     report.add_argument("--out", default="logs/analysis")
     report.add_argument(
         "--n-boot",
@@ -667,6 +699,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     human = sub.add_parser("sample-human", help="stratified human-coding sample")
     human.add_argument("log_dirs", nargs="+")
+    human.add_argument(
+        "--allow-stale",
+        action="store_true",
+        help="analyze logs whose scores no longer match the current scorers",
+    )
     human.add_argument("--fraction", type=float, default=0.02)
     human.add_argument("--min-per-cell", type=int, default=5)
     human.add_argument(
@@ -689,6 +726,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     export = sub.add_parser("export-pairs", help="pseudonymized pair-level aggregates")
     export.add_argument("log_dirs", nargs="+")
+    export.add_argument(
+        "--allow-stale",
+        action="store_true",
+        help="analyze logs whose scores no longer match the current scorers",
+    )
     export.add_argument("--salt", required=True, help="private; do not publish it")
     export.add_argument("--out", default="logs/analysis/pairs.csv")
     export.set_defaults(func=cmd_export_pairs)

@@ -281,6 +281,95 @@ def finished_samples(
                 yield cell, sample
 
 
+class StaleScore(NamedTuple):
+    """A logged score that differs from what the current scorers compute."""
+
+    log: str
+    sample_id: Any
+    epoch: int
+    score: str
+    logged: float
+    recomputed: float
+
+
+def rescore_sample(sample: Any, task_metadata: Mapping[str, Any]) -> dict[str, float]:
+    """Recompute a finished sample's scores with the current scorers.
+
+    The scorer set is rebuilt from the cell's metadata (`task.scorers_for`), so
+    whatever scorers the code defines now are the ones applied; the scorers read
+    only the sample's metadata and output, which a log preserves.
+
+    Args:
+        sample: An Inspect `EvalSample`.
+        task_metadata: The log's task metadata (workflow, benign_only,
+            identity_mode).
+
+    Returns:
+        Flattened scores (see `flatten_scores`) keyed `scorer` / `scorer.key`.
+    """
+    import asyncio
+    from types import SimpleNamespace
+
+    from inspect_ai._util.registry import registry_unqualified_name
+    from inspect_ai.scorer import Target
+
+    from eduinject import task, task_w1, task_w3  # noqa: F401  (registers workflows)
+
+    scorers = task.scorers_for(
+        task.WORKFLOWS[task_metadata["workflow"]],
+        bool(task_metadata.get("benign_only")),
+        task_metadata.get("identity_mode", "off"),
+    )
+    state = SimpleNamespace(metadata=sample.metadata or {}, output=sample.output)
+    target = Target(sample.target)
+
+    async def run() -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for s in scorers:
+            result = await s(state, target)  # type: ignore[arg-type]
+            if result is not None:
+                out[registry_unqualified_name(s)] = result.value
+        return out
+
+    return flatten_scores(asyncio.run(run()))
+
+
+def stale_scores(log_dirs: Sequence[str]) -> list[StaleScore]:
+    """Every logged score that disagrees with a fresh recomputation (audit A-09).
+
+    NaN ("not scored") equals NaN; a score present on one side only is stale.
+    """
+    from inspect_ai.log import list_eval_logs, read_eval_log
+
+    stale: list[StaleScore] = []
+    seen: set[str] = set()
+    for log_dir in log_dirs:
+        for info in list_eval_logs(log_dir, recursive=True):
+            if info.name in seen or not info.task.split("/")[-1].startswith(
+                "eduinject"
+            ):
+                continue
+            seen.add(info.name)
+            log = read_eval_log(info)
+            meta = log.eval.metadata or {}
+            for sample in log.samples or []:
+                if sample.error is not None or sample.limit is not None:
+                    continue
+                logged = flatten_scores(
+                    {k: v.value for k, v in (sample.scores or {}).items()}
+                )
+                fresh = rescore_sample(sample, meta)
+                for name in sorted(logged.keys() | fresh.keys()):
+                    a, b = logged.get(name, math.nan), fresh.get(name, math.nan)
+                    if not (a == b or (math.isnan(a) and math.isnan(b))):
+                        stale.append(
+                            StaleScore(
+                                log.location, sample.id, sample.epoch, name, a, b
+                            )
+                        )
+    return stale
+
+
 def dedupe(rows: Iterable[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
     """Keep one row per (config_hash, sample_id, epoch): the newest log's."""
     best: dict[tuple[Any, ...], dict[str, Any]] = {}
