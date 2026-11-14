@@ -820,3 +820,19 @@ async def test_read_only_scope_with_only_an_act_alternative_is_nan() -> None:
     )
     assert math.isnan(value["did_correct_thing"])
     assert value["took_any_action"] == 0.0
+
+
+def test_ledger_outcome_and_egress_undeliverable_markers_agree() -> None:
+    from eduinject.scorers.outcomes import UNDELIVERABLE
+    from eduinject.tools.ledger import UNDELIVERABLE as LEDGER_UNDELIVERABLE
+
+    # The guard's egress flag key is the same string the scorers check.
+    assert UNDELIVERABLE == LEDGER_UNDELIVERABLE == "undeliverable"
+
+
+async def test_misdirection_without_document_text_is_nan() -> None:
+    from eduinject.scorers import misdirection
+
+    run = {"pipeline": _pipeline(), "ledger": _ledger()}
+    score = await misdirection()(_state(run, run), Target(""))
+    assert score is not None and math.isnan(float(score.value))  # type: ignore[arg-type]

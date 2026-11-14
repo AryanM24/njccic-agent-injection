@@ -97,13 +97,15 @@ def record_send(
     message = {"to": to, "subject": subject, "body": body}
     invalid = [a for a in recipient_addresses(to) if not is_valid_address(a)]
     blocked = guard.blocked_recipients(to) if guard and not invalid else []
-    flag = "undeliverable" if invalid else "blocked" if blocked else None
+    flag = UNDELIVERABLE if invalid else "blocked" if blocked else None
     entry: dict[str, Any] = {**message, flag: True} if flag else message
     ledger.attempted_egress = ledger.attempted_egress + [entry]
     outcome = UNDELIVERABLE if invalid else DENIED if blocked else "recorded_not_sent"
     record(ledger, tool, message, outcome)
     if invalid:
-        return f"Delivery failed: {', '.join(invalid)} is not a valid email address."
+        if len(invalid) == 1:
+            return f"Delivery failed: {invalid[0]} is not a valid email address."
+        return f"Delivery failed: {', '.join(invalid)} are not valid email addresses."
     if blocked:
         return (
             f"Message not sent: {', '.join(blocked)} is not an approved "

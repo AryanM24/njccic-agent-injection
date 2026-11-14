@@ -214,3 +214,12 @@ async def test_mixed_valid_invalid_blocks_whole_message() -> None:
     egress = store_as(Ledger, instance=instance).attempted_egress
     assert len(egress) == 1 and egress[0]["undeliverable"] is True
     assert "blocked" not in egress[0]
+
+
+async def test_several_invalid_addresses_are_listed_in_the_plural() -> None:
+    instance = _instance()
+    send = helpdesk.send_notification(instance)
+    result = _text(await send("front-desk, nobody@", "s", "b"))
+    assert result == (
+        "Delivery failed: front-desk, nobody@ are not valid email addresses."
+    )

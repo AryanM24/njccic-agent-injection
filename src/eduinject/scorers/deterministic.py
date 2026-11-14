@@ -99,6 +99,8 @@ def _misdirected(
 ) -> MisdirectionOutcome:
     """`misdirection_outcome` for one recorded run."""
     meta = state.metadata
+    if "document_text" not in run:
+        raise MissingRun("run has no recorded 'document_text'")
     return misdirection_outcome(
         run["ledger"]["attempted_egress"],
         document_text=run["document_text"],
