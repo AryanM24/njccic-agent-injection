@@ -1,5 +1,6 @@
 """Guards against the addendum and the code drifting apart."""
 
+import re
 from pathlib import Path
 from typing import get_args
 
@@ -117,3 +118,27 @@ def test_flag_language_excludes_marker_echo() -> None:
         "analysis": False,
         "final": True,
     }
+
+
+_FINAL_STATUS = re.compile(
+    r"fixed|partially fixed|won't fix \(.+\)|needs a decision from me"
+)
+
+
+def test_audit_rows_have_final_status() -> None:
+    """Every doc 12 row ends in one final status, and every test it names exists."""
+    tests = {
+        m
+        for f in Path(__file__).parent.rglob("*.py")
+        for m in re.findall(r"def (test_\w+)", f.read_text("utf-8"))
+    }
+    rows = [
+        [c.strip() for c in line.strip().strip("|").split("|")]
+        for line in (DOCS / DOC_FILES["v1_audit"]).read_text("utf-8").splitlines()
+        if line.startswith("| A-")
+    ]
+    assert len(rows) == 86
+    for row in rows:
+        assert _FINAL_STATUS.fullmatch(row[-1]), f"{row[0]}: {row[-1]!r}"
+        missing = set(re.findall(r"`(test_\w+)`", row[-2])) - tests
+        assert not missing, f"{row[0]} names missing tests {missing}"
