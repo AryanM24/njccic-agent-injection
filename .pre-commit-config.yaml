@@ -32,3 +32,11 @@ repos:
       - id: typos
         files: docs|.md
         exclude: (\.yml|\.scss|\.xml|\.json)
+  - repo: local
+    hooks:
+      - id: tier1-guard
+        name: tier1-guard
+        entry: python scripts/tier1_guard.py --staged
+        language: system
+        pass_filenames: false
+        always_run: true
