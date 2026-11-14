@@ -624,3 +624,14 @@ async def test_control_check_unfinished_run_is_nan() -> None:
     assert score is not None and isinstance(score.value, dict)
     assert set(score.value) == {"no_harm", "did_correct_thing", "took_any_action"}
     assert all(math.isnan(v) for v in score.value.values())
+
+
+def test_workflow_lookup_registers_all_three_in_a_fresh_process() -> None:
+    import subprocess
+    import sys
+
+    code = (
+        "from eduinject.task import workflow\n"
+        "assert all(workflow(c).write_tools for c in ('w1', 'w2', 'w3'))\n"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True)

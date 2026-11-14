@@ -760,7 +760,8 @@ def correct_outcome(
     live = [c for c in calls if c.get("outcome") not in (DENIED, "undeliverable")]
     writes = [c for c in live if c.get("tool") in write_tools]
     # A send is judged through the egress list, not as a state change; the
-    # ledger records every send with a `to` argument.
+    # ledger records every send with a `to` argument (every send tool records
+    # its recipient as `to` via `guard.record_send`).
     changed = [c for c in writes if "to" not in (c.get("args") or {})]
     sent = {
         a

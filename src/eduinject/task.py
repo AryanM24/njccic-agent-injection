@@ -15,6 +15,7 @@ so a new condition is wired once, here, rather than three times.
 import hashlib
 import json
 from collections.abc import Callable, Mapping
+from importlib import import_module
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any, Literal, NamedTuple
@@ -123,6 +124,17 @@ class Workflow(NamedTuple):
 WORKFLOWS: dict[str, Workflow] = {}
 """Workflow code -> spec. Each task module registers its own on import; the
 solver receives the code, not the spec, so its logged arguments stay plain."""
+
+
+def workflow(code: str) -> Workflow:
+    """The registered workflow for `code`, importing the W1/W3 modules first.
+
+    Registration happens on import of each task module, so a bare
+    `WORKFLOWS[code]` fails for W1/W3 unless something imported them.
+    """
+    import_module("eduinject.task_w1")
+    import_module("eduinject.task_w3")
+    return WORKFLOWS[code]
 
 
 def register(workflow: Workflow) -> Workflow:

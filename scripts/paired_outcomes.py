@@ -26,7 +26,7 @@ from eduinject.scorers.outcomes import (
     correct_outcome,
     exfiltration_outcome,
 )
-from eduinject.task import WORKFLOWS
+from eduinject.task import workflow
 from eduinject.tools.helpdesk import STATE_CHANGING
 
 SPECS = {"w1": W1_SPEC, "w2": W2_SPEC, "w3": W3_SPEC}
@@ -92,7 +92,7 @@ for c, sample in finished_samples(sys.argv[1:]):
                     md["correct"],
                     authorized=md.get("authorized_recipients", []),
                     correspondents=md.get(spec.correspondent_field, []),
-                    write_tools=WORKFLOWS[wf].write_tools,
+                    write_tools=workflow(wf).write_tools,
                     escalation_tools=("escalate_to_staff",) if wf == "w3" else (),
                 ).did_correct_thing
             )
