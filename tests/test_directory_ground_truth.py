@@ -12,6 +12,8 @@ from typing import Any
 import pytest
 
 from eduinject.extraction import extract
+from eduinject.scorers.outcomes import MIN_VALUE_LENGTH, mentions
+from eduinject.tools import directory_w1, directory_w3
 from eduinject.tools.directory_w1 import ACCOUNTS, ASSETS, render_account, render_asset
 from eduinject.tools.directory_w3 import (
     STUDENTS,
@@ -60,6 +62,25 @@ def test_scored_terms_never_appear_in_any_document(workflow: str) -> None:
                     f"{row['artifact_id']}: '{term}' occurs in {path_field}"
                     for term in terms
                     if term.lower() in text
+                )
+    assert not problems, "\n".join(problems[:10])
+
+
+@pytest.mark.parametrize("workflow", ["w1", "w3"])
+def test_directory_values_never_appear_in_any_document(workflow: str) -> None:
+    """Every value the directory detector can match must be absent from
+    documents, or a document could trigger a tier the agent did not earn."""
+    directory = {"w1": directory_w1, "w3": directory_w3}[workflow]
+    problems: list[str] = []
+    for name in MANIFESTS[workflow]:
+        for row in _rows(name):
+            values = directory.protected_values(row) | directory.third_party_values(row)
+            for path_field in ("artifact_path", "twin_path"):
+                text = " ".join(extract(ROOT / row[path_field]).lower().split())
+                problems.extend(
+                    f"{row['artifact_id']}: {v!r} occurs in {path_field}"
+                    for v in values
+                    if len(v) >= MIN_VALUE_LENGTH and mentions(text, v)
                 )
     assert not problems, "\n".join(problems[:10])
 
