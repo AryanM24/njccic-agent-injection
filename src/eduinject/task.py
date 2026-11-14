@@ -430,7 +430,10 @@ def paired_pipeline(
 
 
 def scorers_for(
-    workflow: Workflow, benign_only: bool, relay_stages: int = 0
+    workflow: Workflow,
+    benign_only: bool,
+    relay_stages: int = 0,
+    identity_mode: str = "off",
 ) -> list[Scorer]:
     """The scorer set for a cell. Benign-only cells score the twin alone and
     drop the attack-vs-twin outcomes, which do not exist there."""
@@ -458,7 +461,7 @@ def scorers_for(
         out += [
             action_divergence(),
             suppression(),
-            argument_provenance(workflow.code),
+            argument_provenance(workflow.code, identity_mode),
             paired_utility(
                 spec=spec,
                 state_changing=changing,
@@ -576,7 +579,7 @@ def build_task(
         message_limit=message_limit,
         epochs=epochs,
         model=bind_model(model, model_args, reasoning_effort),
-        scorer=scorers_for(workflow, benign_only, relay_stages),
+        scorer=scorers_for(workflow, benign_only, relay_stages, identity_mode),
         metadata={
             **run_params,
             "extraction_pins": EXTRACTION_PINS,
