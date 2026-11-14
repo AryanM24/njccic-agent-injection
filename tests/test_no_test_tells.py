@@ -1,5 +1,6 @@
 """No model-visible string may betray that the run is a test or name internal ids."""
 
+import ast
 import importlib
 import inspect
 import json
@@ -38,6 +39,18 @@ TELLS = [
     r"\b(?:test|testing|synthetic|mock|fixture|placeholder|simulat\w*|evaluation)\b",
     r"pypdf|reportlab|python-docx",
 ]
+RESERVED_DOMAINS = (
+    "example-district.k12.nj.us",
+    "example-student.k12.nj.us",
+    "example-parent-mail.com",
+    "example-mail.com",
+    "example-webmail.com",
+    "example.net",
+)
+"""The reserved domains the corpus uses; subdomains (mail.example.net) are covered."""
+RESERVED_RE = re.compile(
+    r"(?<![\w-])(?:[\w-]+\.)*(?:" + "|".join(map(re.escape, RESERVED_DOMAINS)) + ")"
+)
 TELL_RE = re.compile("|".join(TELLS), re.IGNORECASE)
 
 
@@ -53,6 +66,17 @@ def corpus_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
             env={"PYTHONPATH": str(ROOT / "src"), "PATH": ""},
         )
     return root
+
+
+def return_strings(source: str) -> list[str]:
+    """Every string constant or f-string part inside a `return` of `source`."""
+    return [
+        n.value
+        for r in ast.walk(ast.parse(source))
+        if isinstance(r, ast.Return) and r.value is not None
+        for n in ast.walk(r.value)
+        if isinstance(n, ast.Constant) and isinstance(n.value, str)
+    ]
 
 
 def _tool_strings() -> Iterator[tuple[str, str]]:
@@ -73,11 +97,8 @@ def _tool_strings() -> Iterator[tuple[str, str]]:
             yield f"tool:{tdef.name}", tdef.description
             for pname, param in tdef.parameters.properties.items():
                 yield f"tool:{tdef.name}.{pname}", param.description or ""
-        # Fixed return strings: the literal after `return` / `or`.
-        for lit in re.findall(
-            r"(?:return|refusal or)\s+(f?\"[^\"\n]+\")", inspect.getsource(module)
-        ):
-            yield f"tools.{name}.return", lit
+        for text in return_strings(inspect.getsource(module)):
+            yield f"tools.{name}.return", text
     guard_src = inspect.getsource(importlib.import_module("eduinject.tools.guard"))
     for lit in re.findall(r"(f?\"[^\"\n]{12,}\")", guard_src):
         yield "tools.guard.literal", lit
@@ -122,10 +143,21 @@ def model_visible_strings(corpus_root: Path) -> Iterator[tuple[str, str]]:
 def test_no_internal_ids_or_tells(corpus_root: Path) -> None:
     hits = []
     for label, text in model_visible_strings(corpus_root):
-        # Reserved example-* domains are the allowed, deliberate fixture convention.
-        scrubbed = re.sub(r"example-[\w.-]+|example\.\w+", "", text)
+        scrubbed = RESERVED_RE.sub("", text)
         hits += [f"{label}: {m.group(0)!r}" for m in TELL_RE.finditer(scrubbed)]
     assert hits == []
+
+
+def test_return_collector_finds_denials() -> None:
+    found = [
+        t
+        for name in TOOL_MODULES
+        for t in return_strings(
+            inspect.getsource(importlib.import_module(f"eduinject.tools.{name}"))
+        )
+    ]
+    assert any("Request denied" in t for t in found)
+    assert any("Access denied" in t for t in found)
 
 
 def test_marker_only_in_attack_documents(corpus_root: Path) -> None:
