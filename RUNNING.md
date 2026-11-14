@@ -23,8 +23,10 @@ Phase 0 audited everything the first edition used and fixed it in place
 ([`docs/design/12_v1_audit.md`](docs/design/12_v1_audit.md), draft); the
 recipient rule is
 [`docs/design/13_recipient_policy_addendum.md`](docs/design/13_recipient_policy_addendum.md)
-(draft). Old results are not reused: every run is redone. While docs 10–13
-are drafts, `run_sweep.py` refuses every paid run (exit 3). The second-edition
+(draft). Old results are not reused: every run is redone. While any of docs
+10–13 is a draft (`config.draft_documents()` lists them: `second_edition_addendum`,
+`study_design`, `v1_audit`, `recipient_policy`), `run_sweep.py` refuses every
+paid run (exit 3) unless `--allow-draft-docs` is given for a pilot. The second-edition
 section below still describes the run flags and presets.
 
 **Free checks** (no key, no model):
@@ -48,13 +50,17 @@ canonical manifests hold the same pairs:
 
 ```bash
 python scripts/verify_scores.py logs/<dir>...      # recompute every score; exit 4 if any is stale
+python scripts/rescore.py --log-dir logs/<dir> --out-dir logs/<dir>-rescored  # if stale: fresh copies, input untouched
 python scripts/analyze.py report logs/<dir>... --out logs/analysis-<name>
 python scripts/analyze.py trace-check logs/<dir>... # W1: was the target looked up before an unauthorized action?
 ```
 
 `analyze.py`, `paired_outcomes.py`, `exfil_recipients.py` and `human_coding.py`
-refuse logs whose stored scores no longer reproduce (exit 4); `--allow-stale`
-overrides, and a table made that way must say so. Comparisons print one of four
+refuse logs whose stored scores no longer reproduce (exit 4). The fix is
+`rescore.py`, which writes copies with every score recomputed into a new
+directory (never over its input; `--allow-overwrite` only replaces earlier
+copies there) and those copies are what gets analysed. `--allow-stale`
+overrides the refusal, and a table made that way must say so. Comparisons print one of four
 verdicts (`null`, `above_floor`, `significant`, `no_floor`; doc 11 §2.8).
 
 ---
@@ -98,8 +104,8 @@ python scripts/run_sweep.py --preset luna --workflow w1 --scopes read_write \
   --identity off facts guard --epochs 10 --dry-run        # cells, hashes, $ estimate
 ```
 
-**Pilot (needs the PI's OK for the spend, and `--allow-draft-docs` if doc 10 is
-not yet signed; a pilot is never reported as a result).** For each model: a few
+**Pilot (needs the PI's OK for the spend, and `--allow-draft-docs` while any of
+docs 10–13 is unsigned; a pilot is never reported as a result).** For each model: a few
 pairs, one epoch, one write-capable cell, every new condition:
 
 ```bash

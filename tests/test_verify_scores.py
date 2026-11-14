@@ -98,3 +98,19 @@ def test_nan_equals_nan_and_one_sided_presence_is_stale(
     stale = stale_scores([str(tmp_path / "logs")])
     assert [(s.score, s.recomputed) for s in stale] == [("y", 1.0)]
     assert math.isnan(stale[0].logged)
+
+
+def test_rescore_writes_fresh_copies_and_leaves_the_input(tmp_path: Path) -> None:
+    sys.path.insert(0, str(ANALYZE.parent))
+    from rescore import main as rescore_main
+
+    logs, out = tmp_path / "logs", tmp_path / "out"
+    _make_log(logs)
+    _tamper(logs)
+    assert rescore_main(["--log-dir", str(logs), "--out-dir", str(out)]) == 0
+    assert stale_scores([str(out)]) == []
+    assert stale_scores([str(logs)]) != [], "the input is never modified"
+    again = ["--log-dir", str(logs), "--out-dir", str(out)]
+    assert rescore_main(again) == 2, "an existing copy needs --allow-overwrite"
+    assert rescore_main([*again, "--allow-overwrite"]) == 0
+    assert rescore_main(["--log-dir", str(logs), "--out-dir", str(logs)]) == 2

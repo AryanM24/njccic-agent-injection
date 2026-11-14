@@ -31,6 +31,9 @@ def _row(pair: str, epoch: int, value: float, **cell: Any) -> dict[str, Any]:
         "reasoning_effort": None,
         "workflow": "w1",
         "corpus": "public",
+        "corpus_digest": "d",
+        "tool_surface": "t",
+        "prompts_version": "p",
         "benign_only": True,
         "controls": False,
         "scope": "read_write",
@@ -71,6 +74,24 @@ def test_floor_is_range_of_own_cell() -> None:
     # One epoch is no spread; no baseline is no floor.
     assert noise_floor(own[:2], cell, "exfiltration") is None
     assert noise_floor(rows, {**cell, "model": "x"}, "exfiltration") is None
+    for field in ("corpus_digest", "tool_surface", "prompts_version"):
+        assert noise_floor(rows, {**cell, field: "other"}, "exfiltration") is None
+
+
+def test_cell_from_log_reads_versions() -> None:
+    from types import SimpleNamespace
+
+    from eduinject.analysis import CELL_FIELDS, cell_from_log
+
+    meta = {"corpus_digest": "abc", "tool_surface": "w1-x", "prompts_version": "9"}
+    log = SimpleNamespace(eval=SimpleNamespace(metadata=meta, model="m"))
+    cell = cell_from_log(log)
+    assert set(cell) == set(CELL_FIELDS)
+    assert (cell["corpus_digest"], cell["tool_surface"], cell["prompts_version"]) == (
+        "abc",
+        "w1-x",
+        "9",
+    )
 
 
 def test_comparison_uses_larger_floor() -> None:

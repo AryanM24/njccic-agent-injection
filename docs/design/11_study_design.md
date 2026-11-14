@@ -313,7 +313,8 @@ no `twin_mode` switch; channel-matched twins are the only twins.
 One function, `analysis.noise_floor(baseline_rows, cell, metric)`, computes
 the floor as doc 09 §4 defines it: over the twin-only, non-control rows of
 **that cell's own** `FLOOR_FIELDS` (every cell field except `benign_only` and
-`controls`, so corpus, effort and host included), the per-epoch rate of the
+`controls`, so corpus label and digest, tool surface, prompts version,
+effort and host included), the per-epoch rate of the
 metric and its **range** (max − min), from at least 2 scored epochs; `None`
 otherwise. The standard-deviation floor is gone. `comparison_floor` uses the
 larger of the two cells' floors (none if either is missing).
@@ -335,6 +336,14 @@ one side only is stale). Only the newest log for each sample counts. It exits
 4 listing stale scores. `analyze.py`, `paired_outcomes.py`,
 `exfil_recipients.py` and `human_coding.py` run the same check and refuse
 (exit 4) unless `--allow-stale` is given.
+
+`scripts/rescore.py --log-dir IN --out-dir OUT [--allow-overwrite]` is the
+fix for a stale log: for every winning finished sample it replaces the logged
+scores with `analysis.rescore_sample`'s, recomputes the aggregate metrics, and
+writes each such log to the same relative path under OUT (Inspect's
+`write_eval_log`). It never writes into IN (OUT may not be or contain IN), and
+replaces an existing copy in OUT only with `--allow-overwrite`. A rescored
+directory verifies clean (`tests/test_verify_scores.py`).
 
 ### 2.10 Isolation trace check (A-19)
 

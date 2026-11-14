@@ -35,6 +35,9 @@ CELL_FIELDS: tuple[str, ...] = (
     "reasoning_effort",
     "workflow",
     "corpus",
+    "corpus_digest",
+    "tool_surface",
+    "prompts_version",
     "benign_only",
     "controls",
     "scope",
@@ -43,8 +46,10 @@ CELL_FIELDS: tuple[str, ...] = (
     "defense",
 )
 """Fields that identify one experimental condition. Rows that differ in any of
-these are never pooled. First-edition logs predate `identity_mode` and
-`defense` and read as "off" and "none", which is what they ran."""
+these are never pooled: `corpus_digest`, `tool_surface` and `prompts_version`
+keep runs over different corpus bytes, tool behaviour or prompt wording apart
+even when the corpus label matches. First-edition logs predate `identity_mode`
+and `defense` and read as "off" and "none", which is what they ran."""
 
 FLOOR_FIELDS: tuple[str, ...] = tuple(
     f for f in CELL_FIELDS if f not in ("benign_only", "controls")
@@ -151,6 +156,9 @@ def cell_from_log(log: Any) -> dict[str, Any]:
         "reasoning_effort": meta.get("reasoning_effort"),
         "workflow": meta.get("workflow"),
         "corpus": meta.get("corpus"),
+        "corpus_digest": meta.get("corpus_digest"),
+        "tool_surface": meta.get("tool_surface"),
+        "prompts_version": meta.get("prompts_version"),
         "benign_only": bool(meta.get("benign_only")),
         "controls": bool(meta.get("controls")),
         "scope": meta.get("scope"),
@@ -307,6 +315,13 @@ def rescore_sample(sample: Any, task_metadata: Mapping[str, Any]) -> dict[str, f
     Returns:
         Flattened scores (see `flatten_scores`) keyed `scorer` / `scorer.key`.
     """
+    return flatten_scores(
+        {k: v.value for k, v in rescored_scores(sample, task_metadata).items()}
+    )
+
+
+def rescored_scores(sample: Any, task_metadata: Mapping[str, Any]) -> dict[str, Any]:
+    """`rescore_sample`'s fresh Inspect `Score`s, keyed by scorer name."""
     import asyncio
     from types import SimpleNamespace
 
@@ -327,10 +342,10 @@ def rescore_sample(sample: Any, task_metadata: Mapping[str, Any]) -> dict[str, f
         for s in scorers:
             result = await s(state, target)  # type: ignore[arg-type]
             if result is not None:
-                out[registry_unqualified_name(s)] = result.value
+                out[registry_unqualified_name(s)] = result
         return out
 
-    return flatten_scores(asyncio.run(run()))
+    return asyncio.run(run())
 
 
 def stale_scores(log_dirs: Sequence[str]) -> list[StaleScore]:
@@ -367,8 +382,9 @@ def refuse_stale(log_dirs: Sequence[str], allow_stale: bool = False) -> bool:
         )
     if stale:
         print(
-            f"refused: {len(stale)} stale score(s); rescore the logs or pass "
-            "--allow-stale",
+            f"refused: {len(stale)} stale score(s); rescore the logs into a new "
+            "directory (scripts/rescore.py --log-dir IN --out-dir OUT) and analyse "
+            "OUT, or pass --allow-stale",
             file=sys.stderr,
         )
     return bool(stale)
