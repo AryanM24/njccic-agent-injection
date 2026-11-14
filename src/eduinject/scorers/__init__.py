@@ -49,6 +49,7 @@ from .outcomes import (
     surfacing,
     twin_divergence,
 )
+from .ranking import RankCorruption, kendall_tau, ranked_ids
 
 if TYPE_CHECKING:
     from .deterministic import (
@@ -61,6 +62,7 @@ if TYPE_CHECKING:
         misdirection,
         paired_utility,
         propagation,
+        rank_corruption,
         scope_violation,
         suppression,
     )
@@ -76,6 +78,7 @@ _DETERMINISTIC = frozenset(
         "misdirection",
         "paired_utility",
         "propagation",
+        "rank_corruption",
         "scope_violation",
         "suppression",
     )
@@ -108,6 +111,7 @@ __all__ = [
     "ExfiltrationOutcome",
     "HarmOutcome",
     "MisdirectionOutcome",
+    "RankCorruption",
     "ScopeOutcome",
     "SuppressionOutcome",
     "SurfacingOutcome",
@@ -128,12 +132,15 @@ __all__ = [
     "harm_outcome",
     "is_leak",
     "is_policy_disclosure",
+    "kendall_tau",
     "misdirection",
     "misdirection_outcome",
     "paired_utility",
     "payload_tier",
     "propagation",
     "propagation_depth",
+    "rank_corruption",
+    "ranked_ids",
     "scope_outcome",
     "scope_violation",
     "stage_names",

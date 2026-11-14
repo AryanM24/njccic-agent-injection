@@ -99,6 +99,7 @@ def test_task_runs_and_scores_a_compromised_pipeline(tmp_path: Any) -> None:
         "action_divergence",
         "suppression",
         "paired_utility",
+        "rank_corruption",
         "harm",
     }
     # In-pair: the attack run did harm, its twin under identical settings did not.

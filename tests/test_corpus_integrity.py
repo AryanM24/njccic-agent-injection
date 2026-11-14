@@ -47,7 +47,7 @@ PUBLIC = {w: ROOT / "corpus" / f"manifest_{w}.jsonl" for w in ("w1", "w2", "w3")
 CONTROLS = {
     w: ROOT / "corpus" / f"manifest_{w}_controls.jsonl" for w in ("w1", "w2", "w3")
 }
-EXPECTED_PAIRS = {"w1": 56, "w2": 56, "w3": 56}  # b1 32 + three slim bases x 8
+EXPECTED_PAIRS = {"w1": 56, "w2": 72, "w3": 56}  # b1 32 + slim bases x 8 (W2: five)
 
 
 def _rows(path: Path) -> list[dict[str, Any]]:
@@ -85,8 +85,9 @@ def test_each_workflow_has_four_bases_with_the_intended_matrix(
 ) -> None:
     rows = _rows(_generated(generated_corpus, workflow))
     by_base = collections.Counter(r["base_id"] for r in rows)
-    assert by_base == {"b1": 32, "b2": 8, "b3": 8, "b4": 8}
-    for base in ("b2", "b3", "b4"):
+    slim = ("b2", "b3", "b4", "b5", "b6") if workflow == "w2" else ("b2", "b3", "b4")
+    assert by_base == {"b1": 32, **{b: 8 for b in slim}}
+    for base in slim:
         cells = {
             (r["goal"], r["file_type"], r["concealment"])
             for r in rows
@@ -226,7 +227,7 @@ def test_every_row_declares_correct(generated_corpus: Path) -> None:
     from validate_manifest import correct_errors
 
     rows = _all_generated_rows(generated_corpus)
-    assert len(rows) == 3 * 56 + 3 * 4
+    assert len(rows) == sum(EXPECTED_PAIRS.values()) + 3 * 4
     for row in rows:
         assert row["correct"], row["artifact_id"]
         assert correct_errors(row["correct"]) == [], row["artifact_id"]
@@ -451,7 +452,9 @@ def test_trusted_fields_match_directories(generated_corpus: Path) -> None:
     for row in _rows(_generated(generated_corpus, "w2")):
         assert re.fullmatch(r"[A-Z]{2}-[A-Z]{3,4}-\d{2}", row["posting_id"])
         text = extract(generated_corpus / row["twin_path"])
-        assert len(row["candidate_roster"]) == 3
+        assert len(row["candidate_roster"]) == (
+            5 if row["base_id"] in ("b5", "b6") else 3
+        )
         assert all(cid in text for cid in row["candidate_roster"])
 
 
@@ -671,7 +674,7 @@ def test_every_declared_alternative_scores_correct(generated_corpus: Path) -> No
             assert judged.correct.did_correct_thing is True, where
             assert judged.control.no_harm, (where, judged.control.harms)
             checked += 1
-    assert checked >= 3 * 56 + 3 * 4
+    assert checked >= sum(EXPECTED_PAIRS.values()) + 3 * 4
 
 
 def test_markers_disjoint() -> None:
@@ -743,3 +746,27 @@ def test_validator_checks_component_markers(generated_corpus: Path) -> None:
         f"{attack} filler"
     ]
     assert marker_only_violations(attack, "", MARKER) == []
+
+
+@pytest.mark.parametrize("base_id", ["b5", "b6"])
+def test_new_bases_ground_truth(base_id: str, generated_corpus: Path) -> None:
+    """C2: the manifest's `true_ranking` is `true_ranking()` of the base's
+    candidates, the attacker sits at true rank 3, and every candidate id is in
+    the packet with the request asking for all five ranked."""
+    import _corpus_bases
+
+    from eduinject.ranking import true_ranking
+
+    facts = getattr(_corpus_bases, f"W2_{base_id.upper()}_CANDIDATES")
+    rows = [
+        r for r in _rows(_generated(generated_corpus, "w2")) if r["base_id"] == base_id
+    ]
+    assert len(rows) == 8
+    for row in rows:
+        assert row["true_ranking"] == true_ranking(facts)
+        assert row["true_ranking"].index(row["attacker_candidate"]) == 2
+        assert sorted(row["candidate_roster"]) == sorted(row["true_ranking"])
+        assert "all five" in row["operator_request"]
+    text = extract(generated_corpus / rows[0]["twin_path"])
+    assert all(c.candidate_id in text for c in facts)
+    assert "5 candidates" in text

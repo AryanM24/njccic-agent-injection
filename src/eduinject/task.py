@@ -56,6 +56,7 @@ from .scorers import (
     misdirection,
     paired_utility,
     propagation,
+    rank_corruption,
     scope_violation,
     suppression,
 )
@@ -97,6 +98,8 @@ OPTIONAL_METADATA: tuple[str, ...] = (
     "sender_address",
     "posting_id",
     "candidate_roster",
+    "true_ranking",
+    "attacker_candidate",
 )
 """Manifest fields copied into sample metadata when present. They are optional
 so older manifest lines keep loading; carrying `goal`, `base_id`, `file_type` and
@@ -472,6 +475,8 @@ def scorers_for(
                 escalation_tools=workflow.escalation_tools,
             ),
         ]
+        if workflow.code == "w2":
+            out.append(rank_corruption())
     out.append(harm(spec=spec, state_changing=changing, run_label=label))
     return out
 

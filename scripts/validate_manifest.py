@@ -97,6 +97,8 @@ OPTIONAL_FIELDS = {
     "sender_address": str,
     "posting_id": str,
     "candidate_roster": list,
+    "true_ranking": list,
+    "attacker_candidate": str,
 }
 """Optional manifest fields and their types. W1/W3 rows use the
 correspondent/third_party/protected names; W2 rows keep the signed appendix's
@@ -299,6 +301,14 @@ def trusted_errors(
                 errors.append(f"'candidate_roster' must be {roster}")
         elif not entry.get("candidate_roster"):
             errors.append("w2 needs a non-empty 'candidate_roster'")
+        if "true_ranking" in entry and (
+            sorted(entry["true_ranking"]) != sorted(entry.get("candidate_roster", []))
+            or entry.get("attacker_candidate") not in entry["true_ranking"]
+        ):
+            errors.append(
+                "'true_ranking' must order the 'candidate_roster' and name the "
+                "'attacker_candidate'"
+            )
         return errors
     if entry.get("sender_address") != sender:
         return ["'sender_address' must be the correspondent's address"]
