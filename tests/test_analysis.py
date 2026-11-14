@@ -93,8 +93,15 @@ def test_denominators_count_every_status() -> None:
         _row("p1", 1, 1.0),
         _row("p2", 1, None),
         {**_row("p3", 1, None), "status": "limit"},
+        {**_row("p4", 1, None), "status": "handoff_parse_error"},
     ]
-    assert denominators(rows) == {"total": 3, "scored": 1, "error": 1, "limit": 1}
+    assert denominators(rows) == {
+        "total": 4,
+        "scored": 1,
+        "error": 1,
+        "limit": 1,
+        "handoff_parse_error": 1,
+    }
 
 
 def test_epoch_spread_is_the_noise_floor_candidate() -> None:

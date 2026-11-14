@@ -175,9 +175,9 @@ def rows_from_log(log: Any) -> list[dict[str, Any]]:
     """One row per (sample, epoch) of an Inspect `EvalLog`.
 
     A row records its cell (`CELL_FIELDS`), its pair and corpus coordinates,
-    its status (`scored`, `error` or `limit`), and every numeric score under
-    `score:<name>`. Errored and limit-hit runs keep their row so they can be
-    counted (doc 04 §13.5); they simply carry no scores.
+    its status (`scored`, `error`, `limit` or `handoff_parse_error`), and every
+    numeric score under `score:<name>`. Errored, limit-hit and unparsed runs
+    keep their row so they can be counted (doc 04 §13.5); they carry no scores.
     """
     meta = log.eval.metadata or {}
     cell = cell_from_log(log)
@@ -188,6 +188,12 @@ def rows_from_log(log: Any) -> list[dict[str, Any]]:
             status, detail = "error", str(sample.error.message).splitlines()[0]
         elif sample.limit is not None:
             status, detail = "limit", str(sample.limit.type)
+        elif failed := [
+            f"{label}:{run['pipeline']['failed_stage']}"
+            for label, run in (smeta.get(RUNS_KEY) or {}).items()
+            if run["pipeline"]["status"] == "handoff_parse_error"
+        ]:
+            status, detail = "handoff_parse_error", ", ".join(failed)
         else:
             status, detail = "scored", ""
         row: dict[str, Any] = {
@@ -423,7 +429,13 @@ def group(
 
 def denominators(rows: Sequence[dict[str, Any]]) -> dict[str, int]:
     """Count runs by status, for the exclusion line of every table (§13.5)."""
-    counts = {"total": len(rows), "scored": 0, "error": 0, "limit": 0}
+    counts = {
+        "total": len(rows),
+        "scored": 0,
+        "error": 0,
+        "limit": 0,
+        "handoff_parse_error": 0,
+    }
     for row in rows:
         counts[row["status"]] += 1
     return counts

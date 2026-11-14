@@ -23,34 +23,50 @@ from inspect_ai.agent import (
     react,
     run,
 )
-from inspect_ai.model import ChatMessageSystem, ChatMessageUser, get_model
+from inspect_ai.model import (
+    ChatMessageSystem,
+    ChatMessageUser,
+    GenerateConfig,
+    ModelUsage,
+    ResponseSchema,
+    get_model,
+)
 from inspect_ai.tool import Tool
-from inspect_ai.util import store_as
+from inspect_ai.util import json_schema, store_as
+from pydantic import BaseModel
 
 from ..scorers.outcomes import action_text
 from ..tools.guard import Guard
 from ..tools.ledger import Ledger
+from .handoff_schemas import AnalysisHandoff, IntakeHandoff, parse_handoff
+from .prompts_handoff import TYPED_ACTION_CLAUSE, TYPED_OUTPUT_CLAUSE
 
 ToolsForScope = Callable[[str, str | None, Guard | None], list[Tool]]
 ToolNamesForScope = Callable[[str], tuple[str, ...]]
 
 
 @agent
-def single_shot(name: str, system_prompt: str) -> Agent:
+def single_shot(
+    name: str, system_prompt: str, response_schema: ResponseSchema | None = None
+) -> Agent:
     """Build a one-generation, no-tools agent.
 
     Args:
         name: Display name for the stage (used in the transcript).
         system_prompt: System prompt for the stage.
+        response_schema: Structured output requested from the provider (typed
+            hand-off). Providers without support ignore it; the prompt clause
+            still states the shape.
 
     Returns:
         An agent that generates exactly once.
     """
+    config = GenerateConfig(response_schema=response_schema)
 
     async def execute(state: AgentState) -> AgentState:
         """Generate a single response to the stage input and return."""
         state.messages.insert(0, ChatMessageSystem(content=system_prompt))
-        output = await get_model().generate(state.messages)
+        output = await get_model().generate(state.messages, config=config)
         state.output = output
         state.messages.append(output.message)
         return state
@@ -64,6 +80,7 @@ def action_agent(
     tools_for_scope: ToolsForScope,
     action_system: str,
     guard: Guard | None = None,
+    usage: list[ModelUsage] | None = None,
 ) -> Agent:
     """Build the tool-using action stage.
 
@@ -75,10 +92,21 @@ def action_agent(
         tools_for_scope: The workflow's tool-instantiation function.
         action_system: The workflow's action-stage system prompt.
         guard: Authorization guard the tools enforce, or None.
+        usage: Receives the token usage of every generation of the loop.
 
     Returns:
         A react agent with the scope's tools.
     """
+
+    async def generate(state: AgentState, tools: list[Tool]) -> AgentState:
+        """react()'s default generation step, recording each turn's usage."""
+        output = await get_model().generate(state.messages, tools)
+        if usage is not None and output.usage is not None:
+            usage.append(output.usage)
+        state.output = output
+        state.messages.append(output.message)
+        return state
+
     return react(
         name="action",
         description="Carries out the assessed request using district systems.",
@@ -88,6 +116,7 @@ def action_agent(
         # into an independent variable (C4).
         prompt=AgentPrompt(instructions=action_system, assistant_prompt=None),
         tools=tools_for_scope(scope, instance, guard),
+        model=generate,
         # Keep the submit call in the transcript: `stage3_messages` is the
         # measurement record of what the agent did, and the default drops it.
         submit=AgentSubmit(keep_in_messages=True),
@@ -113,9 +142,29 @@ class Stage(TypedDict):
 def _usage(state: Any) -> Usage | None:
     # getattr: the isolation tests' recorder returns a bare namespace.
     usage = getattr(state.output, "usage", None)
-    if usage is None:
+    return _total([usage]) if usage is not None else None
+
+
+def _total(usages: list[ModelUsage]) -> Usage | None:
+    if not usages:
         return None
-    return {"input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens}
+    return {
+        "input_tokens": sum(u.input_tokens for u in usages),
+        "output_tokens": sum(u.output_tokens for u in usages),
+    }
+
+
+class _HandoffParseError(Exception):
+    """A typed stage's output failed validation; carries the stage name."""
+
+
+HANDOFF_MODES = ("free_text", "typed")
+
+HANDOFF_SCHEMAS: dict[str, type[BaseModel]] = {
+    "intake": IntakeHandoff,
+    "analysis": AnalysisHandoff,
+}
+"""Typed hand-off output schema by stage kind; relays use "analysis"."""
 
 
 async def run_pipeline(
@@ -134,6 +183,8 @@ async def run_pipeline(
     guard: Guard | None = None,
     relay_stages: int = 0,
     relay_system: str | None = None,
+    handoff_mode: str = "free_text",
+    trusted_block: str | None = None,
 ) -> dict[str, Any]:
     """Run one document through intake -> analysis -> relays -> action.
 
@@ -169,23 +220,46 @@ async def run_pipeline(
             request (plus the document when not isolated).
         relay_system: The workflow's relay system prompt; required when
             `relay_stages` > 0.
+        handoff_mode: "free_text", or "typed" (doc 11 §4.2): every pre-action
+            stage must emit JSON matching its schema, parsed once; the action
+            stage gets `trusted_block` and the validated assessment.
+        trusted_block: The trusted case record as JSON (`trusted_fields`),
+            built from the manifest and directories by the caller; required
+            when typed. It replaces `task_facts`.
 
     Returns:
         `stages` (one `Stage` per stage, in order: `intake`, `analysis`,
         `relay_1` ... `relay_k`, `action`), the action stage's final completion
-        (`final`), its messages (`stage3_messages`) and `status`.
+        (`final`), its messages (`stage3_messages`) and `status` (`ok`, or
+        `handoff_parse_error` with the failing stage in `failed_stage`; later
+        stages are then not run).
     """
     if relay_stages and relay_system is None:
         raise ValueError("relay_stages > 0 needs a relay_system prompt")
+    if handoff_mode not in HANDOFF_MODES:
+        raise ValueError(f"handoff_mode must be one of {HANDOFF_MODES}")
+    typed = handoff_mode == "typed"
+    if typed and (trusted_block is None or task_facts is not None):
+        raise ValueError("typed hand-off needs trusted_block and no task_facts")
     ledger = store_as(Ledger, instance=instance)
     ledger.scope = scope
     ledger.granted_tools = list(tool_names_for_scope(scope))
     source = "" if isolated else f"\n\nSOURCE DOCUMENT:\n{document_text}"
     stages: list[Stage] = []
 
-    async def text_stage(name: str, system: str, stage_input: str) -> str:
+    async def text_stage(name: str, kind: str, system: str, stage_input: str) -> str:
+        schema = HANDOFF_SCHEMAS[kind] if typed else None
+        if schema is not None:
+            system += TYPED_OUTPUT_CLAUSE[kind]
         state = await run(
-            single_shot(name, system), [ChatMessageUser(content=stage_input)]
+            single_shot(
+                name,
+                system,
+                ResponseSchema(name=f"{kind}_report", json_schema=json_schema(schema))
+                if schema is not None
+                else None,
+            ),
+            [ChatMessageUser(content=stage_input)],
         )
         output = state.output.completion
         stages.append(
@@ -196,33 +270,59 @@ async def run_pipeline(
                 "usage": _usage(state),
             }
         )
-        return output
+        if schema is None:
+            return output
+        parsed = parse_handoff(output, schema)
+        if parsed is None:
+            raise _HandoffParseError(name)
+        return parsed.model_dump_json()
 
-    prev = await text_stage(
-        "intake",
-        intake_system,
-        f"OPERATOR REQUEST:\n{operator_request}\n\n"
-        f"SUBMITTED DOCUMENT (extracted):\n{document_text}",
-    )
-    prev = await text_stage(
-        "analysis",
-        analysis_system,
-        f"INTAKE OUTPUT:\n{prev}\n\nOPERATOR REQUEST:\n{operator_request}{source}",
-    )
-    for i in range(1, relay_stages + 1):
+    try:
         prev = await text_stage(
-            f"relay_{i}",
-            relay_system or "",
-            f"PREVIOUS STAGE OUTPUT:\n{prev}\n\n"
-            f"OPERATOR REQUEST:\n{operator_request}{source}",
+            "intake",
+            "intake",
+            intake_system,
+            f"OPERATOR REQUEST:\n{operator_request}\n\n"
+            f"SUBMITTED DOCUMENT (extracted):\n{document_text}",
         )
+        prev = await text_stage(
+            "analysis",
+            "analysis",
+            analysis_system,
+            f"INTAKE OUTPUT:\n{prev}\n\nOPERATOR REQUEST:\n{operator_request}{source}",
+        )
+        for i in range(1, relay_stages + 1):
+            prev = await text_stage(
+                f"relay_{i}",
+                "analysis",
+                relay_system or "",
+                f"PREVIOUS STAGE OUTPUT:\n{prev}\n\n"
+                f"OPERATOR REQUEST:\n{operator_request}{source}",
+            )
+    except _HandoffParseError as failed:
+        return {
+            "stages": stages,
+            "final": "",
+            "stage3_messages": [],
+            "status": "handoff_parse_error",
+            "failed_stage": str(failed),
+        }
 
-    s3_input = f"ASSESSMENT:\n{prev}\n\nOPERATOR REQUEST:\n{operator_request}"
-    if task_facts:
-        s3_input += f"\n\n{task_facts}"
+    if typed:
+        s3_input = (
+            f"TRUSTED CASE RECORD (district systems):\n{trusted_block}\n\n"
+            f"ASSESSMENT (from previous stage):\n{prev}\n\n"
+            f"OPERATOR REQUEST:\n{operator_request}"
+        )
+        action_system += TYPED_ACTION_CLAUSE
+    else:
+        s3_input = f"ASSESSMENT:\n{prev}\n\nOPERATOR REQUEST:\n{operator_request}"
+        if task_facts:
+            s3_input += f"\n\n{task_facts}"
     s3_input += source
+    s3_usage: list[ModelUsage] = []
     s3 = await run(
-        action_agent(scope, instance, tools_for_scope, action_system, guard),
+        action_agent(scope, instance, tools_for_scope, action_system, guard, s3_usage),
         [ChatMessageUser(content=s3_input)],
     )
     result: dict[str, Any] = {
@@ -236,7 +336,7 @@ async def run_pipeline(
             "name": "action",
             "input": s3_input,
             "output": action_text(result),
-            "usage": _usage(s3),
+            "usage": _total(s3_usage),
         }
     )
     return result

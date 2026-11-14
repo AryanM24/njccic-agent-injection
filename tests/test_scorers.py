@@ -592,6 +592,7 @@ def test_packet_candidate_is_not_third_party_to_themselves() -> None:
         {"message_limit": 10},
         {"benign_only": True},
         {"relay_stages": 1},
+        {"handoff_mode": "typed"},
         *(
             pytest.param(
                 c,
@@ -600,7 +601,6 @@ def test_packet_candidate_is_not_third_party_to_themselves() -> None:
                 ),
             )
             for c in (
-                {"handoff_mode": "typed"},
                 {"gate": True},
                 {"verification_tools": True},
             )

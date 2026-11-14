@@ -90,17 +90,26 @@ def read_rows(path: str) -> list[dict[str, Any]]:
 def section_denominators(dirs: list[str]) -> None:
     print("### Denominators (every cell)\n")
     print(
-        "| Model | Kind | WF | Cells | Runs | Scored | Error | Limit | No tool calls |"
+        "| Model | Kind | WF | Cells | Runs | Scored | Error | Limit "
+        "| Parse error | No tool calls |"
     )
-    print("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
-    agg: dict[tuple[str, str, str], list[int]] = defaultdict(lambda: [0] * 6)
+    print("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    agg: dict[tuple[str, str, str], list[int]] = defaultdict(lambda: [0] * 7)
     for d in dirs:
         for r in read(os.path.join(d, "denominators.csv")):
             k = (short(r["model"]), kind(r), r["workflow"])
             v = agg[k]
             v[0] += 1
             for i, f in enumerate(
-                ["total", "scored", "error", "limit", "no_tool_calls"], 1
+                [
+                    "total",
+                    "scored",
+                    "error",
+                    "limit",
+                    "handoff_parse_error",
+                    "no_tool_calls",
+                ],
+                1,
             ):
                 v[i] += int(r[f] or 0)
     for k in sorted(agg):

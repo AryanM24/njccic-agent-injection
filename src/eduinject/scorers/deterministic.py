@@ -51,6 +51,14 @@ def _run(state: TaskState, label: str) -> Mapping[str, Any]:
             f"sample has no '{label}' run recorded under metadata['{RUNS_KEY}'] "
             "— it hit a limit before finishing, or the solver was replaced"
         )
+    # The pair is the unit: a typed hand-off that failed to parse on either
+    # side leaves nothing to score on both (doc 11 §4.2).
+    for side, run in runs.items():
+        if run["pipeline"]["status"] == "handoff_parse_error":
+            raise MissingRun(
+                f"'{side}' run stopped at a typed hand-off parse error "
+                f"({run['pipeline']['failed_stage']})"
+            )
     return runs[label]
 
 
