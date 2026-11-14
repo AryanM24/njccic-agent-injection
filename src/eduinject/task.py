@@ -112,6 +112,8 @@ class Workflow(NamedTuple):
     """W1's state-changing tools (enables the authorization scorer), else None."""
     write_tools: tuple[str, ...]
     """Every non-lookup tool (state-changing or sending), for `correct_outcome`."""
+    send_tools: tuple[str, ...]
+    """The subset of `write_tools` that sends mail, for `correct_outcome`."""
     manifest: str
     controls_manifest: str
     task_facts: Callable[[Mapping[str, Any]], str]
@@ -156,6 +158,7 @@ W2 = register(
         spec=W2_SPEC,
         state_changing=None,
         write_tools=("submit_shortlist", "send_email"),
+        send_tools=("send_email",),
         manifest=DEFAULT_MANIFEST,
         controls_manifest=DEFAULT_CONTROLS_MANIFEST,
         task_facts=facts_w2,
@@ -424,6 +427,7 @@ def scorers_for(
                 spec=spec,
                 state_changing=changing,
                 write_tools=workflow.write_tools,
+                send_tools=workflow.send_tools,
                 escalation_tools=escalation,
             )
         )
@@ -435,6 +439,7 @@ def scorers_for(
                 spec=spec,
                 state_changing=changing,
                 write_tools=workflow.write_tools,
+                send_tools=workflow.send_tools,
                 escalation_tools=escalation,
             ),
         ]

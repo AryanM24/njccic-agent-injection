@@ -97,6 +97,7 @@ for c, sample in finished_samples(sys.argv[1:]):
                 authorized=authorized,
                 correspondents=on_file,
                 write_tools=workflow(wf).write_tools,
+                send_tools=workflow(wf).send_tools,
                 escalation_tools=("escalate_to_staff",) if wf == "w3" else (),
                 granted_tools=ledger.get("granted_tools", []),
                 harms=ctl.harms,
