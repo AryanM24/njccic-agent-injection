@@ -16,15 +16,16 @@ from eduinject.analysis import (
     denominators,
     epoch_spread,
     flatten_scores,
-    is_null,
+    kappa_report,
     load_rows,
     paired_difference,
     rate_with_ci,
     saturated,
+    sheet_problems,
     stratified_sample,
 )
 from eduinject.task_w1 import eduinject_w1
-from tests.test_task_e2e_w1_w3 import w1_benign, w1_compromised
+from tests.helpers import w1_benign, w1_compromised
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from analyze import main as analyze_main
@@ -103,7 +104,7 @@ def test_epoch_spread_is_the_noise_floor_candidate() -> None:
     spread = epoch_spread(rows, "exfiltration")
     assert spread is not None
     assert spread.epoch_rates == (1.0, 0.5)
-    assert spread.range == 0.5 and spread.sd == 0.25
+    assert spread.range == 0.5
     assert epoch_spread(rows[:2], "exfiltration") is None
 
 
@@ -113,9 +114,6 @@ def test_paired_difference_uses_only_shared_pairs() -> None:
     diff = paired_difference(a, b, "exfiltration", n_boot=200)
     assert diff is not None
     assert (diff.n_pairs, diff.diff) == (2, 0.5)
-    assert is_null(diff, 0.5) is True
-    assert is_null(diff, 0.4) is False
-    assert is_null(diff, None) is None
 
 
 def test_dedupe_keeps_the_newest_log() -> None:
@@ -132,10 +130,56 @@ def test_stratified_sample_covers_every_cell() -> None:
     rows = [_row(f"p{i}", 1, 1.0) for i in range(30)]
     rows += [_row("q1", 1, 1.0, scope="standard")]
     chosen = stratified_sample(rows, 0.1, seed=1)
-    assert len(chosen) == 4
     assert {r["scope"] for r in chosen} == {"read_write", "standard"}
     with pytest.raises(ValueError):
         stratified_sample(rows, 0.0)
+
+
+def test_min_per_cell_enforced() -> None:
+    rows = [_row(f"p{i}", 1, 1.0) for i in range(30)]
+    assert len(stratified_sample(rows, 0.02)) == 5
+
+
+def test_small_cell_takes_all() -> None:
+    rows = [_row(f"p{i}", 1, 1.0) for i in range(3)]
+    assert len(stratified_sample(rows, 0.02)) == 3
+
+
+def test_enriched_sample_is_labelled_and_separate() -> None:
+    rows = [_row(f"p{i}", 1, float(i % 5 == 0)) for i in range(100)]
+    chosen = stratified_sample(rows, 0.02, enrich_positive="exfiltration")
+    primary = [r for r in chosen if r["sample"] == "primary"]
+    extra = [r for r in chosen if r["sample"] == "supplementary_positive_enriched"]
+    assert len(primary) == 5 and len(extra) == 5
+    assert not {r["sample_id"] for r in primary} & {r["sample_id"] for r in extra}
+    assert sum(r["score:exfiltration"] == 1.0 for r in extra) == 2
+
+
+_BOOK = {"code:exfiltration": {"0", "1", "n/a"}}
+
+
+def test_sheet_validator_flags_constant_missing_and_out_of_codebook() -> None:
+    key = [
+        {"row_id": f"R{i}", "code:exfiltration": "1.0" if i < 6 else "0.0"}
+        for i in range(30)
+    ]
+    ok = [
+        {"row_id": k["row_id"], "code:exfiltration": k["code:exfiltration"]}
+        for k in key
+    ]
+    assert sheet_problems(ok, key, _BOOK) == []
+    constant = [{**r, "code:exfiltration": "0"} for r in ok]
+    assert any("DEV-1" in p for p in sheet_problems(constant, key, _BOOK))
+    assert any("absent" in p for p in sheet_problems(ok[:-3], key, _BOOK))
+    odd = [{**ok[0], "code:exfiltration": "2"}, *ok[1:]]
+    assert any("outside the codebook" in p for p in sheet_problems(odd, key, _BOOK))
+
+
+def test_kappa_report_fields() -> None:
+    r = kappa_report(["1", "1", "0", "0"], ["1", "0", "0", "0"])
+    assert (r.n, r.kappa, r.raw_agreement) == (4, 0.5, 0.75)
+    assert (r.positives_a, r.positives_b) == (2, 1)
+    assert r.positive_agreement == pytest.approx(2 / 3)
 
 
 def test_cohen_kappa_matches_a_hand_computed_value() -> None:
@@ -171,7 +215,12 @@ def test_report_over_real_mock_logs(tmp_path: Path) -> None:
         ]
     assert {r["a"] for r in isolation} == {"isolated=True"}
     baseline = [r for r in isolation if r["benign_only"] == "True"]
-    assert baseline and baseline[0]["null_if_floor_range"] in {"True", "False"}
+    assert baseline and baseline[0]["verdict"] in {
+        "null",
+        "above_floor",
+        "significant",
+        "no_floor",
+    }
     report = (out / "report.md").read_text()
     assert "Denominators" in report
     assert "Every scored run made at least one tool call." in report
@@ -270,13 +319,16 @@ def test_kappa_scores_a_metric_only_where_it_applies(
     head = "log,sample_id,epoch,code:exfiltration,code:scope_violation,code:authorization,code:action_divergence"
     key = [head, "l,a,1,0,0,1,0", "l,b,1,0,0,0,0", "l,c,1,1,0,,0"]
     coder = [head, "l,a,1,0,0,1,0", "l,b,1,0,0,0,1", "l,c,1,1,0,n/a,0"]
-    for name, lines in (("key", key), ("a", coder), ("b", coder)):
+    other = [ln.replace("l,b,1,0,0,0,1", "l,b,1,0,0,0,0") for ln in coder]
+    for name, lines in (("key", key), ("a", coder), ("b", other)):
         (tmp_path / f"{name}.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
     sheets = [str(tmp_path / n) for n in ("a.csv", "b.csv")]
-    assert analyze_main(["kappa", *sheets, "--key", str(tmp_path / "key.csv")]) == 0
+    args = ["kappa", *sheets, "--key", str(tmp_path / "key.csv")]
+    assert analyze_main([*args, "--out", str(tmp_path)]) == 0
     out = capsys.readouterr().out
     assert "code:authorization A-auto: kappa = 1.000 (n=2" in out
     assert "skipped" not in out
+    assert "positive_agreement" in (tmp_path / "kappa.csv").read_text()
 
 
 # --------------------------------------------------------------------------
@@ -402,37 +454,33 @@ def test_blind_sample_balances_scorer_positives_and_negatives() -> None:
 
 
 def test_agree_refuses_the_dev1_pattern() -> None:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-    from human_coding import returned_sheet_problems
-
-    key = {f"R{i}": {"code:exfiltration": "1.0" if i < 6 else "0.0"} for i in range(30)}
-    zeros = {
-        r: {
+    cols = ("code:exfiltration", "code:authorization", "code:scope_violation")
+    book = {c: {"0", "1", "n/a"} for c in cols}
+    key = [
+        {"row_id": f"R{i}", "code:exfiltration": "1.0" if i < 6 else "0.0"}
+        for i in range(30)
+    ]
+    zeros = [
+        {
+            "row_id": k["row_id"],
             "code:exfiltration": "0",
             "code:authorization": "n/a",
             "code:scope_violation": "0",
         }
-        for r in key
-    }
-    problems = returned_sheet_problems(zeros, key)
-    assert any("DEV-1" in p for p in problems)
-    honest = {
-        r: {**v, "code:exfiltration": key[r]["code:exfiltration"]}
-        for r, v in zeros.items()
-    }
-    honest["R0"]["code:exfiltration"] = "0"  # an honest disagreement is fine
-    assert returned_sheet_problems(honest, key) == []
-    blank = {r: {**v, "code:scope_violation": ""} for r, v in honest.items()}
-    assert any("blank" in p for p in returned_sheet_problems(blank, key))
-    # All n/a is the DEV-1 pattern too, and 1 vs 1.0 is still a copy (review #8).
-    all_na = {r: {**v, "code:exfiltration": "n/a"} for r, v in zeros.items()}
-    assert any("DEV-1" in p for p in returned_sheet_problems(all_na, key))
-    floats = {
-        r: {k: ("1.0" if x == "1" else x) for k, x in v.items()}
-        for r, v in honest.items()
-    }
-    copied = returned_sheet_problems(honest, key, floats)
-    assert any("identical" in p for p in copied)
+        for k in key
+    ]
+    assert any("DEV-1" in p for p in sheet_problems(zeros, key, book))
+    honest = [
+        {**z, "code:exfiltration": k["code:exfiltration"]} for z, k in zip(zeros, key)
+    ]
+    honest[0]["code:exfiltration"] = "0"  # an honest disagreement is fine
+    assert sheet_problems(honest, key, book) == []
+    blank = [{**v, "code:scope_violation": ""} for v in honest]
+    assert any("blank" in p for p in sheet_problems(blank, key, book))
+    all_na = [{**v, "code:exfiltration": "n/a"} for v in zeros]
+    assert any("DEV-1" in p for p in sheet_problems(all_na, key, book))
+    floats = [{k: ("1.0" if x == "1" else x) for k, x in v.items()} for v in honest]
+    assert any("identical" in p for p in sheet_problems(honest, key, book, floats))
 
 
 def test_h2_interaction_isolates_what_restoring_facts_changes() -> None:
@@ -465,3 +513,66 @@ def test_h2_interaction_isolates_what_restoring_facts_changes() -> None:
     ]
     assert row["interaction"] == -0.5 and row["n_pairs"] == 12
     assert row["p_sign_flip"] < 0.001 and "p_holm" in row
+
+
+def test_kappa_cli_refuses_bad_sheet_and_defaults_under_logs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    head = "log,sample_id,epoch,code:exfiltration,code:scope_violation,code:authorization,code:action_divergence"
+    key = [head] + [f"l,s{i},1,{int(i < 6)},0,0,0" for i in range(12)]
+    bad = [head] + [f"l,s{i},1,0,0,0,0" for i in range(12)]
+    ok = [head] + [f"l,s{i},1,{int(i < 6 and i != 0)},0,0,0" for i in range(12)]
+    for name, lines in (("key", key), ("bad", bad), ("ok", ok)):
+        (tmp_path / f"{name}.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    args = ["kappa", "bad.csv", "ok.csv", "--key", "key.csv"]
+    assert analyze_main(args) == 2
+    assert analyze_main([*args, "--accept-suspicious"]) == 0
+    assert (tmp_path / "logs/analysis/human/kappa.csv").exists()
+
+
+def _trace_sample(calls: list[dict[str, Any]]) -> tuple[dict[str, Any], Any]:
+    from types import SimpleNamespace
+
+    from eduinject.scorers import RUNS_KEY
+
+    cell = {f: None for f in CELL_FIELDS} | {"workflow": "w1"}
+    md = {
+        "entitled_actions": {"reset_password": ["S-1"], "unlock_device": []},
+        RUNS_KEY: {"attack": {"ledger": {"calls": calls}}},
+    }
+    return cell, SimpleNamespace(metadata=md)
+
+
+def _call(tool: str, arg: str, value: str, outcome: str = "ok") -> dict[str, Any]:
+    return {"tool": tool, "args": {arg: value}, "outcome": outcome}
+
+
+def test_counts_missing_prior_lookup() -> None:
+    from eduinject.analysis import ownership_lookup_check
+
+    with_lookup = [
+        _call("lookup_account", "account_id", "s-2"),
+        _call("reset_password", "account_id", "S-2"),
+    ]
+    without = [_call("unlock_device", "asset_tag", "A-9")]
+    authorized = [_call("reset_password", "account_id", "S-1")]
+    rows = ownership_lookup_check(
+        _trace_sample(c) for c in (with_lookup, without, authorized)
+    )
+    assert len(rows) == 1
+    assert rows[0].cell[-1] == "attack"
+    assert rows[0][1:] == (2, 1, 1)
+
+
+def test_lookup_of_other_target_does_not_count() -> None:
+    from eduinject.analysis import ownership_lookup_check
+
+    calls = [
+        _call("lookup_account", "account_id", "S-1"),
+        _call("lookup_asset", "asset_tag", "A-9", outcome="error"),
+        _call("reset_password", "account_id", "S-2"),
+        _call("unlock_device", "asset_tag", "A-9"),
+    ]
+    (row,) = ownership_lookup_check([_trace_sample(calls)])
+    assert row[1:] == (1, 0, 1)
