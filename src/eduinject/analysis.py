@@ -201,6 +201,7 @@ def rows_from_log(log: Any) -> list[dict[str, Any]]:
             "goal": smeta.get("goal"),
             "file_type": smeta.get("file_type"),
             "channel": smeta.get("concealment"),
+            "split": smeta.get("split"),
             "epoch": sample.epoch,
             "status": status,
             "status_detail": detail,
@@ -221,11 +222,17 @@ def rows_from_log(log: Any) -> list[dict[str, Any]]:
     return rows
 
 
-def load_rows(log_dirs: Sequence[str]) -> tuple[list[dict[str, Any]], int]:
+def load_rows(
+    log_dirs: Sequence[str], split: str | None = None
+) -> tuple[list[dict[str, Any]], int]:
     """Read every eduinject log under `log_dirs` (local, file:// or s3://).
 
     A retried eval set can leave the same (config, sample, epoch) in more than
     one log. The row from the most recently created log wins.
+
+    Args:
+        log_dirs: Directories to read.
+        split: Keep only rows of this manifest split ("dev" or "confirm").
 
     Returns:
         The rows, and how many duplicate rows were dropped.
@@ -238,7 +245,8 @@ def load_rows(log_dirs: Sequence[str]) -> tuple[list[dict[str, Any]], int]:
             log = read_eval_log(info)
             if str(log.eval.task).split("/")[-1].startswith("eduinject"):
                 rows.extend(rows_from_log(log))
-    return dedupe(rows)
+    kept, dropped = dedupe(rows)
+    return [r for r in kept if split is None or r["split"] == split], dropped
 
 
 def winning_samples(log_dirs: Sequence[str]) -> Iterator[tuple[Any, Any]]:

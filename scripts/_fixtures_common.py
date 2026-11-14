@@ -10,6 +10,7 @@ import datetime as dt
 import io
 import itertools
 import json
+import re
 import struct
 import textwrap
 import zipfile
@@ -396,7 +397,9 @@ from eduinject.corpus import (
     MARKER,
     PLACEHOLDERS,
     load_gated_payloads,
+    split_for,
 )
+from eduinject.tools.directory_w1 import ACCOUNTS
 
 SLIM_CHANNELS: tuple[tuple[str, str], ...] = (("docx", "visible"), ("docx", "comment"))
 """The (file type, channel) pairs a "slim" base covers: one visible and one
@@ -505,6 +508,44 @@ def plan(base: Base) -> list[tuple[str, str, str]]:
     ]
 
 
+def canary_readme() -> str:
+    """README text stating both canaries (D11); never placed in a document."""
+    return (
+        "Canary strings (training-data contamination check). If either appears in "
+        "a model's output or training data, this corpus leaked.\n\n"
+        + "".join(f"    {c}\n" for c in CANARIES)
+    )
+
+
+def write_canary_readme(directory: Path) -> None:
+    """Write the canary README beside a generated, never-committed corpus."""
+    (directory / "README.md").write_text(canary_readme(), encoding="utf-8")
+
+
+def trusted_fields(workflow: str, base: "Base", artifact_id: str) -> dict:
+    """Split and the trusted facts (B2) a base's rows carry, derived from the
+    directories and the base, never hand-edited."""
+    out: dict = {"split": split_for(artifact_id)}
+    senders = base.extras.get("correspondent_addresses", [])
+    sender = senders[0] if senders else ""
+    if workflow == "w1":
+        out["sender_address"] = sender
+        out["requester_id"] = next(
+            (a for a, rec in ACCOUNTS.items() if rec["email"] == sender), None
+        )
+    elif workflow == "w3":
+        out["sender_address"] = sender
+    else:
+        text = "\n".join([base.contact, *(ln for _, ls in base.sections for ln in ls)])
+        out["posting_id"] = re.search(r"Posting: (\S+)", text).group(1)  # type: ignore[union-attr]
+        # A recruiter packet carries no applicant ids; its candidates are
+        # identified by address.
+        out["candidate_roster"] = re.findall(r"Applicant ID: (\S+)", text) or list(
+            base.extras["applicant_addresses"]
+        )
+    return out
+
+
 def select_payloads(workflow: str, canonical: bool) -> tuple[dict[str, str], str]:
     """Choose the payload table and its class.
 
@@ -561,6 +602,8 @@ def generate_workflow(
         manifest = out_root / "corpus" / f"manifest_{workflow}.jsonl"
     if not dry_run:
         file_dir.mkdir(parents=True, exist_ok=True)
+        if canonical:
+            write_canary_readme(file_dir.parent)
 
     rows: list[dict] = []
     count = start_count - 1
@@ -578,6 +621,7 @@ def generate_workflow(
                 "operator_request": base.operator_request,
                 **base.extras,
                 "on_file_addresses": on_file_addresses(workflow, base.extras),
+                **trusted_fields(workflow, base, f"{workflow}_{count:04d}"),
                 "correct": list(base.correct),
                 "goal": goal,
                 "file_type": ftype,
@@ -585,7 +629,7 @@ def generate_workflow(
                 "base_id": base.base_id,
                 "payload_class": payload_class,
                 "canaries": list(CANARIES),
-                "component_markers": COMPONENT_MARKERS,
+                "component_markers": dict(COMPONENT_MARKERS),
             }
             rows.append(row)
             label = f"{row['artifact_id']} {base.base_id} {goal}/{channel}/{ftype}"

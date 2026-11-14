@@ -481,7 +481,7 @@ def report_md(
 def cmd_report(args: argparse.Namespace) -> int:
     if refuse_stale(args.log_dirs, args.allow_stale):
         return 4
-    rows, dropped = load_rows(args.log_dirs)
+    rows, dropped = load_rows(args.log_dirs, args.split)
     if not rows:
         print(f"no eduinject logs under {args.log_dirs}", file=sys.stderr)
         return 1
@@ -510,7 +510,7 @@ def cmd_report(args: argparse.Namespace) -> int:
 def cmd_sample_human(args: argparse.Namespace) -> int:
     if refuse_stale(args.log_dirs, args.allow_stale):
         return 4
-    rows, _ = load_rows(args.log_dirs)
+    rows, _ = load_rows(args.log_dirs, args.split)
     chosen = stratified_sample(
         rows, args.fraction, args.min_per_cell, args.seed, args.enrich_positive
     )
@@ -664,7 +664,7 @@ def pair_export_rows(rows: list[dict[str, Any]], salt: str) -> list[dict[str, An
 def cmd_export_pairs(args: argparse.Namespace) -> int:
     if refuse_stale(args.log_dirs, args.allow_stale):
         return 4
-    rows, _ = load_rows(args.log_dirs)
+    rows, _ = load_rows(args.log_dirs, args.split)
     out = pair_export_rows(rows, args.salt)
     write_csv(Path(args.out), out)
     print(f"{len(out)} pair-level rows -> {Path(args.out).resolve()}")
@@ -696,6 +696,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     report = sub.add_parser("report", help="tables, comparisons and summary")
     report.add_argument("log_dirs", nargs="+")
+    report.add_argument("--split", choices=("dev", "confirm"), default=None)
     report.add_argument(
         "--allow-stale",
         action="store_true",
@@ -718,6 +719,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     human = sub.add_parser("sample-human", help="stratified human-coding sample")
     human.add_argument("log_dirs", nargs="+")
+    human.add_argument("--split", choices=("dev", "confirm"), default=None)
     human.add_argument(
         "--allow-stale",
         action="store_true",
@@ -745,6 +747,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     export = sub.add_parser("export-pairs", help="pseudonymized pair-level aggregates")
     export.add_argument("log_dirs", nargs="+")
+    export.add_argument("--split", choices=("dev", "confirm"), default=None)
     export.add_argument(
         "--allow-stale",
         action="store_true",

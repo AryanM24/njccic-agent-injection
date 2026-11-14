@@ -8,8 +8,9 @@ module unconditionally -- every consumer goes through `load_gated_payloads()`,
 which returns None when the module is absent.
 """
 
+import hashlib
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Literal
 
 MARKER = "ZZPAYLOADZZ"
 """Harmless sentinel placed in every attack artifact so propagation is
@@ -106,12 +107,11 @@ def payload_problems(table: Mapping[str, Any]) -> list[str]:
                 for m in required
                 if m not in text
             )
-            if premise:
-                problems.extend(
-                    f"{where} must not contain the component marker '{m}'"
-                    for m in COMPONENT_MARKERS.values()
-                    if m in text
-                )
+            problems.extend(
+                f"{where} must not contain the {'component' if premise else 'premise'} marker '{m}'"
+                for m in (COMPONENT_MARKERS.values() if premise else [PREMISE_MARKER])
+                if m in text
+            )
     return problems
 
 
@@ -171,3 +171,12 @@ def load_gated_payloads() -> dict[str, dict[str, str]] | None:
     if problems:
         raise ValueError("; ".join(problems))
     return table
+
+
+Split = Literal["dev", "confirm"]
+
+
+def split_for(artifact_id: str) -> Split:
+    """The deterministic dev/confirm split of a pair (30% dev), from its id alone."""
+    bucket = int(hashlib.sha256(artifact_id.encode()).hexdigest()[:8], 16) % 10
+    return "dev" if bucket < 3 else "confirm"

@@ -57,9 +57,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from eduinject.agents.task_facts import on_file_addresses
-from eduinject.corpus import CANARIES, MARKERS
+from eduinject.corpus import CANARIES, MARKERS, split_for
 from eduinject.extraction import extract
 from eduinject.task import workflow as workflow_for
+from eduinject.tools.directory_w1 import ACCOUNTS
 
 REQUIRED_FIELDS = {
     "artifact_id": str,
@@ -91,6 +92,10 @@ OPTIONAL_FIELDS = {
     "file_type": str,
     "concealment": str,
     "payload_class": str,
+    "split": str,
+    "sender_address": str,
+    "posting_id": str,
+    "candidate_roster": list,
 }
 """Optional manifest fields and their types. W1/W3 rows use the
 correspondent/third_party/protected names; W2 rows keep the signed appendix's
@@ -270,6 +275,27 @@ def correct_errors(correct: list, tools: Collection[str] | None = None) -> list[
     return errors
 
 
+def trusted_errors(workflow: str, entry: dict) -> list[str]:
+    """B2 trusted-fact fields: present for the workflow and consistent with the
+    directory and the row's correspondent."""
+    senders = entry.get("correspondent_addresses", [])
+    sender = senders[0] if senders else ""
+    if workflow == "w2":
+        ok = isinstance(entry.get("posting_id"), str) and bool(
+            entry.get("candidate_roster")
+        )
+        return (
+            [] if ok else ["w2 needs 'posting_id' and a non-empty 'candidate_roster'"]
+        )
+    if entry.get("sender_address") != sender:
+        return ["'sender_address' must be the correspondent's address"]
+    if workflow == "w1":
+        want = next((a for a, r in ACCOUNTS.items() if r["email"] == sender), None)
+        if entry.get("requester_id", "<absent>") != want:
+            return [f"'requester_id' must be {want!r} (present, from the directory)"]
+    return []
+
+
 def validate_entry(
     entry: dict, line_no: int, seen_ids: set[str], root: Path = ROOT
 ) -> list[str]:
@@ -324,6 +350,9 @@ def validate_entry(
     )
     if entry.get("canaries") != list(CANARIES):
         errors.append(f"{artifact_id}: 'canaries' must equal corpus.CANARIES")
+    if entry.get("split") != split_for(artifact_id):
+        errors.append(f"{artifact_id}: 'split' must be {split_for(artifact_id)!r}")
+    errors.extend(f"{artifact_id}: {e}" for e in trusted_errors(workflow, entry))
     if is_control and not entry.get("expect"):
         errors.append(f"{artifact_id}: control rows must carry an 'expect' block")
 

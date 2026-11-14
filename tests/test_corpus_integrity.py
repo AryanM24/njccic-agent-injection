@@ -41,6 +41,8 @@ from validate_manifest import (
     main as validator_main,
 )
 
+from tests.conftest import skip_if_gated_payloads_stale
+
 PUBLIC = {w: ROOT / "corpus" / f"manifest_{w}.jsonl" for w in ("w1", "w2", "w3")}
 CONTROLS = {
     w: ROOT / "corpus" / f"manifest_{w}_controls.jsonl" for w in ("w1", "w2", "w3")
@@ -344,6 +346,78 @@ def test_validator_rejects_missing_canaries(generated_corpus: Path) -> None:
     assert any("canaries" in e for e in errors)
 
 
+def test_split_is_deterministic() -> None:
+    assert corpus.split_for("w1_0001") == "confirm"
+    assert corpus.split_for("w2_0002") == "dev"
+    assert corpus.split_for("w3_0010") == "confirm"
+
+
+def test_canaries_in_readmes_not_documents(tmp_path: Path) -> None:
+    from _fixtures_common import write_canary_readme
+
+    write_canary_readme(tmp_path)
+    readmes = [
+        ROOT / "corpus" / "README.md",
+        ROOT / "corpus" / "benign" / "README.md",
+        ROOT / "corpus" / "controls" / "README.md",
+        tmp_path / "README.md",
+    ]
+    for readme in readmes:
+        text = readme.read_text(encoding="utf-8")
+        assert all(c in text for c in corpus.CANARIES), readme
+    for doc in (ROOT / "corpus" / "benign").glob("*_attack.*"):
+        assert not any(c.encode() in doc.read_bytes() for c in corpus.CANARIES)
+        break
+
+
+def _bad_manifest(corpus_root: Path, mutate: Any) -> list[str]:
+    rows = _rows(_generated(corpus_root, "w1"))
+    mutate(rows[0])
+    bad = corpus_root / "corpus" / "manifest_bad.jsonl"
+    bad.write_text("\n".join(json.dumps(r) for r in rows) + "\n", "utf-8")
+    try:
+        return validate_manifest(bad)[1]
+    finally:
+        bad.unlink()
+
+
+def test_validator_requires_canaries_and_split(generated_corpus: Path) -> None:
+    assert any(
+        "canaries" in e
+        for e in _bad_manifest(generated_corpus, lambda r: r.pop("canaries"))
+    )
+    assert any(
+        "split" in e
+        for e in _bad_manifest(generated_corpus, lambda r: r.update(split="other"))
+    )
+    assert any(
+        "split" in e for e in _bad_manifest(generated_corpus, lambda r: r.pop("split"))
+    )
+    assert any(
+        "requester_id" in e
+        for e in _bad_manifest(generated_corpus, lambda r: r.update(requester_id="x"))
+    )
+
+
+def test_trusted_fields_match_directories(generated_corpus: Path) -> None:
+    from eduinject.tools.directory_w1 import ACCOUNTS
+
+    for row in _rows(_generated(generated_corpus, "w1")):
+        sender = row["correspondent_addresses"][0]
+        assert row["sender_address"] == sender
+        owner = row["requester_id"]
+        assert (owner is None) == all(a["email"] != sender for a in ACCOUNTS.values())
+        if owner:
+            assert ACCOUNTS[owner]["email"] == sender
+    for row in _rows(_generated(generated_corpus, "w3")):
+        assert row["sender_address"] == (row["correspondent_addresses"] or [""])[0]
+    for row in _rows(_generated(generated_corpus, "w2")):
+        assert re.fullmatch(r"[A-Z]{2}-[A-Z]{3,4}-\d{2}", row["posting_id"])
+        text = extract(generated_corpus / row["twin_path"])
+        assert len(row["candidate_roster"]) == 3
+        assert all(cid in text for cid in row["candidate_roster"])
+
+
 def _write_ids(path: Path, ids: list[str]) -> None:
     path.write_text("".join(json.dumps({"artifact_id": i}) + "\n" for i in ids))
 
@@ -379,6 +453,7 @@ def test_public_and_canonical_pair_sets_match(workflow: str) -> None:
     canonical = ROOT / "corpus" / "canonical" / f"manifest_{workflow}.jsonl"
     if not canonical.exists():
         pytest.skip("gated canonical corpus absent")
+    skip_if_gated_payloads_stale()
     diff = pair_set_mismatch(PUBLIC[workflow], canonical)
     assert not diff.only_public and not diff.only_canonical
 
@@ -580,6 +655,11 @@ def test_payload_problems_names_missing_marker(monkeypatch: pytest.MonkeyPatch) 
     """Review Focus 4: a pre-C1 gated table names workflow, goal and marker."""
     valid = _table(PLACEHOLDERS)
     assert payload_problems(valid) == []
+    leaky = {
+        **valid,
+        "w1": {**valid["w1"], "data_theft": valid["w1"]["data_theft"] + PREMISE_MARKER},
+    }
+    assert any("premise marker" in p for p in payload_problems(leaky))
     broken = _table(PLACEHOLDERS)
     broken["w2"]["data_theft"] = f"{PLACEHOLDERS['data_theft']} filler".replace(
         "QQVERBQQ", "plain"

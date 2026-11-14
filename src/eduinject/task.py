@@ -92,6 +92,11 @@ OPTIONAL_METADATA: tuple[str, ...] = (
     "on_file_addresses",
     "component_markers",
     "premise_marker",
+    "split",
+    "requester_id",
+    "sender_address",
+    "posting_id",
+    "candidate_roster",
 )
 """Manifest fields copied into sample metadata when present. They are optional
 so older manifest lines keep loading; carrying `goal`, `base_id`, `file_type` and
