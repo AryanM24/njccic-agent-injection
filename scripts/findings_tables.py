@@ -45,16 +45,11 @@ BREAKDOWN_METRICS = [
 WF_LABEL = {"w1": "Help desk", "w2": "Hiring", "w3": "Parent email"}
 
 
-def models_in(rows: list[dict[str, Any]]) -> list[str]:
-    """Every model label present, in a stable order."""
-    return sorted({short(r["model"]) for r in rows})
-
-
 def f3(x: Any) -> str:
     return "" if x in ("", None) else f"{float(x):.3f}"
 
 
-def rate_cell(r: dict[str, str] | None) -> str:
+def rate_cell(r: dict[str, Any] | None) -> str:
     if not r:
         return "–"
     return (
@@ -107,42 +102,48 @@ def section_denominators(dirs: list[str]) -> None:
     print()
 
 
-def section_rates(rates: list[dict[str, str]]) -> None:
+def _cell_columns(cell: dict[str, Any]) -> str:
+    """The fields that tell two cells apart, apart from those a table splits on."""
+    return (
+        f"{short(cell['model'])} | {cell['host']} | {cell['reasoning_effort']} "
+        f"| {WF_LABEL.get(cell['workflow'], cell['workflow'])} | {cell['corpus']} "
+        f"| {cell['identity_mode']} | {cell['defense']}"
+    )
+
+
+CELL_HEADER = "Model | Host | Effort | WF | Corpus | Identity | Defense"
+
+
+def section_rates(rates: list[dict[str, Any]]) -> None:
     print("### Every rate, every cell\n")
     print("Format: rate [95% pair-clustered CI] r<epoch range>. 48 pairs × 10 epochs")
     print("= 480 runs per attack cell; baseline cells as in §0.\n")
-    idx = {}
-    for r in rates:
-        idx[
-            (
-                r["metric"],
-                short(r["model"]),
-                kind(r),
-                r["workflow"],
-                r["scope"],
-                r["isolated"],
-            )
-        ] = r
-    for metric in sorted({r["metric"] for r in rates}):
+    idx = {(r["metric"], cell_of(r)): r for r in rates}
+    # One line per cell with isolation and attack/baseline folded into columns.
+    lines = {
+        (r["metric"], cell_of({**r, "benign_only": False, "isolated": ""}))
+        for r in rates
+        if kind(r) != "controls"
+    }
+    for metric in sorted({m for m, _ in lines}):
         print(f"#### `{metric}`\n")
         print(
-            "| Model | WF | Scope | Attack, iso off | Attack, iso on | Baseline, iso off | Baseline, iso on |"
+            f"| {CELL_HEADER} | Scope | Attack, iso off | Attack, iso on "
+            "| Baseline, iso off | Baseline, iso on |"
         )
-        print("| --- | --- | --- | --- | --- | --- | --- |")
-        for model in models_in(rates):
-            for wf in ("w1", "w2", "w3"):
-                for scope in ("read_only", "standard", "read_write"):
-                    cells = [
-                        idx.get((metric, model, k, wf, scope, iso))
-                        for k in ("attack", "baseline")
-                        for iso in ("False", "True")
-                    ]
-                    if any(cells):
-                        print(
-                            f"| {model} | {WF_LABEL[wf]} | {scope} | "
-                            + " | ".join(map(rate_cell, cells))
-                            + " |"
-                        )
+        print("|" + " --- |" * 12)
+        for _, key in sorted((x for x in lines if x[0] == metric), key=str):
+            cell = dict(zip(CELL_FIELDS, key, strict=True))
+            found = [
+                idx.get((metric, cell_of({**cell, "benign_only": b, "isolated": iso})))
+                for b in (False, True)
+                for iso in ("False", "True")
+            ]
+            print(
+                f"| {_cell_columns(cell)} | {cell['scope']} | "
+                + " | ".join(map(rate_cell, found))
+                + " |"
+            )
         print()
 
 
@@ -154,9 +155,9 @@ def section_attack_vs_baseline(rows: list[dict[str, Any]]) -> None:
     cells = group(r for r in rows if kind(r) in ("attack", "baseline"))
     print(
         "| Model | WF | Corpus | Scope | Iso | Identity | Defense | Effort | Metric "
-        "| Attack | Baseline | Diff [95% CI] | Floor | Verdict | Sat. |"
+        "| Attack | Baseline | Diff [95% CI] | Floor | Verdict |"
     )
-    print("|" + " --- |" * 15)
+    print("|" + " --- |" * 14)
     for key in sorted(cells, key=str):
         cell = dict(zip(CELL_FIELDS, key, strict=True))
         if cell["benign_only"]:
@@ -171,8 +172,10 @@ def section_attack_vs_baseline(rows: list[dict[str, Any]]) -> None:
             if ra.rate == 0 and rb.rate == 0:
                 continue
             floor = comparison_floor(rows, cell, base_cell, metric)
+            shown = str(verdict(diff, floor))
             # Doc 09 §5: a 0 or 1 rate is reported, not compared.
-            sat = "yes" if {ra.rate, rb.rate} & {0.0, 1.0} else ""
+            if {ra.rate, rb.rate} & {0.0, 1.0}:
+                shown += " (saturated)"
             print(
                 f"| {short(cell['model'])} | {WF_LABEL.get(cell['workflow'], cell['workflow'])} "
                 f"| {cell['corpus']} | {cell['scope']} "
@@ -182,7 +185,7 @@ def section_attack_vs_baseline(rows: list[dict[str, Any]]) -> None:
                 f"| {ra.rate:.3f} | {rb.rate:.3f} "
                 f"| {diff.diff:+.3f} [{diff.lo:+.3f}, {diff.hi:+.3f}] "
                 f"| {'' if floor is None else f'{floor:.3f}'} "
-                f"| {verdict(diff, floor)} | {sat} |"
+                f"| {shown} |"
             )
     print()
     print(
@@ -221,43 +224,38 @@ def section_breakdowns(rows: list[dict[str, Any]], fields: tuple[str, ...]) -> N
     for field in fields:
         print(f"### Attack runs by `{field}`\n")
         print(
-            "Propagation and surfacing pooled over the three scopes (scope has no effect on"
+            "Each line is one cell (`FLOOR_FIELDS`) with scope pooled: propagation "
+            "and surfacing over the three scopes (scope has no effect on"
         )
         print("them); exfiltration and authorization at read_write only.\n")
-        print(f"| Model | WF | {field} | Metric | Iso off | Iso on |")
-        print("| --- | --- | --- | --- | --- | --- |")
-        groups: dict[tuple[str, ...], list[dict[str, Any]]] = defaultdict(list)
+        print(f"| {CELL_HEADER} | {field} | Metric | Iso off | Iso on |")
+        print("|" + " --- |" * 11)
+        groups: dict[tuple[Any, ...], list[dict[str, Any]]] = defaultdict(list)
         for r in attack:
-            groups[
-                (short(r["model"]), r["workflow"], r[field], r["isolated"], r["scope"])
-            ].append(r)
-        values = sorted({r[field] for r in attack})
-        for model in models_in(attack):
-            for wf in ("w1", "w2", "w3"):
-                for v in values:
-                    for metric in BREAKDOWN_METRICS:
-                        scopes = (
-                            ["read_write"]
-                            if metric in HARM
-                            else ["read_only", "standard", "read_write"]
-                        )
-                        out = []
-                        for iso in ("False", "True"):
-                            sel = [
-                                x
-                                for s in scopes
-                                for x in groups.get((model, wf, v, iso, s), [])
-                            ]
-                            ci = rate_with_ci(sel, metric) if sel else None
-                            out.append(
-                                f"{ci.rate:.3f} [{ci.lo:.2f}, {ci.hi:.2f}] n{ci.n_runs}"
-                                if ci
-                                else "–"
-                            )
-                        if out != ["–", "–"]:
-                            print(
-                                f"| {model} | {WF_LABEL[wf]} | {v} | {metric} | {out[0]} | {out[1]} |"
-                            )
+            rest = cell_of({**r, "scope": "", "isolated": ""}, (field,))
+            groups[(rest, r["isolated"], r["scope"])].append(r)
+        for rest in sorted({k[0] for k in groups}, key=str):
+            cell = dict(zip((*CELL_FIELDS, field), rest, strict=True))
+            for metric in BREAKDOWN_METRICS:
+                scopes = (
+                    ["read_write"]
+                    if metric in HARM
+                    else ["read_only", "standard", "read_write"]
+                )
+                out = []
+                for iso in ("False", "True"):
+                    sel = [x for sc in scopes for x in groups.get((rest, iso, sc), [])]
+                    ci = rate_with_ci(sel, metric) if sel else None
+                    out.append(
+                        f"{ci.rate:.3f} [{ci.lo:.2f}, {ci.hi:.2f}] n{ci.n_runs}"
+                        if ci
+                        else "–"
+                    )
+                if out != ["–", "–"]:
+                    print(
+                        f"| {_cell_columns(cell)} | {cell[field]} | {metric} "
+                        f"| {out[0]} | {out[1]} |"
+                    )
         print()
 
 

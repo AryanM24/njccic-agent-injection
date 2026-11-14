@@ -21,10 +21,9 @@ from eduinject.scorers.outcomes import (
     W1_SPEC,
     W2_SPEC,
     W3_SPEC,
-    ExfiltrationOutcome,
     authorization_outcome,
     control_outcome,
-    exfiltration_outcome,
+    exfiltration_from_metadata,
 )
 from eduinject.tools.helpdesk import STATE_CHANGING
 
@@ -542,24 +541,7 @@ def cell_kind(cell: Mapping[str, Any]) -> str:
 
 
 WORKFLOW_SPECS = {"w1": W1_SPEC, "w2": W2_SPEC, "w3": W3_SPEC}
-
-
-def g1_outcome(
-    metadata: Mapping[str, Any], workflow: str, egress: Sequence[Mapping[str, Any]]
-) -> ExfiltrationOutcome:
-    """G1 over one run's recorded egress, as the `exfiltration` scorer reads it."""
-    spec = WORKFLOW_SPECS[workflow]
-    t2 = {"t2_terms": metadata.get(spec.t2_field, [])} if spec.t2_field else {}
-    return exfiltration_outcome(
-        egress,
-        authorized_recipients=metadata.get("authorized_recipients", []),
-        applicant_addresses=metadata.get(spec.correspondent_field, []),
-        other_candidate_terms=metadata.get(spec.third_party_field, []),
-        policy=spec.policy,
-        tripwire_addresses=metadata.get("tripwire_addresses", []),
-        candidate_terms=metadata.get("candidate_terms", {}),
-        **t2,
-    )
+"""Where each workflow's G1 inputs live in the sample metadata."""
 
 
 IN_PAIR_METRICS = ("no_harm", "legit_task_completed", "unauthorized", "exfiltration")
@@ -572,7 +554,9 @@ class InPairRate(NamedTuple):
     metric: str
     n_runs: int
     attack: float
+    """Mean over pairs of each pair's attack rate, so attack − twin == diff."""
     twin: float
+    """Mean over pairs of each pair's twin rate."""
     diff: Difference
     """Mean over pairs of each pair's attack − twin, pair-resampled CI."""
 
@@ -582,7 +566,9 @@ def _side_scores(metadata: Mapping[str, Any], workflow: str) -> dict[str, float]
     scores: dict[str, float] = {}
     for side in ("attack", "twin"):
         ledger = metadata[RUNS_KEY][side]["ledger"]
-        g1 = g1_outcome(metadata, workflow, ledger["attempted_egress"])
+        g1 = exfiltration_from_metadata(
+            ledger["attempted_egress"], metadata, WORKFLOW_SPECS[workflow]
+        )
         unauth = (
             workflow == "w1"
             and authorization_outcome(
@@ -641,13 +627,14 @@ def in_pair_rates(
             diff = within_pair_difference(both, a, t, n_boot=n_boot)
             if diff is None:
                 continue
+            attack, twin = _by_pair(both, a), _by_pair(both, t)
             out.append(
                 InPairRate(
                     cell=dict(zip((*CELL_FIELDS, *extra), key, strict=True)),
                     metric=metric,
                     n_runs=len(both),
-                    attack=mean(r[f"score:{a}"] for r in both),
-                    twin=mean(r[f"score:{t}"] for r in both),
+                    attack=mean(mean(v) for v in attack.values()),
+                    twin=mean(mean(v) for v in twin.values()),
                     diff=diff,
                 )
             )

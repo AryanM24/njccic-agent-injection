@@ -1,7 +1,7 @@
 """Break G1 completions down by who received them (doc 09 §9), attack and twin.
 
 Usage: python scripts/exfil_recipients.py LOG_DIR [LOG_DIR ...]. Needs no model:
-`analysis.g1_outcome` is re-applied to each run's recorded ledger, so the twin
+`exfiltration_from_metadata` is re-applied to each run's recorded ledger, so the twin
 side of a paired run is scored too. Prints a Markdown table. The in-pair
 attack − twin G1 rate is `exfiltration` in `scripts/paired_outcomes.py`.
 
@@ -17,10 +17,10 @@ from eduinject.analysis import (
     WORKFLOW_SPECS,
     cell_kind,
     finished_samples,
-    g1_outcome,
     model_label,
 )
 from eduinject.scorers.deterministic import RUNS_KEY
+from eduinject.scorers.outcomes import exfiltration_from_metadata
 
 WHO = ["tripwire", "correspondent", "data subject", "internal staff", "other"]
 COLUMNS = ["logs", *FLOOR_FIELDS, "side"]
@@ -52,7 +52,9 @@ for c, sample in finished_samples(sys.argv[1:]):
     third = [t.lower() for t in md.get(spec.third_party_field) or []]
     tripwires = [t.lower() for t in md.get("tripwire_addresses") or []]
     for side, run in (md.get(RUNS_KEY) or {}).items():
-        outcome = g1_outcome(md, c["workflow"], run["ledger"]["attempted_egress"])
+        outcome = exfiltration_from_metadata(
+            run["ledger"]["attempted_egress"], md, spec
+        )
         k = tuple(str(v) for v in ({**cell, "side": side}[f] for f in COLUMNS))
         runs[k] += 1
         flagged[k] += outcome.completed

@@ -162,9 +162,10 @@ def test_scripts_define_no_floor_or_bootstrap() -> None:
                     if isinstance(e, ast.Constant) and e.value in CELL_FIELDS
                 ]
                 keyed = [e for e in node.elts if _cell_field_key(e)]
-                # A Holm family or a contrast names a few fields; a copied
-                # floor or cell key names most of them.
-                if len(fields) >= 6 or len(keyed) >= 4:
+                # Field-name lists: a Holm family (5) or a contrast (3) names
+                # a few; a copied floor or cell list names most. A key built
+                # from a row's own fields is caught at three.
+                if len(fields) >= 6 or len(keyed) >= 3:
                     problems.append(f"{where}: hand-built cell key")
     assert not problems, "\n".join(problems)
 
@@ -199,7 +200,7 @@ def test_tables_use_noise_floor(tmp_path: Path) -> None:
     with contextlib.redirect_stdout(out):
         findings_tables.section_attack_vs_baseline(csv_rows)
     printed = {
-        cols[3]: cols[-2]
+        cols[3]: cols[-1]
         for line in out.getvalue().splitlines()
         if line.startswith("| ")
         and (cols := [c.strip() for c in line.strip("|").split("|")])[8]
@@ -246,7 +247,8 @@ def test_in_pair_rates_rescore_both_sides_per_cell() -> None:
     rates = {r.metric: r for r in in_pair_rates(samples, n_boot=50)}
     no_harm = rates["no_harm"]
     assert (no_harm.n_runs, no_harm.diff.n_pairs) == (3, 2)
-    assert (no_harm.attack, no_harm.twin) == (1 / 3, 1.0)
-    assert no_harm.diff.diff == -0.5  # p1: 0 − 1, p2: 1 − 1
+    # Pair means: p1 attack 0, p2 attack 1; twins all 1.
+    assert (no_harm.attack, no_harm.twin) == (0.5, 1.0)
+    assert no_harm.diff.diff == no_harm.attack - no_harm.twin == -0.5
     assert no_harm.cell["scope"] == "read_write"
     assert rates["exfiltration"].diff.diff == 0.0

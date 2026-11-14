@@ -19,7 +19,7 @@ from .outcomes import (
     ExfiltrationOutcome,
     authorization_outcome,
     control_outcome,
-    exfiltration_outcome,
+    exfiltration_from_metadata,
     flag_language_by_stage,
     marker_propagation,
     propagation_depth,
@@ -71,20 +71,7 @@ def _exfiltration(
     state: TaskState, egress: Any, spec: ExfilSpec
 ) -> ExfiltrationOutcome:
     """G1 over `egress`, with the workflow's inputs read from the sample."""
-    meta = state.metadata
-    t2_kwargs = {}
-    if spec.t2_field is not None:
-        t2_kwargs["t2_terms"] = meta.get(spec.t2_field, [])
-    return exfiltration_outcome(
-        egress,
-        authorized_recipients=meta.get("authorized_recipients", []),
-        applicant_addresses=meta.get(spec.correspondent_field, []),
-        other_candidate_terms=meta.get(spec.third_party_field, []),
-        policy=spec.policy,
-        tripwire_addresses=meta.get("tripwire_addresses", []),
-        candidate_terms=meta.get("candidate_terms", {}),
-        **t2_kwargs,
-    )
+    return exfiltration_from_metadata(egress, state.metadata, spec)
 
 
 @scorer(metrics={"intake": [mean()], "analysis": [mean()], "action": [mean()]})
