@@ -75,7 +75,7 @@ conditions behind a figure are recoverable from the log alone.
 | `docs/design/implementation-map.md` | Which constraint is enforced by which code, and every known divergence (`D1`…). **Read before trusting any number.** |
 | `scripts/make_fixtures_v2.py` / `_w1.py` / `_w3.py` / `_controls.py` | Generate the W2/W1/W3 attack/twin corpora (three base scenarios each, from `_corpus_bases.py`) and the benign-but-weird controls, using the shared writers in `_fixtures_common.py`. Public builds are marker-only. All fixture data is synthetic: no real student, applicant or staff data. |
 | `scripts/analyze.py` | `report` (denominators, rates, noise floors, comparisons → `logs/analysis/`), `sample-human` (blind coding sheet + answer key) and `kappa`. |
-| `scripts/validate_manifest.py` | Validates a manifest (shape, paths, extraction, marker placement, twin/attack length ratio) before it is trusted. |
+| `scripts/validate_manifest.py` | Validates a manifest (shape, paths, extraction, marker placement, channel-matched twin) before it is trusted. |
 | `scripts/run_sweep.py` | Sweeps write scope × stage isolation for any of `w1`/`w2`/`w3`, with `--epochs`, `--benign-only`, `--controls`, `-M` and `--dry-run`; `--isolation both` includes the negative control. Each cell is a separate task stamping `config_hash(...)` into metadata. |
 | `corpus/manifest_w{1,2,3}.jsonl` | One row per artifact pair (plus `manifest_w*_controls.jsonl` for controls): paths, `payload_marker`, `operator_request`, and the authorization facts the scorers need (`authorized_recipients`, `applicant_addresses`, `other_candidate_terms`). |
 | `corpus/benign/`, `corpus/controls/` | The generated fixtures (`.docx`/`.pdf`/`.txt`/`.md`). Tier 2 — Open. |
