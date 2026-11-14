@@ -16,6 +16,7 @@ from eduinject.agents.prompts_relay import RELAY_SYSTEM
 from eduinject.agents.task_facts import facts_w1, facts_w2, facts_w3
 from eduinject.corpus import CANARIES, MARKER
 from eduinject.extraction import extract
+from eduinject.monitor.rules import RULES
 from eduinject.tools import directory_w1, directory_w3
 from eduinject.tools.guard import ToolFactory
 
@@ -122,6 +123,9 @@ def model_visible_strings(corpus_root: Path) -> Iterator[tuple[str, str]]:
         for attr in ("INTAKE_SYSTEM", "ANALYSIS_SYSTEM", "ACTION_SYSTEM"):
             yield f"{mod.__name__}.{attr}", getattr(mod, attr)
     yield "prompts.SPOTLIGHT_CLAUSE", prompts.SPOTLIGHT_CLAUSE
+    for rules in RULES.values():
+        for rule in rules:
+            yield f"monitor.denial:{rule.id}", rule.denial
     for wf, text in RELAY_SYSTEM.items():
         yield f"prompts_relay.RELAY_SYSTEM[{wf}]", text
     yield from _tool_strings()
