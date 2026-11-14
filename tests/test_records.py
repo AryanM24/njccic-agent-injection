@@ -93,8 +93,8 @@ def test_record_fields_from_mock_sample() -> None:
         "split": "dev",
     }
     assert r.operator_request == "Please reset S-10001."
-    assert [name for name, _ in r.stages] == ["intake", "analysis", "action"]
-    assert r.stages[1] == ("analysis", "analysis out")
+    assert [name for name, _, _ in r.stages] == ["intake", "analysis", "action"]
+    assert r.stages[1] == ("analysis", "a", "analysis out")
     assert r.document_text == "doc text"
     assert r.status == "ok"
     assert r.calls == (

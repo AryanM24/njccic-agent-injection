@@ -47,8 +47,8 @@ class RunRecord(NamedTuple):
     """base_id, goal, file_type, channel, split."""
     operator_request: str
     document_text: str | None
-    stages: tuple[tuple[str, str], ...]
-    """(stage name, stage output), in pipeline order."""
+    stages: tuple[tuple[str, str, str], ...]
+    """(stage name, stage input, stage output), in pipeline order."""
     calls: tuple[CallView, ...]
     status: Status
     meta: Mapping[str, Any]
@@ -68,6 +68,11 @@ def _norm(args: Any) -> str:
 def _calls(
     messages: Sequence[Mapping[str, Any]], ledger: Sequence[Mapping[str, Any]]
 ) -> tuple[CallView, ...]:
+    """Action-stage calls joined to their results and ledger outcomes.
+
+    `not_executed` can also mean the tool ledgered args different from what
+    the model sent (no tool does today).
+    """
     results = {
         m.get("tool_call_id"): _text(m.get("content"))
         for m in messages
@@ -154,7 +159,8 @@ def records_from_sample(sample: Any, cell: Mapping[str, Any]) -> list[RunRecord]
                 else "\n".join(m.text for m in sample.input),
                 document_text=None if doc is None else unmark(doc),
                 stages=tuple(
-                    (s["name"], s["output"]) for s in pipeline.get("stages") or []
+                    (s["name"], s.get("input", ""), s["output"])
+                    for s in pipeline.get("stages") or []
                 ),
                 calls=_calls(
                     pipeline.get("stage3_messages") or [],

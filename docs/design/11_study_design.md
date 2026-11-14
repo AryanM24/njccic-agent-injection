@@ -396,7 +396,7 @@ One record per run (attack or twin) of a finished sample:
   operator_request, document_text, stages, calls, status, meta)`. `label` is
   `attack` or `twin`; `cell` is the `analysis.CELL_FIELDS` mapping; `coords`
   holds `base_id`, `goal`, `file_type`, `channel`, `split`; `stages` is the
-  ordered `(name, output)` pairs (§4.1); `status` is one of `ok`,
+  ordered `(name, input, output)` triples (§4.1); `status` is one of `ok`,
   `doc_unavailable`, `handoff_parse_error`, `unfinished`.
 - `document_text` is `metadata["runs"][label]["document_text"]`, un-datamarked
   (`defense.unmark`), never re-extracted (ruling 4). `doc_unavailable` means
