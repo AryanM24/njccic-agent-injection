@@ -98,6 +98,7 @@ def test_task_runs_and_scores_a_compromised_pipeline(tmp_path: Any) -> None:
         "misdirection",
         "action_divergence",
         "suppression",
+        "argument_provenance",
         "paired_utility",
         "harm",
     }

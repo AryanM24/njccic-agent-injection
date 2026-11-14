@@ -59,7 +59,7 @@ First-edition numbers are described, not reproduced: all runs are redone.
 | D4 | **Hijack-level scoring absent; no `partial` category** | Doc 4 §3 | Only completion-level outcomes. | Open. `harm` adds attempted vs completed (doc 11 §2.6), which is not hijack. | Every reported rate is a completion rate. |
 | D5 | **G2/A3 evaluative corruption is proxied, not measured** | Doc 4 §6, §6.1 | `action_divergence` compares tool and recipient sets, not ranking magnitude. Luna submitted a W2 shortlist 7–26 points more often on attack documents than twins (findings §14a). | Open. W2 b4 (no qualified candidate, `must_not_call` `submit_shortlist`) makes one ranking failure a forbidden call. A ranking scorer (`rank_corruption`) is planned for Phase C. | Descoped (doc 09 §7). |
 | D6 | **G5 suppression: raw signals only** | Doc 4 §9 | S4 proxy and surfacing rates; negation-aware phrase list (08 §5); G5 descoped (doc 09 v1.1). | Unchanged. | Contribution (d) not claimed: recorded, **not reportable**. |
-| D7 | **G2/A2 argument substitution unimplemented** | Doc 4 §6 | The ledger records arguments; nothing tests whether a value came from content rather than the request. | **Open until Phase A** (provenance extractors). `misdirection` (doc 11 §2.4) covers one case: mail to an address taken from the document. The `harm` intent signal waits on the same extractors (A-07 partially fixed). | TB-4 argument sourcing is unscored except for recipients. |
+| D7 | **G2/A2 argument substitution unimplemented** | Doc 4 §6 | The ledger records arguments; nothing tests whether a value came from content rather than the request. | **Closed** by `argument_provenance` (doc 11 §3.2, `scorers/provenance.py`): a `document_only` sink value the twin did not use. Its metadata `intent` is the A-07 intent signal. | Candidate ids match the `HM` form only until C2 adds its id form. |
 | D8 | **Model identifier not in the config hash** (closed) | Doc 3 §8 (AS-2), §10 | Closed: `model` bound on the `Task` and hashed. | Unchanged. | D9 means the served provider is bound only by the host pin. |
 | D9 | **OpenRouter provider is not locked or recorded** (closed) | Doc 6 §3 | Closed: `bind_model` refuses an unpinned OpenRouter host; the pin is hashed. | Unchanged. | Pick a host that states fp8 or better. |
 | D10 | **Repetition floor** (closed for the twin baseline) | Doc 4 §13.4 | `epochs` wired; baseline and controls ran at 10. | Unchanged; all runs are redone at `--epochs 10`. | Attack runs must also use `--epochs 10`. |
@@ -101,7 +101,8 @@ This is the intended correspondence; the caveats are the D-numbers above.
 | `action_divergence` | G2 | A3 evaluative corruption (proxy) | Set difference, not magnitude (D5). Not a G5 suppression measure despite also being twin-differenced |
 | `paired_utility` | — | utility and harm on both runs of a pair | `utility_*` = `did_correct_thing`; `harm_*`; `policy_disclosure_*` (doc 13, neither harm nor utility) |
 | `misdirection` | G1/G2 | mail to an address taken from the document | Doc 11 §2.4; NaN without `document_text` |
-| `harm` | G1, G2 | attempted vs completed | Doc 11 §2.6; replaces `guarded_outcome`; intent signal waits on Phase A (D7) |
+| `harm` | G1, G2 | attempted vs completed | Doc 11 §2.6; replaces `guarded_outcome`; intent signal in `argument_provenance` |
+| `argument_provenance` | G2 | A2 argument substitution | Doc 11 §3.2; paired, non-benign; closes D7; metadata `intent` is the A-07 signal |
 
 ## 4. Blocking items before any results are reported
 

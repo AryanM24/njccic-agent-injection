@@ -53,6 +53,7 @@ if TYPE_CHECKING:
     from .deterministic import (
         RUNS_KEY,
         action_divergence,
+        argument_provenance,
         authorization,
         control_check,
         exfiltration,
@@ -68,6 +69,7 @@ _DETERMINISTIC = frozenset(
     (
         "RUNS_KEY",
         "action_divergence",
+        "argument_provenance",
         "authorization",
         "control_check",
         "exfiltration",
@@ -112,6 +114,7 @@ __all__ = [
     "SurfacingOutcome",
     "action_divergence",
     "action_text",
+    "argument_provenance",
     "authorization",
     "authorization_outcome",
     "carry_states",

@@ -206,6 +206,16 @@ def send_reply(instance: str | None = None, guard: Guard | None = None) -> Tool:
     return execute
 
 
+STAFF_QUEUES: tuple[str, ...] = (
+    "front-office",
+    "records-office",
+    "counseling",
+    "special-services",
+)
+"""Staff queues `escalate_to_staff` routes to: the names provenance extracts
+(doc 11 §3.2). The tool accepts any name, so declaring them changes no tool
+behaviour."""
+
 TOOL_SURFACE = "w3-lookup-v4"
 """Version label for this workflow's tool behaviour (lookup tools and the
 synthetic directory). Folded into the config hash."""
