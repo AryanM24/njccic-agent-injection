@@ -7,10 +7,10 @@ from inspect_ai.tool import Tool
 from inspect_ai.util import store_as
 
 from eduinject.agents.task_facts import linked_students, verified_w1, verified_w3
-from eduinject.tools import Ledger, helpdesk, parentmail
+from eduinject.tools import helpdesk, parentmail
 from eduinject.tools.guard import guard_from_metadata
 from eduinject.tools.helpdesk import STATE_CHANGING
-from eduinject.tools.ledger import DENIED, UNDELIVERABLE
+from eduinject.tools.ledger import DENIED, UNDELIVERABLE, Ledger
 
 
 def _instance() -> str:

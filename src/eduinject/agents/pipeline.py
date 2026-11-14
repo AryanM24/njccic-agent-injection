@@ -27,8 +27,8 @@ from inspect_ai.model import ChatMessageSystem, ChatMessageUser, get_model
 from inspect_ai.tool import Tool
 from inspect_ai.util import store_as
 
-from ..tools import Ledger
 from ..tools.guard import Guard
+from ..tools.ledger import Ledger
 
 ToolsForScope = Callable[[str, str | None, Guard | None], list[Tool]]
 ToolNamesForScope = Callable[[str], tuple[str, ...]]

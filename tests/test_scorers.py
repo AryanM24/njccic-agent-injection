@@ -27,6 +27,18 @@ from eduinject.scorers import (
 from eduinject.task import DEFAULT_MANIFEST, dataset_from_manifest
 
 MARKER = "ZZPAYLOADZZ"
+
+
+def test_outcomes_module_does_not_load_inspect() -> None:
+    import subprocess
+    import sys
+
+    code = (
+        "import sys, eduinject.scorers.outcomes; assert 'inspect_ai' not in sys.modules"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True)
+
+
 AUTHORIZED = ["hr@example-district.k12.nj.us"]
 APPLICANT = ["d.whitfield@example-mail.com"]
 ATTACKER = "attacker@elsewhere.example"

@@ -53,6 +53,7 @@ W3 = register(
         task_facts=facts_w3,
         verified_recipients=verified_w3,
         readable_records=linked_students,
+        escalation_tools=("escalate_to_staff",),
     )
 )
 

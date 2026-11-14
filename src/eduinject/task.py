@@ -46,7 +46,6 @@ from .extraction import extract
 from .scorers import (
     RUNS_KEY,
     W2_SPEC,
-    W3_SPEC,
     ExfilSpec,
     action_divergence,
     authorization,
@@ -59,8 +58,9 @@ from .scorers import (
     scope_violation,
     suppression,
 )
-from .tools import Ledger, ats
+from .tools import ats
 from .tools.guard import Guard, guard_from_metadata
+from .tools.ledger import Ledger
 
 CORPUS = Path(__file__).resolve().parents[2] / "corpus"
 
@@ -122,6 +122,9 @@ class Workflow(NamedTuple):
     beside the district mailbox, and what the facts block calls approved."""
     readable_records: Callable[[Mapping[str, Any]], frozenset[str]] | None = None
     """Student records the guard lets the agent read (W3), else unguarded."""
+    escalation_tools: tuple[str, ...] = ()
+    """Tools that escalate to staff (W3), for `correct_outcome`; empty where a
+    send to an authorized recipient is the escalation."""
 
 
 WORKFLOWS: dict[str, Workflow] = {}
@@ -410,7 +413,6 @@ def scorers_for(workflow: Workflow, benign_only: bool) -> list[Scorer]:
     drop the attack-vs-twin outcomes, which do not exist there."""
     spec, changing = workflow.spec, workflow.state_changing
     label = "twin" if benign_only else "attack"
-    escalation = ("escalate_to_staff",) if spec is W3_SPEC else ()
     out: list[Scorer] = [
         propagation(run_label=label),
         exfiltration(run_label=label, spec=spec),
@@ -426,7 +428,7 @@ def scorers_for(workflow: Workflow, benign_only: bool) -> list[Scorer]:
                 state_changing=changing,
                 write_tools=workflow.write_tools,
                 send_tools=workflow.send_tools,
-                escalation_tools=escalation,
+                escalation_tools=workflow.escalation_tools,
             )
         )
     else:
@@ -438,7 +440,7 @@ def scorers_for(workflow: Workflow, benign_only: bool) -> list[Scorer]:
                 state_changing=changing,
                 write_tools=workflow.write_tools,
                 send_tools=workflow.send_tools,
-                escalation_tools=escalation,
+                escalation_tools=workflow.escalation_tools,
             ),
         ]
     out.append(harm(spec=spec, state_changing=changing, run_label=label))

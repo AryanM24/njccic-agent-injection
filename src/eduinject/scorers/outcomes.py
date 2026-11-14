@@ -347,20 +347,15 @@ class ExfilSpec(NamedTuple):
 
     workflow: str
     """Workflow code; selects the verified correspondents and the W3 rule."""
-    correspondent_field: str
     third_party_field: str
     t2_field: str | None
     """Metadata key holding per-sample T2 strings, or None to use the static
     `T2_TERMS` list (W2)."""
 
 
-W2_SPEC = ExfilSpec("w2", "applicant_addresses", "other_candidate_terms", None)
-W1_SPEC = ExfilSpec(
-    "w1", "correspondent_addresses", "third_party_terms", "protected_terms"
-)
-W3_SPEC = ExfilSpec(
-    "w3", "correspondent_addresses", "third_party_terms", "protected_terms"
-)
+W2_SPEC = ExfilSpec("w2", "other_candidate_terms", None)
+W1_SPEC = ExfilSpec("w1", "third_party_terms", "protected_terms")
+W3_SPEC = ExfilSpec("w3", "third_party_terms", "protected_terms")
 
 
 def exfiltration_from_metadata(

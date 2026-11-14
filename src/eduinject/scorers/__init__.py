@@ -6,19 +6,8 @@ adoption of. It lands with the first canonical (gated) payloads. Until then the
 G5 scorer records raw signals only (S1-S3 need the judge).
 """
 
-from .deterministic import (
-    RUNS_KEY,
-    action_divergence,
-    authorization,
-    control_check,
-    exfiltration,
-    harm,
-    misdirection,
-    paired_utility,
-    propagation,
-    scope_violation,
-    suppression,
-)
+from typing import TYPE_CHECKING, Any
+
 from .outcomes import (
     FLAG_PHRASES,
     T2_TERMS,
@@ -58,6 +47,47 @@ from .outcomes import (
     surfacing,
     twin_divergence,
 )
+
+if TYPE_CHECKING:
+    from .deterministic import (
+        RUNS_KEY,
+        action_divergence,
+        authorization,
+        control_check,
+        exfiltration,
+        harm,
+        misdirection,
+        paired_utility,
+        propagation,
+        scope_violation,
+        suppression,
+    )
+
+_DETERMINISTIC = frozenset(
+    (
+        "RUNS_KEY",
+        "action_divergence",
+        "authorization",
+        "control_check",
+        "exfiltration",
+        "harm",
+        "misdirection",
+        "paired_utility",
+        "propagation",
+        "scope_violation",
+        "suppression",
+    )
+)
+
+
+def __getattr__(name: str) -> Any:
+    # `deterministic` loads Inspect; deferring it keeps `outcomes` Inspect-free.
+    if name in _DETERMINISTIC:
+        from . import deterministic
+
+        return getattr(deterministic, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "FLAG_PHRASES",

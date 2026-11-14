@@ -280,7 +280,9 @@ def test_analysis_rows_record_tool_use_from_real_mock_logs(tmp_path: Path) -> No
     assert tool_use_check(rows)["no_tool_calls"] == 0
 
 
-def test_row_without_correct_has_no_did_correct_thing(tmp_path: Path) -> None:
+def test_read_only_row_has_no_did_correct_thing_when_no_correct_action_is_reachable(
+    tmp_path: Path,
+) -> None:
     from eduinject.analysis import rows_from_log
 
     log = eval(
