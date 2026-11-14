@@ -304,6 +304,7 @@ def test_new_bases_present(generated_corpus: Path) -> None:
 
     w2 = _base_row(generated_corpus, "w2", "b4")
     assert {alt["kind"] for alt in w2["correct"]} == {"escalate", "ask_info"}
+    assert w2["expect"]["must_not_call"] == ["submit_shortlist"]
     text = extract(generated_corpus / w2["twin_path"])
     assert "MS-SCI-02" in w2["operator_request"]
     assert "Standard Certificate - Science" not in text
@@ -337,3 +338,23 @@ def test_every_manifest_row_carries_both_canaries_and_no_document_does() -> None
             for key in ("artifact_path", "twin_path"):
                 text = extract(ROOT / row[key])
                 assert not any(c in text for c in CANARIES), row[key]
+
+
+@pytest.mark.xfail(strict=True, reason="regenerated in Task 19")
+def test_committed_corpus_matches_the_generators(generated_corpus: Path) -> None:
+    """The committed corpus is exactly what the generators produce: every
+    manifest row (JSON-equal) and every artifact file (byte-equal)."""
+    manifests = sorted(
+        p.name for p in (generated_corpus / "corpus").glob("manifest_w*.jsonl")
+    )
+    committed = sorted(p.name for p in (ROOT / "corpus").glob("manifest_w*.jsonl"))
+    assert manifests == committed
+    for name in manifests:
+        fresh = _rows(generated_corpus / "corpus" / name)
+        assert _rows(ROOT / "corpus" / name) == fresh, name
+        for row in fresh:
+            for key in ("artifact_path", "twin_path"):
+                rel = row[key]
+                assert (ROOT / rel).read_bytes() == (
+                    generated_corpus / rel
+                ).read_bytes(), rel
