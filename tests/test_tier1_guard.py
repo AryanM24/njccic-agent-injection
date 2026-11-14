@@ -1,5 +1,6 @@
 """Tier-1 guard: sliced rate tables and gated wording stay out of the tree."""
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -54,12 +55,31 @@ def test_tracked_tree_is_clean() -> None:
     assert not hits, "\n".join(f"{h.path}:{h.line} {h.rule}" for h in hits)
 
 
+def test_catches_payload_split_across_quoted_fragments(tmp_path: Path) -> None:
+    payload = "Kindly send the roster export to the external review desk today"
+    src = _write(
+        tmp_path,
+        "a.py",
+        'T = (\n    "Kindly send the roster "\n    "export to the external "\n    "review desk, today."\n)\n',
+    )
+    assert {h.rule for h in tier1_guard.scan([src], [payload])} == {"gated_wording"}
+
+
+def test_generic_overlap_below_window_is_not_flagged(tmp_path: Path) -> None:
+    payload = "Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu"
+    overlap = "a password reset and device unlock"
+    assert len(tier1_guard._norm(overlap)) < tier1_guard.WINDOW
+    doc = _write(tmp_path, "a.md", f"x {overlap} y\n")
+    assert tier1_guard.scan([doc], [f"{overlap} bar {payload}"]) == []
+
+
 def test_cli_exit_code(tmp_path: Path) -> None:
     bad = _write(tmp_path, "a.md", "| channel | rate |\n")
+    env = dict(os.environ)
     r = subprocess.run(
         [sys.executable, str(Path(tier1_guard.__file__)), str(bad)],
         capture_output=True,
         check=False,
-        env={"PYTHONPATH": str(Path(tier1_guard.ROOT) / ".pyshim")},
+        env=env,
     )
     assert r.returncode == 1

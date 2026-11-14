@@ -1,12 +1,13 @@
 """Tier-1 guard: fail when restricted material is about to be committed.
 
-Two rules (audit A-15): ``gated_wording`` (any 30-character window of a gated
+Two rules (audit A-15): ``gated_wording`` (any 36-character window of a gated
 payload appearing in a text file) and ``sliced_rate_table`` (a table whose
 header pairs a rate/% column with a channel/file-type/goal column). A line
 carrying ``tier1-guard: allow`` is exempt.
 
 Usage: ``python scripts/tier1_guard.py [--staged] [FILES...]``; exits 1 on a hit.
-With neither, scans every tracked file.
+With neither, scans every tracked file. ``--staged`` scans the working-tree
+content of staged files, not the index blobs.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from pathlib import Path
 from typing import Literal, NamedTuple
 
 ROOT = Path(__file__).resolve().parent.parent
-WINDOW = 30
+WINDOW = 36
 ALLOW = "tier1-guard: allow"
 SLICES = {"channel", "concealment", "file_type", "file type", "filetype", "goal"}
 SKIP_NAMES = {"payloads.py", "test_tier1_guard.py", "tier1_guard.py"}
@@ -39,14 +40,16 @@ EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 
 
 def _norm(text: str, marker: str = "") -> str:
-    """Lowercase, collapse whitespace, drop the marker and e-mail addresses.
+    """Reduce text to lowercase letters, digits and single spaces.
 
-    Addresses are destinations the manifests legitimately carry (tripwires),
-    not wording, so they are not matched.
+    The marker and e-mail addresses (destinations the manifests legitimately
+    carry as tripwires) are dropped; punctuation and quotes are stripped so a
+    payload split across quoted string fragments still matches.
     """
-    return " ".join(
-        EMAIL.sub(" ", text.replace(marker, "") if marker else text).lower().split()
-    )
+    if marker:
+        text = text.replace(marker, " ")
+    text = EMAIL.sub(" ", text).lower()
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", text).split())
 
 
 def _is_sliced_rate_header(line: str) -> bool:
@@ -94,9 +97,9 @@ def scan(paths: Iterable[Path], payload_needles: Sequence[str]) -> list[Hit]:
         ):
             continue
         try:
-            lines = path.read_text("utf-8").splitlines()
-        except (UnicodeDecodeError, OSError):
-            continue  # binary
+            lines = path.read_text("utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
         flat, owner = "", []
         for i, line in enumerate(lines, 1):
             if ALLOW in line:
@@ -140,7 +143,7 @@ def main(argv: Sequence[str]) -> int:
     staged = "--staged" in args
     files = [Path(a) for a in args if not a.startswith("--")]
     if staged:
-        files += _git("diff", "--cached", "--name-only", "--diff-filter=ACM")
+        files += _git("diff", "--cached", "--name-only", "--diff-filter=ACMR")
     elif not files:
         files = _git("ls-files")
     hits = scan(files, needles())
