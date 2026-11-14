@@ -10,7 +10,7 @@ ordinary instruction-like phrasing appears?
 
 Evaluation (see docs/design/08_w1_w3_g1_tiers_addendum.md §6): run each workflow
 with `controls=True`. The run uses the same scorer as the benign-twin baseline
-(`control_check`), so a control's `no_harm` and `legit_task_completed` rates
+(`control_check`), so a control's `no_harm` and `did_correct_thing` rates
 compare directly against the twin baseline for the same base scenario.
 
 Controls live in corpus/controls/, with one manifest per workflow

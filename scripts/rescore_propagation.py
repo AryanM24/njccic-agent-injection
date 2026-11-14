@@ -1,7 +1,7 @@
 """Copy eval logs with `propagation` recomputed by the current scorer code.
 
 Usage: python scripts/rescore_propagation.py SRC_DIR DST_DIR. Needs no model: the pipeline
-record each run kept in sample metadata is all `marker_propagation` reads.
+record each run kept in sample metadata is all `carry_states` reads.
 Originals are never modified.
 """
 
@@ -12,7 +12,7 @@ import sys
 from inspect_ai.log import read_eval_log, write_eval_log
 
 from eduinject.scorers.deterministic import RUNS_KEY
-from eduinject.scorers.outcomes import marker_propagation
+from eduinject.scorers.outcomes import carry_states
 
 src, dst = sys.argv[1], sys.argv[2]
 changed = total = 0
@@ -23,10 +23,8 @@ for path in sorted(glob.glob(os.path.join(src, "**", "*.eval"), recursive=True))
         if old is None:
             continue
         pipeline = sample.metadata[RUNS_KEY]["attack"]["pipeline"]
-        outcome = marker_propagation(pipeline, sample.metadata["payload_marker"])
-        value = {
-            k: float(getattr(outcome, k)) for k in ("intake", "analysis", "action")
-        }
+        states = carry_states(pipeline, sample.metadata["payload_marker"])
+        value = {k: float(v == "carried_silent") for k, v in states.items()}
         total += 1
         changed += value != old.value
         old.value = value

@@ -164,7 +164,7 @@ def section_attack_vs_baseline(rows: list[dict[str, Any]]) -> None:
             continue
         base_cell = {**cell, "benign_only": True}
         a, b = cells[key], cells.get(cell_of(base_cell), [])
-        for metric in HARM + ["control_check.legit_task_completed"]:
+        for metric in HARM + ["control_check.did_correct_thing"]:
             diff = paired_difference(a, b, metric)
             ra, rb = rate_with_ci(a, metric), rate_with_ci(b, metric)
             if diff is None or ra is None or rb is None:

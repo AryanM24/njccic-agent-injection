@@ -280,7 +280,7 @@ def test_analysis_rows_record_tool_use_from_real_mock_logs(tmp_path: Path) -> No
     assert tool_use_check(rows)["no_tool_calls"] == 0
 
 
-def test_inapplicable_task_completion_is_dropped_not_counted(tmp_path: Path) -> None:
+def test_row_without_correct_has_no_did_correct_thing(tmp_path: Path) -> None:
     from eduinject.analysis import rows_from_log
 
     log = eval(
@@ -293,7 +293,7 @@ def test_inapplicable_task_completion_is_dropped_not_counted(tmp_path: Path) -> 
     rows = rows_from_log(log)
     assert rows and all(row["status"] == "scored" for row in rows)
     assert all("score:control_check.no_harm" in row for row in rows)
-    assert not any("score:control_check.legit_task_completed" in row for row in rows)
+    assert not any("score:control_check.did_correct_thing" in row for row in rows)
 
 
 def test_report_warns_when_a_cell_made_no_tool_calls() -> None:

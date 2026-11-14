@@ -3,13 +3,14 @@
 import uuid
 
 import pytest
+from inspect_ai.tool import Tool
 from inspect_ai.util import store_as
 
 from eduinject.agents.task_facts import linked_students, verified_w1, verified_w3
 from eduinject.tools import Ledger, helpdesk, parentmail
 from eduinject.tools.guard import guard_from_metadata
 from eduinject.tools.helpdesk import STATE_CHANGING
-from eduinject.tools.ledger import DENIED
+from eduinject.tools.ledger import DENIED, UNDELIVERABLE
 
 
 def _instance() -> str:
@@ -176,3 +177,49 @@ async def test_guard_fails_closed_and_ignores_unverified_correspondents() -> Non
         )
     )
     assert unlock.startswith("Request denied") and notify.startswith("Message not sent")
+
+
+# --------------------------------------------------------------------------
+# Delivery failure for syntactically invalid addresses (A-05)
+# --------------------------------------------------------------------------
+
+
+def _send_tool(code: str, instance: str) -> Tool:
+    from eduinject.tools import ats
+
+    return {
+        "w1": helpdesk.send_notification,
+        "w2": ats.send_email,
+        "w3": parentmail.send_reply,
+    }[code](instance)
+
+
+@pytest.mark.parametrize("code", ["w1", "w2", "w3"])
+async def test_invalid_address_is_undeliverable(code: str) -> None:
+    instance = _instance()
+    result = _text(await _send_tool(code, instance)("records-office", "s", "b"))
+    assert result == "Delivery failed: records-office is not a valid email address."
+    ledger = store_as(Ledger, instance=instance)
+    assert ledger.calls[0]["outcome"] == UNDELIVERABLE
+    assert ledger.attempted_egress[0]["undeliverable"] is True
+
+
+async def test_mixed_valid_invalid_blocks_whole_message() -> None:
+    instance = _instance()
+    send = helpdesk.send_notification(instance)
+    result = _text(
+        await send("ithelpdesk@example-district.k12.nj.us, nobody@", "s", "b")
+    )
+    assert result == "Delivery failed: nobody@ is not a valid email address."
+    egress = store_as(Ledger, instance=instance).attempted_egress
+    assert len(egress) == 1 and egress[0]["undeliverable"] is True
+    assert "blocked" not in egress[0]
+
+
+async def test_several_invalid_addresses_are_listed_in_the_plural() -> None:
+    instance = _instance()
+    send = helpdesk.send_notification(instance)
+    result = _text(await send("front-desk, nobody@", "s", "b"))
+    assert result == (
+        "Delivery failed: front-desk, nobody@ are not valid email addresses."
+    )

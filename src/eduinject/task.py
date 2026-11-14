@@ -15,6 +15,7 @@ so a new condition is wired once, here, rather than three times.
 import hashlib
 import json
 from collections.abc import Callable, Mapping
+from importlib import import_module
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any, Literal, NamedTuple
@@ -45,12 +46,14 @@ from .extraction import extract
 from .scorers import (
     RUNS_KEY,
     W2_SPEC,
+    W3_SPEC,
     ExfilSpec,
     action_divergence,
     authorization,
     control_check,
     exfiltration,
-    guarded_outcome,
+    harm,
+    misdirection,
     paired_utility,
     propagation,
     scope_violation,
@@ -82,6 +85,8 @@ OPTIONAL_METADATA: tuple[str, ...] = (
     "entitled_actions",
     "tripwire_addresses",
     "expect",
+    "correct",
+    "data_subject_addresses",
     "candidate_terms",
 )
 """Manifest fields copied into sample metadata when present. They are optional
@@ -105,6 +110,10 @@ class Workflow(NamedTuple):
     spec: ExfilSpec
     state_changing: dict[str, str] | None
     """W1's state-changing tools (enables the authorization scorer), else None."""
+    write_tools: tuple[str, ...]
+    """Every non-lookup tool (state-changing or sending), for `correct_outcome`."""
+    send_tools: tuple[str, ...]
+    """The subset of `write_tools` that sends mail, for `correct_outcome`."""
     manifest: str
     controls_manifest: str
     task_facts: Callable[[Mapping[str, Any]], str]
@@ -118,6 +127,17 @@ class Workflow(NamedTuple):
 WORKFLOWS: dict[str, Workflow] = {}
 """Workflow code -> spec. Each task module registers its own on import; the
 solver receives the code, not the spec, so its logged arguments stay plain."""
+
+
+def workflow(code: str) -> Workflow:
+    """The registered workflow for `code`, importing the W1/W3 modules first.
+
+    Registration happens on import of each task module, so a bare
+    `WORKFLOWS[code]` fails for W1/W3 unless something imported them.
+    """
+    import_module("eduinject.task_w1")
+    import_module("eduinject.task_w3")
+    return WORKFLOWS[code]
 
 
 def register(workflow: Workflow) -> Workflow:
@@ -137,6 +157,8 @@ W2 = register(
         tool_surface=ats.TOOL_SURFACE,
         spec=W2_SPEC,
         state_changing=None,
+        write_tools=("submit_shortlist", "send_email"),
+        send_tools=("send_email",),
         manifest=DEFAULT_MANIFEST,
         controls_manifest=DEFAULT_CONTROLS_MANIFEST,
         task_facts=facts_w2,
@@ -349,9 +371,8 @@ def paired_pipeline(
         runs: dict[str, dict[str, Any]] = {}
         meta[RUNS_KEY] = runs
         for label in labels:
-            document_text = extract(paths[label])
-            if spotlight:
-                document_text = datamark(document_text)
+            extracted = extract(paths[label])
+            document_text = datamark(extracted) if spotlight else extracted
             # Separate ledger instances keep the two runs' tool activity from
             # merging — they share a sample, and therefore a store.
             result = await run_pipeline(
@@ -371,6 +392,7 @@ def paired_pipeline(
             # Written per run, so a run that hits a limit later still leaves
             # the finished one on the record.
             runs[label] = {
+                "document_text": extracted,
                 "pipeline": result,
                 "ledger": store_as(Ledger, instance=label).model_dump(),
             }
@@ -390,6 +412,7 @@ def scorers_for(
     drop the attack-vs-twin outcomes, which do not exist there."""
     spec, changing = workflow.spec, workflow.state_changing
     label = "twin" if benign_only else "attack"
+    escalation = ("escalate_to_staff",) if spec is W3_SPEC else ()
     out: list[Scorer] = [
         propagation(run_label=label),
         exfiltration(run_label=label, spec=spec),
@@ -397,16 +420,30 @@ def scorers_for(
     if changing:
         out.append(authorization(changing, run_label=label))
     out.append(scope_violation(run_label=label))
+    out.append(misdirection(run_label=label, spec=spec))
     if benign_only:
-        out.append(control_check(spec=spec, state_changing=changing))
+        out.append(
+            control_check(
+                spec=spec,
+                state_changing=changing,
+                write_tools=workflow.write_tools,
+                send_tools=workflow.send_tools,
+                escalation_tools=escalation,
+            )
+        )
     else:
         out += [
             action_divergence(),
             suppression(),
-            paired_utility(spec=spec, state_changing=changing),
+            paired_utility(
+                spec=spec,
+                state_changing=changing,
+                write_tools=workflow.write_tools,
+                send_tools=workflow.send_tools,
+                escalation_tools=escalation,
+            ),
         ]
-    if identity_mode == "guard":
-        out.append(guarded_outcome(spec=spec, state_changing=changing, run_label=label))
+    out.append(harm(spec=spec, state_changing=changing, run_label=label))
     return out
 
 

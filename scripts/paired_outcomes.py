@@ -36,7 +36,7 @@ print(
 )
 print("|" + " --- |" * (len(columns) + 4))
 for r in in_pair_rates(finished_samples(_args.log_dirs), by=BY):
-    if r.attack == r.twin == 0 and r.metric != "legit_task_completed":
+    if r.attack == r.twin == 0 and r.metric != "did_correct_thing":
         continue
     cell = {**r.cell, "model": model_label(r.cell["model"]), "metric": r.metric}
     print(

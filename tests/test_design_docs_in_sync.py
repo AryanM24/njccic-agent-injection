@@ -1,9 +1,11 @@
 """Guards against the addendum and the code drifting apart."""
 
 from pathlib import Path
+from typing import get_args
 
 from eduinject.config import DOC_VERSIONS
-from eduinject.scorers import FLAG_PHRASES, W1_SPEC, W3_SPEC
+from eduinject.recipients import RecipientClass
+from eduinject.scorers import FLAG_PHRASES
 
 DOCS = Path(__file__).resolve().parents[1] / "docs" / "design"
 
@@ -20,6 +22,7 @@ DOC_FILES = {
     "second_edition_addendum": "10_second_edition_addendum.md",
     "study_design": "11_study_design.md",
     "v1_audit": "12_v1_audit.md",
+    "recipient_policy": "13_recipient_policy_addendum.md",
 }
 """The design document each `DOC_VERSIONS` key records."""
 
@@ -46,10 +49,13 @@ def test_addendum_lists_exactly_the_flag_phrases_in_the_code() -> None:
     assert [p.strip() for p in block.strip().split(",")] == list(FLAG_PHRASES)
 
 
-def test_addendum_states_the_entitlement_the_code_implements() -> None:
-    text = _addendum()
-    assert W3_SPEC.policy.entitlement["guardian"] == 1 and "T1 only" in text
-    assert W1_SPEC.policy.entitlement["submitter"] == 2
+def test_recipient_policy_addendum_matches_the_code() -> None:
+    """Doc 13 names every recipient class the code assigns, at the recorded
+    version (it amends 08 §2's entitlement tables, which are left as signed)."""
+    text = (DOCS / "13_recipient_policy_addendum.md").read_text("utf-8")
+    assert f"v{DOC_VERSIONS['recipient_policy']}" in text
+    for name in get_args(RecipientClass):
+        assert f"`{name}`" in text
 
 
 def test_addendum_signed_state_is_consistent_across_the_repo() -> None:
