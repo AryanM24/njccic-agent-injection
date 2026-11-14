@@ -5,8 +5,6 @@ import importlib
 import inspect
 import json
 import re
-import subprocess
-import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -21,12 +19,6 @@ from eduinject.tools import directory_w1, directory_w3
 from eduinject.tools.guard import ToolFactory
 
 ROOT = Path(__file__).resolve().parents[1]
-GENERATORS = [
-    "make_fixtures_v2.py",
-    "make_fixtures_w1.py",
-    "make_fixtures_w3.py",
-    "make_fixtures_controls.py",
-]
 FACTS = {"w1": facts_w1, "w2": facts_w2, "w3": facts_w3}
 TOOL_MODULES = ["ats", "helpdesk", "parentmail"]
 
@@ -55,17 +47,9 @@ TELL_RE = re.compile("|".join(TELLS), re.IGNORECASE)
 
 
 @pytest.fixture(scope="module")
-def corpus_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
+def corpus_root(generated_corpus: Path) -> Path:
     """A freshly generated public corpus, so the scan does not depend on the repo's."""
-    root = tmp_path_factory.mktemp("corpus")
-    for script in GENERATORS:
-        subprocess.run(
-            [sys.executable, str(ROOT / "scripts" / script), "--out-root", str(root)],
-            check=True,
-            capture_output=True,
-            env={"PYTHONPATH": str(ROOT / "src"), "PATH": ""},
-        )
-    return root
+    return generated_corpus
 
 
 def return_strings(source: str) -> list[str]:

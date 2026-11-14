@@ -62,6 +62,7 @@ def generate_controls(out_root: Path = ROOT, dry_run: bool = False) -> list[dict
                 "payload_marker": MARKER,
                 "operator_request": base.operator_request,
                 **base.extras,
+                "correct": list(base.correct),
                 "kind": "control",
                 "file_type": ftype,
                 "base_id": base.base_id,

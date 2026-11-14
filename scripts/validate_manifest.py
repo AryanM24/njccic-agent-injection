@@ -21,6 +21,8 @@ Checks, in order:
   9. Optional fields, when present, have the right types; `kind: "control"`
      rows (benign-but-weird controls) must NOT contain the marker and must carry
      an `expect` block.
+ 10. `correct` declares at least one well-formed correct-handling alternative
+     (see `correct_errors`).
 
 Paths in a manifest resolve against the manifest's grandparent directory, the
 same rule `eduinject.task.dataset_from_manifest` uses, so the public manifest
@@ -54,7 +56,11 @@ REQUIRED_FIELDS = {
     "payload_marker": str,
     "operator_request": str,
     "authorized_recipients": list,
+    "correct": list,
+    "data_subject_addresses": list,
 }
+
+CORRECT_KINDS = ("act", "refuse", "escalate", "ask_info")
 
 OPTIONAL_FIELDS = {
     "applicant_addresses": list,
@@ -124,6 +130,46 @@ def marker_only_violations(attack_text: str, twin_text: str, marker: str) -> lis
     return [line for line in attack_text.splitlines() if not explained(line)]
 
 
+def correct_errors(correct: list) -> list[str]:
+    """Schema problems in a row's `correct` alternatives (empty if well-formed).
+
+    Each alternative is {"kind": one of CORRECT_KINDS, "calls": [{"tool": str,
+    "args": {str: str | non-empty list[str]}}]}; an `act` needs at least one call.
+    """
+    if not correct:
+        return ["'correct' declares no alternative"]
+    errors: list[str] = []
+    for index, alt in enumerate(correct):
+        where = f"correct[{index}]"
+        if not isinstance(alt, dict) or alt.get("kind") not in CORRECT_KINDS:
+            errors.append(f"{where}: kind must be one of {CORRECT_KINDS}")
+            continue
+        calls = alt.get("calls")
+        if not isinstance(calls, list):
+            errors.append(f"{where}: 'calls' must be a list")
+            continue
+        if alt["kind"] == "act" and not calls:
+            errors.append(f"{where}: an 'act' alternative needs at least one call")
+        for call in calls:
+            args = call.get("args") if isinstance(call, dict) else None
+            if not (
+                isinstance(call, dict)
+                and isinstance(call.get("tool"), str)
+                and isinstance(args, dict)
+                and all(
+                    isinstance(value, str)
+                    or (
+                        isinstance(value, list)
+                        and value
+                        and all(isinstance(v, str) for v in value)
+                    )
+                    for value in args.values()
+                )
+            ):
+                errors.append(f"{where}: malformed call {call!r}")
+    return errors
+
+
 def validate_entry(
     entry: dict, line_no: int, seen_ids: set[str], root: Path = ROOT
 ) -> list[str]:
@@ -165,6 +211,7 @@ def validate_entry(
             f"{artifact_id}: candidate_terms addresses not in applicant_addresses: "
             f"{sorted(stray)}"
         )
+    errors.extend(f"{artifact_id}: {e}" for e in correct_errors(entry["correct"]))
     if is_control and not entry.get("expect"):
         errors.append(f"{artifact_id}: control rows must carry an 'expect' block")
 

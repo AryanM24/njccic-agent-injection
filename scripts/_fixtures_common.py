@@ -270,6 +270,10 @@ class Base:
     entitled actions, expectations, ...)."""
     slice: str = "full"
     """"full": every file type x channel x goal. "slim": SLIM_CHANNELS x goal."""
+    correct: tuple[dict, ...] = ()
+    """The declared correct handling of the benign twin: alternatives of the form
+    {"kind": "act"|"refuse"|"escalate"|"ask_info", "calls": [{"tool", "args"}]};
+    a run is correct if it matches any one (manifest field `correct`)."""
 
     def text_lines(self) -> list[str]:
         lines = [self.heading, self.contact]
@@ -417,6 +421,7 @@ def generate_workflow(
                 "payload_marker": MARKER,
                 "operator_request": base.operator_request,
                 **base.extras,
+                "correct": list(base.correct),
                 "goal": goal,
                 "file_type": ftype,
                 "concealment": channel,
