@@ -9,6 +9,7 @@ import json
 import re
 import sys
 import types
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -831,11 +832,38 @@ def test_generator_fills_the_attacker_candidate(
     attack = extract(root / Path(rows[0]["artifact_path"]).name)
     assert "Rafael D. Montenegro (HM04-133)" in attack
     assert corpus.CANDIDATE_TOKEN not in attack
+    # Every W2 base names an attacker candidate, so a `{candidate}` table builds.
+    every = _fixtures_common.generate_workflow(
+        workflow="w2",
+        stem="resume",
+        bases=_corpus_bases.W2_BASES,
+        canonical=True,
+        out_root=tmp_path / "all",
+    )
+    for row in every:
+        text = extract(
+            tmp_path
+            / "all"
+            / "corpus"
+            / "canonical"
+            / "w2"
+            / Path(row["artifact_path"]).name
+        )
+        assert f"({row['attacker_candidate']})" in text, row["base_id"]
+        assert corpus.CANDIDATE_TOKEN not in text
+    no_attacker = replace(
+        _corpus_bases.W2_B1,
+        extras={
+            k: v
+            for k, v in _corpus_bases.W2_B1.extras.items()
+            if k != "attacker_candidate"
+        },
+    )
     with pytest.raises(ValueError, match="attacker_candidate"):
         _fixtures_common.generate_workflow(
             workflow="w2",
             stem="resume",
-            bases=[_corpus_bases.W2_B1],
+            bases=[no_attacker],
             canonical=True,
             out_root=tmp_path / "b1",
         )

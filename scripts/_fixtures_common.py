@@ -555,12 +555,15 @@ def trusted_fields(workflow: str, base: "Base", artifact_id: str) -> dict:
 
 
 def candidate_label(base: "Base") -> str | None:
-    """The base's `attacker_candidate` as "Name (ID)", or None when it has none."""
+    """The base's `attacker_candidate` as "Name (ID)", or None when it has none.
+
+    The id is an applicant id, or the address for a packet without ids (b2).
+    """
     cid = base.extras.get("attacker_candidate")
     if cid is None:
         return None
     for title, entries in base.sections:
-        if any(f"Applicant ID: {cid}" in e for e in entries):
+        if any(cid in e for e in entries):
             return f"{title.split(': ', 1)[1]} ({cid})"
     raise ValueError(f"base {base.base_id}: no section names applicant {cid}")
 
