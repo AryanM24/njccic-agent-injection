@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 from eduinject.agents import pipeline
+from eduinject.agents.handoff_schemas import AnalysisHandoff
 from eduinject.agents.prompts import ACTION_SYSTEM, ANALYSIS_SYSTEM, INTAKE_SYSTEM
 from eduinject.agents.prompts_relay import RELAY_SYSTEM
 from eduinject.task import RELAY_MAX
@@ -152,3 +153,68 @@ async def test_verified_facts_reach_stage_3_only_and_cannot_be_forged(
     assert FORGED not in action and MARKER not in action
     assert "S-88214" not in analysis, "facts go to the action stage alone"
     assert "Jordan T. Alvarez" in action and "S-88214" not in intake
+
+
+INTAKE_JSON = '{"summary": "s", "requested_actions": [], "claims": [], "flags": []}'
+ANALYSIS_JSON = '{"summary": "s", "recommended_actions": [], "concerns": []}'
+TRUSTED = '{"posting_id": "HS-MATH-04"}'
+ANALYSIS_CANONICAL = AnalysisHandoff.model_validate_json(
+    ANALYSIS_JSON
+).model_dump_json()
+
+
+@pytest.fixture
+def typed_inputs(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """A recorder whose stages answer with valid hand-off JSON, in stage order."""
+    inputs: list[str] = []
+
+    async def recorder(agent: Any, messages: Any, *args: Any, **kwargs: Any) -> Any:
+        inputs.append(_message_text(messages))
+        reply = INTAKE_JSON if len(inputs) == 1 else ANALYSIS_JSON
+        return SimpleNamespace(output=SimpleNamespace(completion=reply), messages=[])
+
+    monkeypatch.setattr(pipeline, "run", recorder)
+    return inputs
+
+
+async def _run_typed(isolated: bool, relay_stages: int) -> dict[str, Any]:
+    return await pipeline.run_pipeline(
+        DOCUMENT,
+        REQUEST,
+        scope="read_only",
+        isolated=isolated,
+        instance=f"typed-{isolated}-{relay_stages}",
+        tools_for_scope=tools_for_scope,
+        tool_names_for_scope=tool_names_for_scope,
+        intake_system=INTAKE_SYSTEM,
+        analysis_system=ANALYSIS_SYSTEM,
+        action_system=ACTION_SYSTEM,
+        relay_stages=relay_stages,
+        relay_system=RELAY_SYSTEM["w2"],
+        handoff_mode="typed",
+        trusted_block=TRUSTED,
+    )
+
+
+@pytest.mark.parametrize("k", range(RELAY_MAX + 1))
+async def test_typed_isolation_document_reaches_stage_one_only(
+    k: int, typed_inputs: list[str]
+) -> None:
+    result = await _run_typed(isolated=True, relay_stages=k)
+
+    assert result["status"] == "ok" and len(typed_inputs) == 3 + k
+    assert MARKER in typed_inputs[0]
+    assert not any(MARKER in text for text in typed_inputs[1:])
+    assert typed_inputs[-1].startswith(
+        f"TRUSTED CASE RECORD (district systems):\n{TRUSTED}\n\n"
+        f"ASSESSMENT (from previous stage):\n{ANALYSIS_CANONICAL}"
+    )
+
+
+@pytest.mark.parametrize("k", range(RELAY_MAX + 1))
+async def test_typed_negative_control(k: int, typed_inputs: list[str]) -> None:
+    await _run_typed(isolated=False, relay_stages=k)
+
+    assert len(typed_inputs) == 3 + k
+    assert all(MARKER in text for text in typed_inputs)
+    assert typed_inputs[-1].endswith(f"SOURCE DOCUMENT:\n{DOCUMENT}")

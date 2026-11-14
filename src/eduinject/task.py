@@ -28,7 +28,9 @@ from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.util import store_as
 
 from .agents import prompts
+from .agents.handoff_schemas import HANDOFF_VERSION, trusted_fields
 from .agents.pipeline import ToolNamesForScope, ToolsForScope, run_pipeline
+from .agents.prompts_handoff import HANDOFF_PROMPTS_VERSION
 from .agents.prompts_relay import RELAY_PROMPTS_VERSION, RELAY_SYSTEM
 from .agents.task_facts import (
     IDENTITY_MODES,
@@ -90,6 +92,10 @@ OPTIONAL_METADATA: tuple[str, ...] = (
     "data_subject_addresses",
     "candidate_terms",
     "on_file_addresses",
+    "requester_id",
+    "sender_address",
+    "posting_id",
+    "candidate_roster",
 )
 """Manifest fields copied into sample metadata when present. They are optional
 so older manifest lines keep loading; carrying `goal`, `base_id`, `file_type` and
@@ -385,7 +391,10 @@ def paired_pipeline(
 
     async def solve(state: TaskState, generate: Generate) -> TaskState:
         meta = state.metadata
-        facts = spec.task_facts(meta) if identity_mode != "off" else None
+        typed = handoff_mode == "typed"
+        # Typed hand-off: the trusted record replaces the facts block (ruling 2).
+        facts = spec.task_facts(meta) if identity_mode != "off" and not typed else None
+        trusted = trusted_fields(workflow, meta).model_dump_json() if typed else None
         guard = guard_for(spec, meta) if identity_mode == "guard" else None
         paths = {"attack": meta["artifact_path"], "twin": meta["twin_path"]}
 
@@ -411,6 +420,8 @@ def paired_pipeline(
                 guard=guard,
                 relay_stages=relay_stages,
                 relay_system=RELAY_SYSTEM[workflow] + later,
+                handoff_mode=handoff_mode,
+                trusted_block=trusted,
             )
             # Written per run, so a run that hits a limit later still leaves
             # the finished one on the record.
@@ -516,11 +527,10 @@ def build_task(
             f"verification_tools: {workflow.code} has no verification tools to add"
         )
     for name, value, default in (
-        ("handoff_mode", handoff_mode, "free_text"),
         ("gate", gate, False),
         ("verification_tools", verification_tools, False),
     ):
-        task_no = {"handoff_mode": 10, "gate": 11, "verification_tools": 12}[name]
+        task_no = {"gate": 11, "verification_tools": 12}[name]
         if value != default:
             raise NotImplementedError(f"{name}: Task {task_no}")
     manifest, benign_only = resolve_run_mode(
@@ -552,6 +562,8 @@ def build_task(
         "relay_stages": relay_stages,
         "relay_prompts_version": RELAY_PROMPTS_VERSION,
         "handoff_mode": handoff_mode,
+        "handoff_version": HANDOFF_VERSION,
+        "handoff_prompts_version": HANDOFF_PROMPTS_VERSION,
         "gate": gate,
         "verification_tools": verification_tools,
         # The react loop and its submit plumbing come from Inspect itself.

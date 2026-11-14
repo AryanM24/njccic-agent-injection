@@ -3,7 +3,7 @@
 
     analyze.py report LOG_DIR... [--out DIR]
         rows.csv          one row per (sample, epoch), with status and scores
-        denominators.csv  scored / error / limit counts per cell (doc 04 §13.5)
+        denominators.csv  scored / error / limit / handoff_parse_error counts per cell (doc 04 §13.5)
         rates.csv         per cell and metric: rate, pair-clustered 95% CI,
                           saturation flag, epoch range
         rates_by_base.csv the same per base scenario (D16)
@@ -439,13 +439,15 @@ def report_md(
         "",
         "## Denominators (doc 04 §13.5)",
         "",
-        "| " + " | ".join(CELL_FIELDS) + " | total | scored | error | limit |",
-        "|" + " --- |" * (len(CELL_FIELDS) + 4),
+        "| "
+        + " | ".join(CELL_FIELDS)
+        + " | total | scored | error | limit | handoff_parse_error |",
+        "|" + " --- |" * (len(CELL_FIELDS) + 5),
     ]
     for key, cell_rows in sorted(group(rows).items(), key=str):
         d = denominators(cell_rows)
         cells = [str(v) for v in key]
-        counts = [str(d[k]) for k in ("total", "scored", "error", "limit")]
+        counts = [str(d[k]) for k in d]
         lines.append("| " + " | ".join(cells + counts) + " |")
     silent = [
         (key, tool_use_check(cell_rows))
