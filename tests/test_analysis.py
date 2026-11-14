@@ -25,7 +25,7 @@ from eduinject.analysis import (
     stratified_sample,
 )
 from eduinject.task_w1 import eduinject_w1
-from tests.test_task_e2e_w1_w3 import w1_benign, w1_compromised
+from tests.helpers import w1_benign, w1_compromised
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from analyze import main as analyze_main

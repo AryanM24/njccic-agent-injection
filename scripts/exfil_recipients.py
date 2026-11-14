@@ -9,6 +9,7 @@ Recipient classes are keyword heuristics over the address, a reading aid for
 the signed G1 rule, not a replacement for it.
 """
 
+import argparse
 import collections
 import sys
 
@@ -18,6 +19,7 @@ from eduinject.analysis import (
     cell_kind,
     finished_samples,
     model_label,
+    refuse_stale,
 )
 from eduinject.scorers.deterministic import RUNS_KEY
 from eduinject.scorers.outcomes import exfiltration_from_metadata
@@ -41,11 +43,18 @@ def recipient(to: str, cls: str, tripwires: list[str], third: list[str]) -> str:
     return "other"
 
 
+_ap = argparse.ArgumentParser()
+_ap.add_argument("log_dirs", nargs="+")
+_ap.add_argument("--allow-stale", action="store_true")
+_args = _ap.parse_args()
+if refuse_stale(_args.log_dirs, _args.allow_stale):
+    sys.exit(4)
+
 runs: collections.Counter[tuple[str, ...]] = collections.Counter()
 flagged: collections.Counter[tuple[str, ...]] = collections.Counter()
 who: collections.Counter[tuple[str, ...]] = collections.Counter()
 pairs_hit: dict[tuple[str, ...], set[str]] = collections.defaultdict(set)
-for c, sample in finished_samples(sys.argv[1:]):
+for c, sample in finished_samples(_args.log_dirs):
     cell = {**c, "logs": cell_kind(c), "model": model_label(c["model"])}
     md = sample.metadata
     spec = WORKFLOW_SPECS[c["workflow"]]

@@ -235,10 +235,8 @@ def load_rows(log_dirs: Sequence[str]) -> tuple[list[dict[str, Any]], int]:
     return dedupe(rows)
 
 
-def finished_samples(
-    log_dirs: Sequence[str],
-) -> Iterator[tuple[dict[str, Any], Any]]:
-    """(cell, sample) for every finished eduinject sample, retries resolved.
+def winning_samples(log_dirs: Sequence[str]) -> Iterator[tuple[Any, Any]]:
+    """(log, sample) for every finished eduinject sample, retries resolved.
 
     The same rule as `load_rows`: one sample per (config_hash, sample id,
     epoch), from the newest log. Samples that errored or hit a limit are
@@ -273,12 +271,20 @@ def finished_samples(
     for info in infos:
         log = read_eval_log(info)
         config = (log.eval.metadata or {}).get("config_hash")
-        cell = cell_from_log(log)
         for sample in log.samples or []:
             if winner.get((config, sample.id, sample.epoch), ("",))[0] != info.name:
                 continue
             if sample.error is None and sample.limit is None:
-                yield cell, sample
+                yield log, sample
+
+
+def finished_samples(
+    log_dirs: Sequence[str],
+) -> Iterator[tuple[dict[str, Any], Any]]:
+    """(cell, sample) for every winning finished sample (see `winning_samples`)."""
+    cells: dict[str, dict[str, Any]] = {}
+    for log, sample in winning_samples(log_dirs):
+        yield cells.setdefault(log.location, cell_from_log(log)), sample
 
 
 class StaleScore(NamedTuple):
@@ -335,39 +341,44 @@ def rescore_sample(sample: Any, task_metadata: Mapping[str, Any]) -> dict[str, f
 
 
 def stale_scores(log_dirs: Sequence[str]) -> list[StaleScore]:
-    """Every logged score that disagrees with a fresh recomputation (audit A-09).
+    """Every winning logged score that disagrees with a fresh recomputation (A-09).
 
-    NaN ("not scored") equals NaN; a score present on one side only is stale.
+    Superseded retries are ignored, as in analysis. NaN ("not scored") equals
+    NaN; a score present on one side only is stale.
     """
-    from inspect_ai.log import list_eval_logs, read_eval_log
-
     stale: list[StaleScore] = []
-    seen: set[str] = set()
-    for log_dir in log_dirs:
-        for info in list_eval_logs(log_dir, recursive=True):
-            if info.name in seen or not info.task.split("/")[-1].startswith(
-                "eduinject"
-            ):
-                continue
-            seen.add(info.name)
-            log = read_eval_log(info)
-            meta = log.eval.metadata or {}
-            for sample in log.samples or []:
-                if sample.error is not None or sample.limit is not None:
-                    continue
-                logged = flatten_scores(
-                    {k: v.value for k, v in (sample.scores or {}).items()}
+    for log, sample in winning_samples(log_dirs):
+        logged = flatten_scores({k: v.value for k, v in (sample.scores or {}).items()})
+        fresh = rescore_sample(sample, log.eval.metadata or {})
+        for name in sorted(logged.keys() | fresh.keys()):
+            a, b = logged.get(name, math.nan), fresh.get(name, math.nan)
+            if not (a == b or (math.isnan(a) and math.isnan(b))):
+                stale.append(
+                    StaleScore(log.location, sample.id, sample.epoch, name, a, b)
                 )
-                fresh = rescore_sample(sample, meta)
-                for name in sorted(logged.keys() | fresh.keys()):
-                    a, b = logged.get(name, math.nan), fresh.get(name, math.nan)
-                    if not (a == b or (math.isnan(a) and math.isnan(b))):
-                        stale.append(
-                            StaleScore(
-                                log.location, sample.id, sample.epoch, name, a, b
-                            )
-                        )
     return stale
+
+
+def refuse_stale(log_dirs: Sequence[str], allow_stale: bool = False) -> bool:
+    """True (after listing them on stderr) if stale scores exist and are not allowed."""
+    import sys
+
+    if allow_stale:
+        return False
+    stale = stale_scores(log_dirs)
+    for s in stale:
+        print(
+            f"stale: {s.log} sample {s.sample_id} epoch {s.epoch} {s.score}: "
+            f"logged {s.logged} != recomputed {s.recomputed}",
+            file=sys.stderr,
+        )
+    if stale:
+        print(
+            f"refused: {len(stale)} stale score(s); rescore the logs or pass "
+            "--allow-stale",
+            file=sys.stderr,
+        )
+    return bool(stale)
 
 
 def dedupe(rows: Iterable[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:

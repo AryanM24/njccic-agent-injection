@@ -62,9 +62,9 @@ from eduinject.analysis import (
     norm_code,
     paired_difference,
     rate_with_ci,
+    refuse_stale,
     saturated,
     sheet_problems,
-    stale_scores,
     stratified_sample,
     tool_use_check,
     verdict,
@@ -467,28 +467,8 @@ def report_md(
     return "\n".join(lines) + "\n"
 
 
-def refuse_stale(args: argparse.Namespace) -> bool:
-    """True (after listing them) if logged scores are stale and not allowed."""
-    if args.allow_stale:
-        return False
-    stale = stale_scores(args.log_dirs)
-    for s in stale:
-        print(
-            f"stale: {s.log} sample {s.sample_id} epoch {s.epoch} {s.score}: "
-            f"logged {s.logged} != recomputed {s.recomputed}",
-            file=sys.stderr,
-        )
-    if stale:
-        print(
-            f"refused: {len(stale)} stale score(s); rescore the logs or pass "
-            "--allow-stale",
-            file=sys.stderr,
-        )
-    return bool(stale)
-
-
 def cmd_report(args: argparse.Namespace) -> int:
-    if refuse_stale(args):
+    if refuse_stale(args.log_dirs, args.allow_stale):
         return 4
     rows, dropped = load_rows(args.log_dirs)
     if not rows:
@@ -517,7 +497,7 @@ def cmd_report(args: argparse.Namespace) -> int:
 
 
 def cmd_sample_human(args: argparse.Namespace) -> int:
-    if refuse_stale(args):
+    if refuse_stale(args.log_dirs, args.allow_stale):
         return 4
     rows, _ = load_rows(args.log_dirs)
     chosen = stratified_sample(
@@ -669,7 +649,7 @@ def pair_export_rows(rows: list[dict[str, Any]], salt: str) -> list[dict[str, An
 
 
 def cmd_export_pairs(args: argparse.Namespace) -> int:
-    if refuse_stale(args):
+    if refuse_stale(args.log_dirs, args.allow_stale):
         return 4
     rows, _ = load_rows(args.log_dirs)
     out = pair_export_rows(rows, args.salt)

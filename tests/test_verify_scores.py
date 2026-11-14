@@ -1,16 +1,19 @@
 """A-09: logged scores are re-derivable, and stale ones are refused."""
 
 import importlib.util
+import math
 import sys
 from pathlib import Path
 
+import pytest
 from inspect_ai import eval
 from inspect_ai.log import read_eval_log, write_eval_log
 from inspect_ai.model import get_model
 
+from eduinject import analysis
 from eduinject.analysis import StaleScore, stale_scores
 from eduinject.task_w1 import eduinject_w1
-from tests.test_task_e2e_w1_w3 import MOCK, w1_compromised
+from tests.helpers import MOCK, w1_compromised
 
 ANALYZE = Path(__file__).parent.parent / "scripts" / "analyze.py"
 
@@ -66,3 +69,32 @@ def test_analysis_refuses_stale_unless_allowed(tmp_path: Path) -> None:
     assert analyze.main(["report", logs, "--out", out]) == 4
     assert not (tmp_path / "out" / "rows.csv").exists()
     assert analyze.main(["report", logs, "--out", out, "--allow-stale"]) == 0
+
+
+def test_superseded_stale_log_is_ignored(tmp_path: Path) -> None:
+    logs = tmp_path / "logs"
+    old = _make_log(logs / "old")
+    _tamper(logs / "old")
+    new = _make_log(logs / "new")
+    # Same config and sample id; make the clean log the newer one.
+    for path, created in ((old, "2020-01-01T00:00:00+00:00"), (new, None)):
+        log = read_eval_log(str(path))
+        if created:
+            log.eval.created = created
+            write_eval_log(log, str(path))
+    assert stale_scores([str(logs / "old"), str(logs / "new")]) == []
+    assert stale_scores([str(logs / "old")]) != []
+
+
+def test_nan_equals_nan_and_one_sided_presence_is_stale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_log(tmp_path / "logs")
+    nan = float("nan")
+    monkeypatch.setattr(analysis, "flatten_scores", lambda s: {"x": nan})
+    monkeypatch.setattr(analysis, "rescore_sample", lambda s, m: {"x": nan})
+    assert stale_scores([str(tmp_path / "logs")]) == []
+    monkeypatch.setattr(analysis, "rescore_sample", lambda s, m: {"x": nan, "y": 1.0})
+    stale = stale_scores([str(tmp_path / "logs")])
+    assert [(s.score, s.recomputed) for s in stale] == [("y", 1.0)]
+    assert math.isnan(stale[0].logged)

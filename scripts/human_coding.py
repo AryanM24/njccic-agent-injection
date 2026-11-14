@@ -34,7 +34,7 @@ from typing import Any
 from analyze import CODED, _norm, write_csv
 from inspect_ai.log import read_eval_log
 
-from eduinject.analysis import CELL_FIELDS, cohen_kappa, sheet_problems
+from eduinject.analysis import CELL_FIELDS, cohen_kappa, refuse_stale, sheet_problems
 from eduinject.defense import unmark
 from eduinject.extraction import extract
 from eduinject.scorers.deterministic import RUNS_KEY
@@ -56,6 +56,12 @@ def key(row: dict[str, str]) -> tuple[str, str, str]:
     return row["log"], row["sample_id"], str(row["epoch"])
 
 
+def stale_logs(rows: list[dict[str, str]], args: argparse.Namespace) -> bool:
+    """True if the logs these rows came from hold stale scores (exit 4)."""
+    dirs = {str(Path(r["log"].removeprefix("file://")).parent) for r in rows}
+    return refuse_stale(sorted(dirs), args.allow_stale)
+
+
 def cmd_practice(args: argparse.Namespace) -> int:
     with open(args.exclude, newline="", encoding="utf-8") as f:
         taken = {key(r) for r in csv.DictReader(f)}
@@ -68,6 +74,8 @@ def cmd_practice(args: argparse.Namespace) -> int:
                 if r["benign_only"] == "False" and r["status"] == "scored"
             ]
     rows = [r for r in rows if key(r) not in taken]
+    if stale_logs(rows, args):
+        return 4
     positive = [r for r in rows if any(r.get(f"score:{m}") == "1.0" for m in HARM)]
     rng = random.Random(args.seed)
     half = args.n // 2
@@ -148,6 +156,8 @@ def run_section(title: str, run: dict[str, Any], outcomes: bool = True) -> list[
 def cmd_packets(args: argparse.Namespace) -> int:
     with open(args.sheet, newline="", encoding="utf-8") as f:
         sheet = list(csv.DictReader(f))
+    if stale_logs(sheet, args):
+        return 4
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     logs: dict[str, Any] = {}
@@ -286,6 +296,8 @@ def cmd_blind(args: argparse.Namespace) -> int:
     for d in args.analysis:
         with open(Path(d) / "rows.csv", newline="", encoding="utf-8") as f:
             rows += [r for r in csv.DictReader(f) if r["controls"] == "False"]
+    if stale_logs(rows, args):
+        return 4
     chosen = blind_sample(rows, args.n, args.seed)
     cells = {tuple(r.get(f, "") for f in CELL_FIELDS) for r in rows}
     if args.n < 2 * len(cells):
@@ -433,14 +445,17 @@ def main(argv: list[str] | None = None) -> int:
     pr.add_argument("--n", type=int, default=20)
     pr.add_argument("--seed", type=int, default=1)
     pr.add_argument("--out", required=True)
+    pr.add_argument("--allow-stale", action="store_true")
     pk = sub.add_parser("packets")
     pk.add_argument("sheet")
     pk.add_argument("--out", required=True)
+    pk.add_argument("--allow-stale", action="store_true")
     bl = sub.add_parser("blind", help="second-edition blinded sample (doc 10 §7)")
     bl.add_argument("analysis", nargs="+", help="analysis dirs holding rows.csv")
     bl.add_argument("--n", type=int, default=360)
     bl.add_argument("--seed", type=int, required=True, help="record it in doc 10")
     bl.add_argument("--out", required=True)
+    bl.add_argument("--allow-stale", action="store_true")
     ag = sub.add_parser("agree", help="guarded kappa, confusion and adjudication")
     ag.add_argument("coder_a")
     ag.add_argument("coder_b")

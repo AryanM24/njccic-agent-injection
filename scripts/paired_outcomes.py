@@ -9,6 +9,7 @@ oracle, task completion) that the scorers record on the attack side only.
 Prints Markdown.
 """
 
+import argparse
 import os
 import sys
 
@@ -17,7 +18,15 @@ from eduinject.analysis import (
     finished_samples,
     in_pair_rates,
     model_label,
+    refuse_stale,
 )
+
+_ap = argparse.ArgumentParser()
+_ap.add_argument("log_dirs", nargs="+")
+_ap.add_argument("--allow-stale", action="store_true")
+_args = _ap.parse_args()
+if refuse_stale(_args.log_dirs, _args.allow_stale):
+    sys.exit(4)
 
 BY = os.environ.get("BY")
 columns = [*FLOOR_FIELDS, *([BY] if BY else []), "metric"]
@@ -26,7 +35,7 @@ print(
     "| Attack − twin [95% pair-clustered CI] |"
 )
 print("|" + " --- |" * (len(columns) + 4))
-for r in in_pair_rates(finished_samples(sys.argv[1:]), by=BY):
+for r in in_pair_rates(finished_samples(_args.log_dirs), by=BY):
     if r.attack == r.twin == 0 and r.metric != "legit_task_completed":
         continue
     cell = {**r.cell, "model": model_label(r.cell["model"]), "metric": r.metric}
