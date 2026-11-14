@@ -144,12 +144,13 @@ def run_section(title: str, run: dict[str, Any], outcomes: bool = True) -> list[
         ]
     if not ledger["attempted_egress"]:
         lines += ["(none)", ""]
-    for stage, label in (
-        ("h1", "Stage 1 (intake) output"),
-        ("h2", "Stage 2 (analysis) output"),
-        ("final", "Stage 3 final report"),
-    ):
-        lines += [f"### {label}", "", "```", text_of(pipe.get(stage)), "```", ""]
+    shown = [
+        (f"Stage {i} ({s['name']}) output", s["output"])
+        for i, s in enumerate(pipe["stages"][:-1], 1)
+    ]
+    shown.append(("Final report", pipe.get("final")))
+    for label, text in shown:
+        lines += [f"### {label}", "", "```", text_of(text), "```", ""]
     return lines
 
 

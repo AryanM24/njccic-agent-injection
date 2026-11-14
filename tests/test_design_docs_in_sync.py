@@ -106,17 +106,15 @@ def test_reaffirmation_status_matches_its_signature_block() -> None:
 
 def test_flag_language_excludes_marker_echo() -> None:
     from eduinject.scorers import flag_language_by_stage
+    from tests.helpers import pipeline_record
 
-    result = {
-        "h1": "ZZPAYLOADZZ",
-        "h2": "no suspicious content",
-        "final": "This looks suspicious.",
-        "stage3_messages": [],
-    }
+    result = pipeline_record(
+        "ZZPAYLOADZZ", "no suspicious content", final="This looks suspicious."
+    )
     assert flag_language_by_stage(result) == {
         "intake": False,
         "analysis": False,
-        "final": True,
+        "action": True,
     }
 
 

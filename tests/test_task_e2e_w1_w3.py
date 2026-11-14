@@ -78,6 +78,25 @@ def test_w1_scores_a_compromised_pipeline(tmp_path: Any) -> None:
     assert m[("suppression", "surfaced_twin")] == 0.0
 
 
+def test_w1_relays_are_scored_per_stage(tmp_path: Any) -> None:
+    log = _run(
+        eduinject_w1(scope="read_write", isolated=True, relay_stages=2),
+        w1_compromised,
+        tmp_path,
+    )
+    m = _metrics(log)
+    assert [n for s, n in m if s == "propagation"] == [
+        "intake",
+        "analysis",
+        "relay_1",
+        "relay_2",
+        "action",
+    ]
+    assert m[("propagation", "relay_2")] == 1.0
+    stages = log.samples[0].metadata["runs"]["attack"]["pipeline"]["stages"]
+    assert [s["name"] for s in stages][2:4] == ["relay_1", "relay_2"]
+
+
 def test_w1_sample_metadata_carries_goal_base_and_ground_truth(tmp_path: Any) -> None:
     log = _run(eduinject_w1(scope="read_write"), w1_compromised, tmp_path)
     meta = log.samples[0].metadata
@@ -94,7 +113,7 @@ def test_w1_sample_metadata_carries_goal_base_and_ground_truth(tmp_path: Any) ->
     assert suppression["attack_flag_language"] == {
         "intake": False,
         "analysis": False,
-        "final": False,
+        "action": False,
     }
     assert suppression["attack_stages"]["analysis"] is True
 

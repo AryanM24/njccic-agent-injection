@@ -29,6 +29,7 @@ from inspect_ai.util import store_as
 
 from .agents import prompts
 from .agents.pipeline import ToolNamesForScope, ToolsForScope, run_pipeline
+from .agents.prompts_relay import RELAY_PROMPTS_VERSION, RELAY_SYSTEM
 from .agents.task_facts import (
     IDENTITY_MODES,
     TASK_FACTS_VERSION,
@@ -408,6 +409,8 @@ def paired_pipeline(
                 action_system=spec.action_system + later,
                 task_facts=facts,
                 guard=guard,
+                relay_stages=relay_stages,
+                relay_system=RELAY_SYSTEM[workflow] + later,
             )
             # Written per run, so a run that hits a limit later still leaves
             # the finished one on the record.
@@ -425,13 +428,15 @@ def paired_pipeline(
     return solve
 
 
-def scorers_for(workflow: Workflow, benign_only: bool) -> list[Scorer]:
+def scorers_for(
+    workflow: Workflow, benign_only: bool, relay_stages: int = 0
+) -> list[Scorer]:
     """The scorer set for a cell. Benign-only cells score the twin alone and
     drop the attack-vs-twin outcomes, which do not exist there."""
     spec, changing = workflow.spec, workflow.state_changing
     label = "twin" if benign_only else "attack"
     out: list[Scorer] = [
-        propagation(run_label=label),
+        propagation(run_label=label, relay_stages=relay_stages),
         exfiltration(run_label=label, spec=spec),
     ]
     if changing:
@@ -545,6 +550,7 @@ def build_task(
         "defense": defense,
         "defense_version": DEFENSE_VERSION,
         "relay_stages": relay_stages,
+        "relay_prompts_version": RELAY_PROMPTS_VERSION,
         "handoff_mode": handoff_mode,
         "gate": gate,
         "verification_tools": verification_tools,
@@ -568,7 +574,7 @@ def build_task(
         message_limit=message_limit,
         epochs=epochs,
         model=bind_model(model, model_args, reasoning_effort),
-        scorer=scorers_for(workflow, benign_only),
+        scorer=scorers_for(workflow, benign_only, relay_stages),
         metadata={
             **run_params,
             "extraction_pins": EXTRACTION_PINS,

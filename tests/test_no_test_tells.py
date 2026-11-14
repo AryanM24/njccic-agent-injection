@@ -12,6 +12,7 @@ import pytest
 from inspect_ai.tool import ToolDef
 
 from eduinject.agents import prompts, prompts_w1, prompts_w3
+from eduinject.agents.prompts_relay import RELAY_SYSTEM
 from eduinject.agents.task_facts import facts_w1, facts_w2, facts_w3
 from eduinject.corpus import CANARIES, MARKER
 from eduinject.extraction import extract
@@ -121,6 +122,8 @@ def model_visible_strings(corpus_root: Path) -> Iterator[tuple[str, str]]:
         for attr in ("INTAKE_SYSTEM", "ANALYSIS_SYSTEM", "ACTION_SYSTEM"):
             yield f"{mod.__name__}.{attr}", getattr(mod, attr)
     yield "prompts.SPOTLIGHT_CLAUSE", prompts.SPOTLIGHT_CLAUSE
+    for wf, text in RELAY_SYSTEM.items():
+        yield f"prompts_relay.RELAY_SYSTEM[{wf}]", text
     yield from _tool_strings()
 
 

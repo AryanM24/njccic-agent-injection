@@ -123,3 +123,25 @@ def w3_benign(
             },
         )
     return ModelOutput.for_tool_call(MOCK, "submit", {"answer": "Work complete."})
+
+
+def pipeline_record(
+    *outputs: str, final: str = "", stage3_messages: list[Any] | None = None
+) -> dict[str, Any]:
+    """A `run_pipeline` result: `outputs` are intake, analysis, then relays."""
+    from eduinject.scorers.outcomes import action_text
+
+    names = ["intake", "analysis", *(f"relay_{i}" for i in range(1, len(outputs) - 1))]
+    result: dict[str, Any] = {
+        "stages": [
+            {"name": n, "input": "", "output": o, "usage": None}
+            for n, o in zip(names, outputs, strict=True)
+        ],
+        "final": final,
+        "stage3_messages": stage3_messages or [],
+        "status": "ok",
+    }
+    result["stages"].append(
+        {"name": "action", "input": "", "output": action_text(result), "usage": None}
+    )
+    return result

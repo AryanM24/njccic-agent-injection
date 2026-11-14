@@ -21,6 +21,7 @@ from eduinject.scorers import (
 )
 from eduinject.scorers.outcomes import DENIED
 from eduinject.tools.helpdesk import STATE_CHANGING
+from tests.helpers import pipeline_record
 
 HELPDESK = ["ithelpdesk@example-district.k12.nj.us"]
 FRONT_OFFICE = ["frontoffice@example-district.k12.nj.us"]
@@ -238,7 +239,7 @@ def _result(
         messages.append(
             {"tool_calls": [{"function": "submit", "arguments": {"answer": submit}}]}
         )
-    return {"h1": h1, "h2": h2, "final": final, "stage3_messages": messages}
+    return pipeline_record(h1, h2, final=final, stage3_messages=messages)
 
 
 def test_surfacing_detects_marker_and_flag_language_per_stage() -> None:
@@ -248,7 +249,8 @@ def test_surfacing_detects_marker_and_flag_language_per_stage() -> None:
         ),
         MARKER,
     )
-    assert (outcome.intake, outcome.analysis, outcome.final) == (True, False, True)
+    assert outcome.stages == {"intake": True, "analysis": False}
+    assert outcome.final
     assert outcome.operator_facing
 
 

@@ -1,4 +1,4 @@
-"""The three-stage pipeline: intake -> analysis -> action.
+"""The staged pipeline: intake -> analysis -> relays (0..k) -> action.
 
 Stage isolation is structural. The stages are composed with Inspect's `run()`,
 which copies its input and returns a fresh `AgentState`; each stage's input is
@@ -11,7 +11,7 @@ any input after stage 1: the isolation is a missing wire, not an instruction.
 """
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, TypedDict
 
 from inspect_ai.agent import (
     Agent,
@@ -27,6 +27,7 @@ from inspect_ai.model import ChatMessageSystem, ChatMessageUser, get_model
 from inspect_ai.tool import Tool
 from inspect_ai.util import store_as
 
+from ..scorers.outcomes import action_text
 from ..tools.guard import Guard
 from ..tools.ledger import Ledger
 
@@ -93,6 +94,30 @@ def action_agent(
     )
 
 
+class Usage(TypedDict):
+    """Token usage of one stage's generation."""
+
+    input_tokens: int
+    output_tokens: int
+
+
+class Stage(TypedDict):
+    """One stage's record: its name, the input built for it, and its output."""
+
+    name: str
+    input: str
+    output: str
+    usage: Usage | None
+
+
+def _usage(state: Any) -> Usage | None:
+    # getattr: the isolation tests' recorder returns a bare namespace.
+    usage = getattr(state.output, "usage", None)
+    if usage is None:
+        return None
+    return {"input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens}
+
+
 async def run_pipeline(
     document_text: str,
     operator_request: str,
@@ -107,8 +132,10 @@ async def run_pipeline(
     action_system: str,
     task_facts: str | None = None,
     guard: Guard | None = None,
+    relay_stages: int = 0,
+    relay_system: str | None = None,
 ) -> dict[str, Any]:
-    """Run one document through intake -> analysis -> action.
+    """Run one document through intake -> analysis -> relays -> action.
 
     This function is workflow-agnostic by design: it is shared across W1, W2,
     and W3 rather than forked per workflow, so a change to stage isolation or
@@ -137,51 +164,79 @@ async def run_pipeline(
             caller. They never pass through the document path, so a document
             cannot forge or overwrite them.
         guard: Authorization guard the action stage's tools enforce.
+        relay_stages: Relay stages between analysis and action (doc 11 §4.1).
+            Each sees only the previous stage's output and the operator
+            request (plus the document when not isolated).
+        relay_system: The workflow's relay system prompt; required when
+            `relay_stages` > 0.
 
     Returns:
-        The intake output (`h1`), the assessment (`h2`), the action stage's
-        final completion (`final`), and the action stage's messages
-        (`stage3_messages`).
+        `stages` (one `Stage` per stage, in order: `intake`, `analysis`,
+        `relay_1` ... `relay_k`, `action`), the action stage's final completion
+        (`final`), its messages (`stage3_messages`) and `status`.
     """
+    if relay_stages and relay_system is None:
+        raise ValueError("relay_stages > 0 needs a relay_system prompt")
     ledger = store_as(Ledger, instance=instance)
     ledger.scope = scope
     ledger.granted_tools = list(tool_names_for_scope(scope))
+    source = "" if isolated else f"\n\nSOURCE DOCUMENT:\n{document_text}"
+    stages: list[Stage] = []
 
-    s1 = await run(
-        single_shot("intake", intake_system),
-        [
-            ChatMessageUser(
-                content=(
-                    f"OPERATOR REQUEST:\n{operator_request}\n\n"
-                    f"SUBMITTED DOCUMENT (extracted):\n{document_text}"
-                )
-            )
-        ],
+    async def text_stage(name: str, system: str, stage_input: str) -> str:
+        state = await run(
+            single_shot(name, system), [ChatMessageUser(content=stage_input)]
+        )
+        output = state.output.completion
+        stages.append(
+            {
+                "name": name,
+                "input": stage_input,
+                "output": output,
+                "usage": _usage(state),
+            }
+        )
+        return output
+
+    prev = await text_stage(
+        "intake",
+        intake_system,
+        f"OPERATOR REQUEST:\n{operator_request}\n\n"
+        f"SUBMITTED DOCUMENT (extracted):\n{document_text}",
     )
-    h1 = s1.output.completion
-
-    s2_input = f"INTAKE OUTPUT:\n{h1}\n\nOPERATOR REQUEST:\n{operator_request}"
-    if not isolated:
-        s2_input += f"\n\nSOURCE DOCUMENT:\n{document_text}"
-    s2 = await run(
-        single_shot("analysis", analysis_system),
-        [ChatMessageUser(content=s2_input)],
+    prev = await text_stage(
+        "analysis",
+        analysis_system,
+        f"INTAKE OUTPUT:\n{prev}\n\nOPERATOR REQUEST:\n{operator_request}{source}",
     )
-    h2 = s2.output.completion
+    for i in range(1, relay_stages + 1):
+        prev = await text_stage(
+            f"relay_{i}",
+            relay_system or "",
+            f"PREVIOUS STAGE OUTPUT:\n{prev}\n\n"
+            f"OPERATOR REQUEST:\n{operator_request}{source}",
+        )
 
-    s3_input = f"ASSESSMENT:\n{h2}\n\nOPERATOR REQUEST:\n{operator_request}"
+    s3_input = f"ASSESSMENT:\n{prev}\n\nOPERATOR REQUEST:\n{operator_request}"
     if task_facts:
         s3_input += f"\n\n{task_facts}"
-    if not isolated:
-        s3_input += f"\n\nSOURCE DOCUMENT:\n{document_text}"
+    s3_input += source
     s3 = await run(
         action_agent(scope, instance, tools_for_scope, action_system, guard),
         [ChatMessageUser(content=s3_input)],
     )
-
-    return {
-        "h1": h1,
-        "h2": h2,
+    result: dict[str, Any] = {
+        "stages": stages,
         "final": s3.output.completion,
         "stage3_messages": [m.model_dump() for m in s3.messages],
+        "status": "ok",
     }
+    stages.append(
+        {
+            "name": "action",
+            "input": s3_input,
+            "output": action_text(result),
+            "usage": _usage(s3),
+        }
+    )
+    return result
