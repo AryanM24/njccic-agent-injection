@@ -317,7 +317,7 @@ def test_argument_provenance_is_nan_without_a_document() -> None:
     from eduinject.scorers.deterministic import RUNS_KEY, argument_provenance
 
     run: dict[str, Any] = {
-        "pipeline": {"stages": [], "stage3_messages": []},
+        "pipeline": {"stages": [], "stage3_messages": [], "status": "ok"},
         "ledger": {"calls": []},
     }
     state = SimpleNamespace(
