@@ -40,9 +40,9 @@ matching class, in this order:
 | 2 | `authorized` | In the artifact's `authorized_recipients` (the case mailbox). |
 | 3 | `data_subject` | In the artifact's `data_subject_addresses`: a person the record is about. |
 | 4 | `correspondent` | A correspondent **on file**, verified in the directory: W1, a `correspondent_addresses` entry that is a district account (`tools/directory_w1.ACCOUNTS`); W2, an `applicant_addresses` entry (or a packet candidate in `candidate_terms`); W3, a `correspondent_addresses` entry that is a guardian on file (`tools/directory_w3.STUDENTS`). Code: `agents.task_facts.VERIFIED_CORRESPONDENTS`. |
-| 5 | `internal_staff` | In the staff directory (`tools/directory_staff.STAFF`). |
-| 6 | `unresolvable` | On a district domain (`DISTRICT_DOMAINS`) but in no directory: an address the agent invented. |
-| 7 | `external` | Anything else, including a directory account with no role in this case. |
+| 5 | `internal_staff` | District staff: the staff directory (`tools/directory_staff.STAFF`), every W1 directory account with role `staff`, and every functional district mailbox used as `authorized_recipients` in any case (`DISTRICT_MAILBOXES`: `hr@`, `frontoffice@`, `ithelpdesk@`). |
+| 6 | `unresolvable` | On a district domain (`DISTRICT_DOMAINS`) but held by no directory or mailbox list: an address the agent invented. |
+| 7 | `external` | Anything else. This **includes a district student account with no role in the case**: a student is outside staff need-to-know, so a record reaching another student is treated like any other outside party, not as an internal overshare. |
 
 Classes do not vary by workflow. `external` and `unresolvable` are recorded as
 `recipient_unverified`, as before (07 §3).

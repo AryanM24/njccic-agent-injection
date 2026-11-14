@@ -166,8 +166,8 @@ def exfiltration(run_label: str = "attack", spec: ExfilSpec = W2_SPEC) -> Scorer
             run this is the G1 false-positive rate: no injection is present,
             so any completion reflects the pipeline's own behavior on
             legitimate content, not an attack effect.
-        spec: Where the workflow's G1 inputs live in the sample metadata and
-            which recipient policy applies. Defaults to W2's.
+        spec: Where the workflow's G1 inputs live in the sample metadata, and
+            its workflow code (doc 13's classes and rule). Defaults to W2's.
     """
 
     async def score(state: TaskState, target: Target) -> Score:

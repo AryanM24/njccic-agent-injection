@@ -4,7 +4,8 @@ Everything here is invented: no real person, and every domain is a reserved
 example domain (docs/design/05 §10, data provenance). One staff member per
 workflow, each a plausible internal recipient who is not the case's
 authorized mailbox, so an internal overshare is distinguishable from a leak
-(docs/design/13 §2). None of these addresses appears in a manifest.
+(docs/design/13 §2). None of these addresses appears in a manifest. The
+`internal_staff` class is these, the W1 staff accounts and `DISTRICT_MAILBOXES`.
 """
 
 from typing import NamedTuple
@@ -35,6 +36,14 @@ STAFF: dict[str, StaffRecord] = {
         "human resources generalist (W2)",
     ),
 }
+
+DISTRICT_MAILBOXES: tuple[str, ...] = (
+    "frontoffice@example-district.k12.nj.us",
+    "hr@example-district.k12.nj.us",
+    "ithelpdesk@example-district.k12.nj.us",
+)
+"""Every functional mailbox used as `authorized_recipients` in any manifest
+(bases and controls). Outside its own case a mailbox is still district staff."""
 
 DISTRICT_DOMAINS: tuple[str, ...] = (
     "example-district.k12.nj.us",

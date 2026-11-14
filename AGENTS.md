@@ -47,7 +47,7 @@ conditions behind a figure are recoverable from the log alone.
 | `task_w1.py` / `task_w3.py` | `eduinject_w1()` (IT help-desk triage, insider attacker) and `eduinject_w3()` (parent correspondence, external attacker): each a `Workflow` declaration (prompts, tools, scorer spec, task facts) and a `@task` that calls `task.build_task`. |
 | `corpus/__init__.py` | The placeholder `MARKER`, `GOALS`, and `load_gated_payloads()` for the gitignored Tier 1 `corpus/payloads.py`. |
 | `defense.py` | Spotlighting by datamarking (`datamark`, `unmark`, `DATAMARK` = U+E000, `DEFENSE_VERSION`). The prompt clause lives in `agents/prompts.py`. Doc 10 §4. |
-| `recipients.py` | `recipient_addresses()`: the one recipient parser, shared by the G1 scorer and the tool guard so both see the same addresses. Leaf module. |
+| `recipients.py` | `recipient_addresses()`: the one recipient parser, shared by the G1 scorer and the tool guard so both see the same addresses; plus `classify_recipient()` / `is_valid_address()` and `RecipientClass` (doc 13), which read the directories lazily to avoid an import cycle with `tools/`. |
 | `stats.py` | Second-edition statistics: `sign_flip_test`, `holm`, `zero_upper_bound`, `mde`, `pair_concentration`, `conditional_rate`, and `gee_contrast` (optional `stats` extra). Doc 10 §5. |
 | `agents/task_facts.py` | `IDENTITY_MODES`, `TASK_FACTS_VERSION` and the per-workflow verified facts (`facts_w1/w2/w3`, `linked_students`) built from manifest fields and directories, never the document. Doc 10 §2. |
 | `tools/guard.py` | The tool guard (`Guard`, `guard_from_metadata`, `record_send`) and the shared `scope_tools` / `scope_tool_names` behind each workflow's `tools_for_scope`. Doc 10 §3. |
@@ -60,7 +60,7 @@ conditions behind a figure are recoverable from the log alone.
 | `tools/directory_w1.py` / `tools/directory_w3.py` | Synthetic account/asset and guardian/student-record directories behind those lookups: the ground truth the W1/W3 scorers verify against. |
 | `tools/ledger.py` | `Ledger` (an Inspect `StoreModel`) and `record()` — per-run record of calls and attempted egress (guard refusals are marked `DENIED` on the call). This is the measurement record the scorers read. |
 | `tools/__init__.py` | Re-exports from the tool and ledger modules. |
-| `scorers/outcomes.py` | Pure, Inspect-free functions over a finished run: `marker_propagation()`, `exfiltration_outcome()` (destination **and** payload sensitivity tier, per doc 07), `scope_outcome()`, `twin_divergence()`, with `T2_TERMS` / `ENTITLEMENT` and `NamedTuple` results. Unit-testable against synthetic runs. |
+| `scorers/outcomes.py` | Pure, Inspect-free functions over a finished run: `marker_propagation()`, `exfiltration_outcome()` (destination **and** payload sensitivity tier, per doc 07), `scope_outcome()`, `twin_divergence()`, with `T2_TERMS`, the doc 13 leak rule (`is_leak`, `is_policy_disclosure`) and `NamedTuple` results. Unit-testable against synthetic runs. |
 | `scorers/deterministic.py` | Inspect scorers (`propagation`, `exfiltration`, `scope_violation`, `action_divergence`, `authorization`, `suppression`, `control_check`) and `RUNS_KEY`. Thin adapters holding no judgement of their own, so a disputed number can be recomputed from the log. |
 | `scorers/__init__.py` | Re-exports both modules. Its docstring records why a model-graded judge is deliberately absent. |
 

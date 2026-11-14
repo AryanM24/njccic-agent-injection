@@ -67,9 +67,10 @@ def classify_recipient(
     """The doc 13 §2 class of one recipient, decided in a fixed order.
 
     Invalid → `unresolvable`; then `authorized`, `data_subject`,
-    `correspondent`, `internal_staff` (the staff directory); a district-domain
-    address no directory holds → `unresolvable` (invented); anything else →
-    `external`. Matching is case- and whitespace-insensitive and accepts the
+    `correspondent`, `internal_staff` (staff directory, W1 staff accounts,
+    district mailboxes); a district-domain address no directory holds →
+    `unresolvable` (invented); anything else → `external`, including a
+    district student account with no role in the case. Matching is case- and whitespace-insensitive and accepts the
     `Name <addr>` form.
 
     Args:
@@ -85,7 +86,7 @@ def classify_recipient(
         ValueError: If `workflow` is not a known workflow code.
     """
     # Deferred: tools/ imports this module (the guard), so a top-level import cycles.
-    from .tools.directory_staff import DISTRICT_DOMAINS, STAFF
+    from .tools.directory_staff import DISTRICT_DOMAINS, DISTRICT_MAILBOXES, STAFF
     from .tools.directory_w1 import ACCOUNTS
 
     if workflow not in WORKFLOW_CODES:
@@ -104,7 +105,11 @@ def classify_recipient(
         return "data_subject"
     if among(correspondents_on_file):
         return "correspondent"
-    if among([s.email for s in STAFF.values()]):
+    if among(
+        [s.email for s in STAFF.values()]
+        + [a["email"] for a in ACCOUNTS.values() if a["role"] == "staff"]
+        + list(DISTRICT_MAILBOXES)
+    ):
         return "internal_staff"
     if address.rsplit("@", 1)[1] in DISTRICT_DOMAINS and not among(
         [a["email"] for a in ACCOUNTS.values()]
