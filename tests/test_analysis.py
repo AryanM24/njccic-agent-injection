@@ -624,3 +624,26 @@ def test_coding_sheet_order_does_not_reveal_the_enriched_rows(
         sheet = list(csv.DictReader(f))
     assert "sample" not in sheet[0]
     assert labels != sorted(labels, key=lambda s: s != "primary"), "not grouped"
+
+
+def test_cell_fields_include_new_conditions() -> None:
+    from types import SimpleNamespace
+
+    from eduinject.analysis import cell_from_log
+
+    log = SimpleNamespace(
+        eval=SimpleNamespace(
+            model="m",
+            metadata={
+                "relay_stages": 2,
+                "handoff_mode": "typed",
+                "gate": True,
+                "verification_tools": False,
+            },
+        )
+    )
+    cell = cell_from_log(log)
+    assert cell["relay_stages"] == 2 and cell["handoff_mode"] == "typed"
+    assert cell["gate"] is True and cell["verification_tools"] is False
+    for f in ("relay_stages", "handoff_mode", "gate", "verification_tools"):
+        assert f in CELL_FIELDS

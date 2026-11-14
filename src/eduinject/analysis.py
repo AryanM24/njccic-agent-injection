@@ -39,6 +39,10 @@ CELL_FIELDS: tuple[str, ...] = (
     "isolated",
     "identity_mode",
     "defense",
+    "relay_stages",
+    "handoff_mode",
+    "gate",
+    "verification_tools",
 )
 """Fields that identify one experimental condition. Rows that differ in any of
 these are never pooled: `corpus_digest`, `tool_surface` and `prompts_version`
@@ -160,6 +164,10 @@ def cell_from_log(log: Any) -> dict[str, Any]:
         "isolated": bool(meta.get("isolated")),
         "identity_mode": meta.get("identity_mode", "off"),
         "defense": meta.get("defense", "none"),
+        "relay_stages": meta.get("relay_stages"),
+        "handoff_mode": meta.get("handoff_mode"),
+        "gate": meta.get("gate"),
+        "verification_tools": meta.get("verification_tools"),
     }
 
 

@@ -555,6 +555,20 @@ def test_packet_candidate_is_not_third_party_to_themselves() -> None:
         {"defense": "spotlight"},
         {"message_limit": 10},
         {"benign_only": True},
+        {"relay_stages": 1},
+        *(
+            pytest.param(
+                c,
+                marks=pytest.mark.xfail(
+                    strict=True, raises=NotImplementedError, reason="Task 10/11/12"
+                ),
+            )
+            for c in (
+                {"handoff_mode": "typed"},
+                {"gate": True},
+                {"verification_tools": True},
+            )
+        ),
     ],
 )
 def test_every_condition_reaches_the_hash(change: dict[str, Any]) -> None:
@@ -613,6 +627,37 @@ def test_unknown_condition_values_are_refused() -> None:
         eduinject_w2(identity_mode="on")
     with pytest.raises(ValueError, match="defense"):
         eduinject_w2(defense="spotlighting")
+
+
+@pytest.mark.parametrize(
+    ("workflow", "kwargs", "param"),
+    [
+        ("w2", {"relay_stages": -1}, "relay_stages"),
+        ("w2", {"relay_stages": 4}, "relay_stages"),
+        ("w2", {"relay_stages": True}, "relay_stages"),
+        ("w2", {"handoff_mode": "typed_spotlight"}, "handoff_mode"),
+        ("w2", {"gate": 1}, "gate"),
+        ("w2", {"verification_tools": 1}, "verification_tools"),
+        ("w1", {"verification_tools": True}, "verification_tools"),
+        (
+            "w2",
+            {"handoff_mode": "typed", "identity_mode": "facts"},
+            "handoff_mode",
+        ),
+    ],
+)
+def test_unknown_new_condition_values_are_refused(
+    workflow: str, kwargs: dict[str, Any], param: str
+) -> None:
+    import eduinject.task as t
+    from eduinject.task_w1 import eduinject_w1
+
+    task_fn = {
+        "w1": eduinject_w1,
+        "w2": t.eduinject_w2,
+    }[workflow]
+    with pytest.raises(ValueError, match=param):
+        task_fn(**kwargs)
 
 
 def test_candidate_tier_does_not_leak_to_the_next_recipient() -> None:

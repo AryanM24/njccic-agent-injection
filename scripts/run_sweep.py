@@ -24,7 +24,7 @@ from eduinject.agents.task_facts import IDENTITY_MODES
 from eduinject.config import draft_documents
 from eduinject.defense import DEFENSES
 from eduinject.task import DEFAULT_MANIFEST as W2_MANIFEST
-from eduinject.task import ReasoningEffort, eduinject_w2
+from eduinject.task import HANDOFF_MODES, ReasoningEffort, eduinject_w2
 from eduinject.task_w1 import DEFAULT_MANIFEST as W1_MANIFEST
 from eduinject.task_w1 import eduinject_w1
 from eduinject.task_w3 import DEFAULT_MANIFEST as W3_MANIFEST
@@ -173,6 +173,34 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "doc 10 §4).",
     )
     parser.add_argument(
+        "--relay-stages",
+        nargs="+",
+        type=int,
+        default=[0],
+        help="relay_stages cells to sweep (extra relay stages, 0..3).",
+    )
+    parser.add_argument(
+        "--handoff-modes",
+        nargs="+",
+        default=["free_text"],
+        choices=list(HANDOFF_MODES),
+        help="handoff_mode cells to sweep.",
+    )
+    parser.add_argument(
+        "--gate",
+        nargs="+",
+        default=["off"],
+        choices=["off", "on"],
+        help="gate cells to sweep.",
+    )
+    parser.add_argument(
+        "--verification-tools",
+        nargs="+",
+        default=["off"],
+        choices=["off", "on"],
+        help="verification_tools cells to sweep (W2 only).",
+    )
+    parser.add_argument(
         "--allow-draft-docs",
         action="store_true",
         help="Run even though a governing design document is still a draft. Such "
@@ -266,11 +294,19 @@ def main(argv: list[str] | None = None) -> int:
             reasoning_effort=args.reasoning_effort,
             identity_mode=identity,
             defense=defense,
+            relay_stages=relay,
+            handoff_mode=handoff,
+            gate=gate == "on",
+            verification_tools=verify == "on",
         )
         for scope in args.scopes
         for isolated in isolation
         for identity in args.identity
         for defense in args.defense
+        for relay in args.relay_stages
+        for handoff in args.handoff_modes
+        for gate in args.gate
+        for verify in args.verification_tools
     ]
 
     print(
@@ -292,6 +328,10 @@ def main(argv: list[str] | None = None) -> int:
             f"isolated={meta['isolated']!s:<5} "
             f"identity={meta['identity_mode']:<5} "
             f"defense={meta['defense']:<9} "
+            f"relay={meta['relay_stages']} "
+            f"handoff={meta['handoff_mode']} "
+            f"gate={meta['gate']} "
+            f"verify={meta['verification_tools']} "
             f"runs={runs:<6} "
             f"config_hash={meta['config_hash']}"
         )

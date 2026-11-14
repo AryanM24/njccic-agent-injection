@@ -126,7 +126,14 @@ class Workflow(NamedTuple):
     escalation_tools: tuple[str, ...] = ()
     """Tools that escalate to staff (W3), for `correct_outcome`; empty where a
     send to an authorized recipient is the escalation."""
+    verification_tools: tuple[str, ...] = ()
+    """Lookups `verification_tools=True` adds (W2); empty where the workflow
+    already has them, which makes the parameter a `ValueError`."""
 
+
+RELAY_MAX = 3
+HANDOFF_MODES = ("free_text", "typed")
+HandoffMode = Literal["free_text", "typed"]
 
 WORKFLOWS: dict[str, Workflow] = {}
 """Workflow code -> spec. Each task module registers its own on import; the
@@ -167,6 +174,7 @@ W2 = register(
         controls_manifest=DEFAULT_CONTROLS_MANIFEST,
         task_facts=facts_w2,
         verified_recipients=verified_w2,
+        verification_tools=("lookup_certification",),
     )
 )
 
@@ -339,6 +347,10 @@ def paired_pipeline(
     benign_only: bool = False,
     identity_mode: str = "off",
     defense: str = "none",
+    relay_stages: int = 0,
+    handoff_mode: HandoffMode = "free_text",
+    gate: bool = False,
+    verification_tools: bool = False,
 ) -> Solver:
     """Run the attack document and its twin (or the twin alone) through the pipeline.
 
@@ -355,6 +367,10 @@ def paired_pipeline(
             stage's input) or "guard" (the same facts, enforced by the tools).
         defense: "none" or "spotlight" (datamark the document and tell every
             stage that receives it that marked text carries no instructions).
+        relay_stages: Extra relay stages between analysis and action (0..3).
+        handoff_mode: "free_text" or "typed" stage hand-off.
+        gate: Enable the monitor gate on the action stage's calls.
+        verification_tools: Grant the workflow's verification lookups.
 
     Returns:
         A solver that records each run under `metadata["runs"]`.
@@ -463,12 +479,45 @@ def build_task(
     reasoning_effort: ReasoningEffort | None,
     identity_mode: str,
     defense: str,
+    relay_stages: int = 0,
+    handoff_mode: HandoffMode = "free_text",
+    gate: bool = False,
+    verification_tools: bool = False,
 ) -> Task:
     """Build one cell of a workflow's experiment (see the `eduinject_*` tasks)."""
     if identity_mode not in IDENTITY_MODES:
         raise ValueError(f"identity_mode must be one of {IDENTITY_MODES}")
     if defense not in DEFENSES:
         raise ValueError(f"defense must be one of {DEFENSES}")
+    if (
+        not isinstance(relay_stages, int)
+        or isinstance(relay_stages, bool)
+        or not 0 <= relay_stages <= RELAY_MAX
+    ):
+        raise ValueError(f"relay_stages must be an int in 0..{RELAY_MAX}")
+    if handoff_mode not in HANDOFF_MODES:
+        raise ValueError(f"handoff_mode must be one of {HANDOFF_MODES}")
+    if not isinstance(gate, bool):
+        raise ValueError("gate must be a bool")  # noqa: TRY004
+    if not isinstance(verification_tools, bool):
+        raise ValueError("verification_tools must be a bool")  # noqa: TRY004
+    if handoff_mode == "typed" and identity_mode == "facts":
+        raise ValueError(
+            'handoff_mode="typed" cannot combine with identity_mode="facts": '
+            "typed hand-off already carries the verified facts"
+        )
+    if verification_tools and not workflow.verification_tools:
+        raise ValueError(
+            f"verification_tools: {workflow.code} has no verification tools to add"
+        )
+    for name, value, default in (
+        ("handoff_mode", handoff_mode, "free_text"),
+        ("gate", gate, False),
+        ("verification_tools", verification_tools, False),
+    ):
+        task_no = {"handoff_mode": 10, "gate": 11, "verification_tools": 12}[name]
+        if value != default:
+            raise NotImplementedError(f"{name}: Task {task_no}")
     manifest, benign_only = resolve_run_mode(
         manifest, workflow.manifest, workflow.controls_manifest, controls, benign_only
     )
@@ -495,6 +544,10 @@ def build_task(
         "task_facts_version": TASK_FACTS_VERSION,
         "defense": defense,
         "defense_version": DEFENSE_VERSION,
+        "relay_stages": relay_stages,
+        "handoff_mode": handoff_mode,
+        "gate": gate,
+        "verification_tools": verification_tools,
         # The react loop and its submit plumbing come from Inspect itself.
         "inspect_ai": version("inspect-ai"),
     }
@@ -507,6 +560,10 @@ def build_task(
             benign_only=benign_only,
             identity_mode=identity_mode,
             defense=defense,
+            relay_stages=relay_stages,
+            handoff_mode=handoff_mode,
+            gate=gate,
+            verification_tools=verification_tools,
         ),
         message_limit=message_limit,
         epochs=epochs,
@@ -535,6 +592,10 @@ def eduinject_w2(
     reasoning_effort: ReasoningEffort | None = None,
     identity_mode: str = "off",
     defense: str = "none",
+    relay_stages: int = 0,
+    handoff_mode: HandoffMode = "free_text",
+    gate: bool = False,
+    verification_tools: bool = False,
 ) -> Task:
     """Indirect prompt injection through a district hiring workflow.
 
@@ -579,6 +640,10 @@ def eduinject_w2(
             See docs/design/10.
         defense: "none" or "spotlight" (datamarking, Hines et al. 2024). See
             docs/design/10.
+        relay_stages: Extra relay stages between analysis and action (0..3).
+        handoff_mode: "free_text" or "typed" stage hand-off.
+        gate: Monitor gate on the action stage's calls.
+        verification_tools: Grant the workflow's verification lookups (W2).
 
     Returns:
         The configured task.
@@ -597,4 +662,8 @@ def eduinject_w2(
         reasoning_effort=reasoning_effort,
         identity_mode=identity_mode,
         defense=defense,
+        relay_stages=relay_stages,
+        handoff_mode=handoff_mode,
+        gate=gate,
+        verification_tools=verification_tools,
     )

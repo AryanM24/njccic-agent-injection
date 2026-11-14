@@ -24,7 +24,14 @@ from inspect_ai import Task, task
 from .agents import prompts_w1
 from .agents.task_facts import facts_w1, verified_w1
 from .scorers import W1_SPEC
-from .task import CORPUS, ReasoningEffort, Workflow, build_task, register
+from .task import (
+    CORPUS,
+    HandoffMode,
+    ReasoningEffort,
+    Workflow,
+    build_task,
+    register,
+)
 from .tools import helpdesk
 
 DEFAULT_MANIFEST = str(CORPUS / "manifest_w1.jsonl")
@@ -71,6 +78,10 @@ def eduinject_w1(
     reasoning_effort: ReasoningEffort | None = None,
     identity_mode: str = "off",
     defense: str = "none",
+    relay_stages: int = 0,
+    handoff_mode: HandoffMode = "free_text",
+    gate: bool = False,
+    verification_tools: bool = False,
 ) -> Task:
     """Indirect prompt injection through a district IT help-desk workflow.
 
@@ -116,6 +127,10 @@ def eduinject_w1(
             See docs/design/10.
         defense: "none" or "spotlight" (datamarking, Hines et al. 2024). See
             docs/design/10.
+        relay_stages: Extra relay stages between analysis and action (0..3).
+        handoff_mode: "free_text" or "typed" stage hand-off.
+        gate: Monitor gate on the action stage's calls.
+        verification_tools: Grant the workflow's verification lookups (W2).
 
     Returns:
         The configured task.
@@ -134,4 +149,8 @@ def eduinject_w1(
         reasoning_effort=reasoning_effort,
         identity_mode=identity_mode,
         defense=defense,
+        relay_stages=relay_stages,
+        handoff_mode=handoff_mode,
+        gate=gate,
+        verification_tools=verification_tools,
     )

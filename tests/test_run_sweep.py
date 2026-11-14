@@ -99,6 +99,19 @@ def test_dry_run_estimates_cost_and_crosses_the_new_axes(
     assert f"${estimate_usd(8, False, PRESETS['gemini-3.8-flash']):,.2f}" in out
 
 
+def test_dry_run_crosses_new_axes(capsys: pytest.CaptureFixture[str]) -> None:
+    from run_sweep import main
+
+    argv = ["--model", "mockllm/model", "--workflow", "w3", "--scopes", "read_write"]
+    argv += ["--isolation", "isolated", "--relay-stages", "0", "1", "--dry-run"]
+    assert main(argv) == 0
+    lines = [ln for ln in capsys.readouterr().out.splitlines() if "config_hash=" in ln]
+    assert len(lines) == 2
+    assert "relay=0" in lines[0] and "relay=1" in lines[1]
+    assert "handoff=free_text" in lines[0] and "gate=False" in lines[0]
+    assert lines[0].split("config_hash=")[1] != lines[1].split("config_hash=")[1]
+
+
 def test_paid_run_is_refused_while_a_governing_document_is_a_draft(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
