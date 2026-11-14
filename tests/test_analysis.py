@@ -15,6 +15,7 @@ from eduinject.analysis import (
     dedupe,
     denominators,
     epoch_spread,
+    finished_samples,
     flatten_scores,
     kappa_report,
     load_rows,
@@ -674,3 +675,6 @@ def test_load_rows_split_filter(tmp_path: Path, generated_corpus: Path) -> None:
         kept, _ = load_rows([log_dir], split)
         assert kept and all(r["split"] == split for r in kept)
         assert len(kept) == sum(r["split"] == split for r in every)
+        samples = [s for _, s in finished_samples([log_dir], split)]
+        assert len(samples) == len({(r["sample_id"], r["epoch"]) for r in kept})
+        assert all(s.metadata["split"] == split for s in samples)

@@ -1,6 +1,6 @@
 """Break G1 completions down by who received them (doc 09 §9), attack and twin.
 
-Usage: python scripts/exfil_recipients.py LOG_DIR [LOG_DIR ...]. Needs no model:
+Usage: python scripts/exfil_recipients.py LOG_DIR [LOG_DIR ...] [--split dev|confirm]. Needs no model:
 `exfiltration_from_metadata` is re-applied to each run's recorded ledger, so the twin
 side of a paired run is scored too. Prints a Markdown table. The in-pair
 attack − twin G1 rate is `exfiltration` in `scripts/paired_outcomes.py`.
@@ -33,6 +33,7 @@ COLUMNS = ["logs", *FLOOR_FIELDS, "side"]
 _ap = argparse.ArgumentParser()
 _ap.add_argument("log_dirs", nargs="+")
 _ap.add_argument("--allow-stale", action="store_true")
+_ap.add_argument("--split", choices=("dev", "confirm"), default=None)
 _args = _ap.parse_args()
 if refuse_stale(_args.log_dirs, _args.allow_stale):
     sys.exit(4)
@@ -41,7 +42,7 @@ runs: collections.Counter[tuple[str, ...]] = collections.Counter()
 flagged: collections.Counter[tuple[str, ...]] = collections.Counter()
 who: collections.Counter[tuple[str, ...]] = collections.Counter()
 pairs_hit: dict[tuple[str, ...], set[str]] = collections.defaultdict(set)
-for c, sample in finished_samples(_args.log_dirs):
+for c, sample in finished_samples(_args.log_dirs, _args.split):
     cell = {**c, "logs": cell_kind(c), "model": model_label(c["model"])}
     md = sample.metadata
     spec = workflow(c["workflow"]).spec

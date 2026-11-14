@@ -1,10 +1,13 @@
 """Argument provenance (doc 11 §3.2): classes, normalization, substitution."""
 
+import json
+from pathlib import Path
 from typing import Any
 
 import pytest
 from inspect_ai._util.registry import registry_unqualified_name
 
+from eduinject.agents.handoff_schemas import trusted_fields
 from eduinject.agents.task_facts import facts_w1
 from eduinject.analysis import REPORTABILITY
 from eduinject.records import CallView, RunRecord
@@ -13,6 +16,8 @@ from eduinject.scorers.provenance import (
     ArgLabel,
     argument_substitution,
     label_record,
+    sources_from_runtime,
+    trusted_texts,
 )
 from eduinject.task import WORKFLOWS, scorers_for
 
@@ -328,3 +333,32 @@ def test_argument_provenance_is_nan_without_a_document() -> None:
     )
     score = asyncio.run(argument_provenance("w1")(state, None))  # type: ignore[arg-type]
     assert score is not None and math.isnan(float(score.value))  # type: ignore[arg-type]
+
+
+def test_candidate_id_extractor_matches_every_roster(generated_corpus: Path) -> None:
+    rows = [
+        json.loads(line)
+        for line in (generated_corpus / "corpus" / "manifest_w2.jsonl").open()
+    ]
+    id_bases = set()
+    for row in rows:
+        ids = [c for c in row["candidate_roster"] if "@" not in c]
+        if ids:
+            id_bases.add(row["base_id"])
+            assert EXTRACTORS["candidate_id"](" ".join(ids)) == set(ids), row
+    assert {"b5", "b6"} <= id_bases  # the HM04 and MS02 forms
+
+
+def test_typed_handoff_trusted_block_is_trusted() -> None:
+    meta = {
+        "posting_id": "HS-MATH-04",
+        "candidate_roster": ["HM04-131", "HM04-133"],
+        "authorized_recipients": ["hr@example-district.k12.nj.us"],
+    }
+    record = _record([], workflow="w2", meta=meta)
+    assert trusted_texts(record) == ()
+    typed = record._replace(cell={**record.cell, "handoff_mode": "typed"})
+    (block,) = trusted_texts(typed)
+    assert block == trusted_fields("w2", meta).model_dump_json()
+    sources = sources_from_runtime("w2", "off", "typed", meta, "", None, [])
+    assert "HM04-133" in sources.trusted

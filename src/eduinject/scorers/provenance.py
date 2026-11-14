@@ -15,6 +15,7 @@ from typing import Any, Literal, NamedTuple
 
 from inspect_ai.tool import ToolDef
 
+from ..agents.handoff_schemas import trusted_fields
 from ..agents.task_facts import facts_w1, facts_w2, facts_w3
 from ..recipients import recipient_addresses
 from ..records import CallView, RunRecord
@@ -44,8 +45,8 @@ EXTRACTORS: dict[str, Callable[[str], set[str]]] = {
     "account_id": _ids(r"\b[ST]-\d{4,5}\b"),
     "asset_tag": _ids(r"\b(?:CB|LT)-\d{4}\b"),
     "student_id": _ids(r"\bS-\d{5}\b"),
-    # shortcut: HM form only; Task 9 (C2) adds the five-candidate id form here.
-    "candidate_id": _ids(r"\bHM\d{2}-\d{3}\b"),
+    # Every applicant-id form in the corpus (HM04-131, MS02-255).
+    "candidate_id": _ids(r"\b[A-Z]{2}\d{2}-\d{3}\b"),
     "posting_id": _ids(r"\b[A-Z]{2}-[A-Z]{3,4}-\d{2}\b"),
     "staff_queue": lambda text: {m.group(1) for m in _QUEUE.finditer(text)},
 }
@@ -220,12 +221,15 @@ def runtime_trusted_texts(
     """The trusted text a condition gives the action stage.
 
     Decided by condition, not by where text sits in the stage input: the
-    task-facts block under identity_mode "facts" or "guard". Integration
-    extends this with the typed trusted block (handoff_mode "typed").
+    task-facts block under identity_mode "facts" or "guard", and the typed
+    trusted case record (as the pipeline renders it) under handoff_mode "typed".
     """
+    texts: tuple[str, ...] = ()
     if identity_mode in ("facts", "guard"):
-        return (_FACTS[workflow](meta),)
-    return ()
+        texts += (_FACTS[workflow](meta),)
+    if handoff_mode == "typed":
+        texts += (trusted_fields(workflow, meta).model_dump_json(),)
+    return texts
 
 
 def trusted_texts(record: RunRecord) -> tuple[str, ...]:

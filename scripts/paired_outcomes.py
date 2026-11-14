@@ -1,6 +1,6 @@
 """Attack vs twin within each pair, per attack cell, for every outcome.
 
-Usage: python scripts/paired_outcomes.py LOG_DIR [LOG_DIR ...]; set BY=goal (or
+Usage: python scripts/paired_outcomes.py LOG_DIR [LOG_DIR ...] [--split dev|confirm]; set BY=goal (or
 channel, base_id, ...) to split each cell by that sample-metadata field. Splits
 by goal, channel or file type are Tier 1 (doc 05 §6): write them under `logs/`
 only. Needs no model: `analysis.in_pair_rates` re-scores both recorded ledgers
@@ -24,6 +24,7 @@ from eduinject.analysis import (
 _ap = argparse.ArgumentParser()
 _ap.add_argument("log_dirs", nargs="+")
 _ap.add_argument("--allow-stale", action="store_true")
+_ap.add_argument("--split", choices=("dev", "confirm"), default=None)
 _args = _ap.parse_args()
 if refuse_stale(_args.log_dirs, _args.allow_stale):
     sys.exit(4)
@@ -35,7 +36,7 @@ print(
     "| Attack − twin [95% pair-clustered CI] |"
 )
 print("|" + " --- |" * (len(columns) + 4))
-for r in in_pair_rates(finished_samples(_args.log_dirs), by=BY):
+for r in in_pair_rates(finished_samples(_args.log_dirs, _args.split), by=BY):
     if r.attack == r.twin == 0 and r.metric != "did_correct_thing":
         continue
     cell = {**r.cell, "model": model_label(r.cell["model"]), "metric": r.metric}

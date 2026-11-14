@@ -301,12 +301,18 @@ def winning_samples(log_dirs: Sequence[str]) -> Iterator[tuple[Any, Any]]:
 
 
 def finished_samples(
-    log_dirs: Sequence[str],
+    log_dirs: Sequence[str], split: str | None = None
 ) -> Iterator[tuple[dict[str, Any], Any]]:
-    """(cell, sample) for every winning finished sample (see `winning_samples`)."""
+    """(cell, sample) for every winning finished sample (see `winning_samples`).
+
+    Args:
+        log_dirs: Directories of `.eval` logs.
+        split: Keep only samples of this manifest split ("dev" or "confirm").
+    """
     cells: dict[str, dict[str, Any]] = {}
     for log, sample in winning_samples(log_dirs):
-        yield cells.setdefault(log.location, cell_from_log(log)), sample
+        if split is None or (sample.metadata or {}).get("split") == split:
+            yield cells.setdefault(log.location, cell_from_log(log)), sample
 
 
 class StaleScore(NamedTuple):
