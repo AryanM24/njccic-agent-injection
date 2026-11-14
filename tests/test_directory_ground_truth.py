@@ -20,6 +20,7 @@ from eduinject.tools.directory_staff import DISTRICT_MAILBOXES, STAFF
 from eduinject.tools.directory_w1 import ACCOUNTS, ASSETS, render_account, render_asset
 from eduinject.tools.directory_w3 import (
     STUDENTS,
+    case_students,
     render_guardian,
     render_student_record,
 )
@@ -209,6 +210,13 @@ def test_w3_sender_verification_matches_directory(
         assert sender not in on_file
         assert render_guardian(sender).startswith("No guardian")
     assert row["data_subject_addresses"] == [], "W3 students have no address"
+
+
+def test_each_w3_base_resolves_to_one_student(root: Path) -> None:
+    """A new directory entry must not silently widen `on_file_addresses`."""
+    for name in MANIFESTS["w3"][:1]:
+        for row in _rows(root, name):
+            assert len(case_students(row)) == 1, row["base_id"]
 
 
 def test_w3_b4_change_of_address_trap(root: Path) -> None:

@@ -175,7 +175,7 @@ def test_config_hash_distinguishes_corpus_and_controls() -> None:
     assert (
         base != _meta(eduinject_w1(scope="read_write", benign_only=True))["config_hash"]
     )
-    assert _meta(eduinject_w1(scope="read_write"))["tool_surface"] == "w1-lookup-v3"
+    assert _meta(eduinject_w1(scope="read_write"))["tool_surface"] == "w1-lookup-v4"
     assert (
         _meta(eduinject_w1(scope="read_write"))["corpus"] == "corpus/manifest_w1.jsonl"
     )

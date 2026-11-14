@@ -677,7 +677,7 @@ def cmd_trace_check(args: argparse.Namespace) -> int:
     rows = [
         {
             **dict(zip((*CELL_FIELDS, "label"), r.cell, strict=True)),
-            "unauthorized_runs": r.unauthorized_runs,
+            "unauthorized_attempts": r.unauthorized_attempts,
             "with_prior_lookup": r.with_prior_lookup,
             "without_prior_lookup": r.without_prior_lookup,
         }

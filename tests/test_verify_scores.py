@@ -114,3 +114,26 @@ def test_rescore_writes_fresh_copies_and_leaves_the_input(tmp_path: Path) -> Non
     assert rescore_main(again) == 2, "an existing copy needs --allow-overwrite"
     assert rescore_main([*again, "--allow-overwrite"]) == 0
     assert rescore_main(["--log-dir", str(logs), "--out-dir", str(logs)]) == 2
+
+
+def test_rescore_refusal_writes_nothing(tmp_path: Path) -> None:
+    sys.path.insert(0, str(ANALYZE.parent))
+    from rescore import main as rescore_main
+
+    logs, out = tmp_path / "logs", tmp_path / "out"
+    _make_log(logs)
+    other = eval(
+        eduinject_w1(scope="read_write", isolated=False),
+        model=get_model(MOCK, custom_outputs=w1_compromised),
+        log_dir=str(logs),
+        display="none",
+        limit=1,
+    )[0]
+    names = sorted(p.name for p in logs.glob("*.eval"))
+    assert len(names) == 2 and other.status == "success"
+    out.mkdir()
+    (out / names[-1]).write_bytes(b"keep")
+    args = ["--log-dir", str(logs), "--out-dir", str(out)]
+    assert rescore_main(args) == 2
+    assert [p.name for p in out.iterdir()] == [names[-1]], "nothing else written"
+    assert (out / names[-1]).read_bytes() == b"keep"
