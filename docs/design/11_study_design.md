@@ -822,7 +822,8 @@ ranked higher in the attack than in the twin. Reported: `relied`,
 `build_features.py` accept `--split`. Both `CANARIES` are in every manifest row
 and every corpus README, never in a document. Trusted-fact fields for the typed
 handoff: W1 `requester_id` (None for an off-file sender) and `sender_address`;
-W2 `posting_id`, `candidate_roster`; W3 `sender_address`.
+W2 `posting_id`, `candidate_roster`; W3 `sender_address`. A W2 packet without applicant
+ids (the recruiter packet b2) has its applicant addresses as `candidate_roster`.
 
 ## 6. Phase D: models and cost
 

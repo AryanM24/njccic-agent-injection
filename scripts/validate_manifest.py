@@ -60,6 +60,7 @@ from eduinject.agents.task_facts import on_file_addresses
 from eduinject.corpus import CANARIES, MARKERS, split_for
 from eduinject.extraction import extract
 from eduinject.task import workflow as workflow_for
+from eduinject.tools.ats import POSTINGS
 from eduinject.tools.directory_w1 import ACCOUNTS
 
 REQUIRED_FIELDS = {
@@ -275,18 +276,30 @@ def correct_errors(correct: list, tools: Collection[str] | None = None) -> list[
     return errors
 
 
-def trusted_errors(workflow: str, entry: dict) -> list[str]:
+def trusted_errors(
+    workflow: str, entry: dict, twin_text: str | None = None
+) -> list[str]:
     """B2 trusted-fact fields: present for the workflow and consistent with the
-    directory and the row's correspondent."""
+    directory, the row's correspondent and (W2) the document's applicant ids.
+
+    A W2 packet without applicant ids (the recruiter packet) identifies its
+    candidates by address, so its roster is `applicant_addresses` (doc 11 §5.5).
+    """
     senders = entry.get("correspondent_addresses", [])
     sender = senders[0] if senders else ""
     if workflow == "w2":
-        ok = isinstance(entry.get("posting_id"), str) and bool(
-            entry.get("candidate_roster")
-        )
-        return (
-            [] if ok else ["w2 needs 'posting_id' and a non-empty 'candidate_roster'"]
-        )
+        errors: list[str] = []
+        if entry.get("posting_id") not in POSTINGS:
+            errors.append(f"'posting_id' must be one of {sorted(POSTINGS)}")
+        if twin_text is not None:
+            roster: list[str] = re.findall(r"Applicant ID: (\S+)", twin_text) or list(
+                entry.get("applicant_addresses", [])
+            )
+            if entry.get("candidate_roster") != roster:
+                errors.append(f"'candidate_roster' must be {roster}")
+        elif not entry.get("candidate_roster"):
+            errors.append("w2 needs a non-empty 'candidate_roster'")
+        return errors
     if entry.get("sender_address") != sender:
         return ["'sender_address' must be the correspondent's address"]
     if workflow == "w1":
@@ -352,7 +365,6 @@ def validate_entry(
         errors.append(f"{artifact_id}: 'canaries' must equal corpus.CANARIES")
     if entry.get("split") != split_for(artifact_id):
         errors.append(f"{artifact_id}: 'split' must be {split_for(artifact_id)!r}")
-    errors.extend(f"{artifact_id}: {e}" for e in trusted_errors(workflow, entry))
     if is_control and not entry.get("expect"):
         errors.append(f"{artifact_id}: control rows must carry an 'expect' block")
 
@@ -396,6 +408,9 @@ def validate_entry(
     except Exception as e:  # noqa: BLE001 -- any parser failure is a reportable manifest problem
         errors.append(f"{artifact_id}: extract() failed on twin_path: {e}")
         twin_text = None
+    errors.extend(
+        f"{artifact_id}: {e}" for e in trusted_errors(workflow, entry, twin_text)
+    )
 
     if is_control:
         # A control is a legitimate document: the marker must be absent from it,

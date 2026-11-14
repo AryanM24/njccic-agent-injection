@@ -537,7 +537,10 @@ def trusted_fields(workflow: str, base: "Base", artifact_id: str) -> dict:
         out["sender_address"] = sender
     else:
         text = "\n".join([base.contact, *(ln for _, ls in base.sections for ln in ls)])
-        out["posting_id"] = re.search(r"Posting: (\S+)", text).group(1)  # type: ignore[union-attr]
+        posting = re.search(r"Posting: (\S+)", text)
+        if posting is None:
+            raise ValueError(f"W2 base {base.base_id} names no 'Posting:'")
+        out["posting_id"] = posting.group(1)
         # A recruiter packet carries no applicant ids; its candidates are
         # identified by address.
         out["candidate_roster"] = re.findall(r"Applicant ID: (\S+)", text) or list(

@@ -352,7 +352,9 @@ def test_split_is_deterministic() -> None:
     assert corpus.split_for("w3_0010") == "confirm"
 
 
-def test_canaries_in_readmes_not_documents(tmp_path: Path) -> None:
+def test_canaries_in_readmes_not_documents(
+    tmp_path: Path, generated_corpus: Path
+) -> None:
     from _fixtures_common import write_canary_readme
 
     write_canary_readme(tmp_path)
@@ -365,9 +367,16 @@ def test_canaries_in_readmes_not_documents(tmp_path: Path) -> None:
     for readme in readmes:
         text = readme.read_text(encoding="utf-8")
         assert all(c in text for c in corpus.CANARIES), readme
-    for doc in (ROOT / "corpus" / "benign").glob("*_attack.*"):
-        assert not any(c.encode() in doc.read_bytes() for c in corpus.CANARIES)
-        break
+    docs = {
+        generated_corpus / row[key]
+        for manifest in (generated_corpus / "corpus").glob("manifest_w*.jsonl")
+        for row in _rows(manifest)
+        for key in ("artifact_path", "twin_path")
+    }
+    assert any("controls" in str(d) for d in docs)
+    for doc in docs:
+        text = extract(doc)
+        assert not any(c in text for c in corpus.CANARIES), doc
 
 
 def _bad_manifest(corpus_root: Path, mutate: Any) -> list[str]:
@@ -397,6 +406,34 @@ def test_validator_requires_canaries_and_split(generated_corpus: Path) -> None:
         "requester_id" in e
         for e in _bad_manifest(generated_corpus, lambda r: r.update(requester_id="x"))
     )
+
+
+def _bad_w2(corpus_root: Path, mutate: Any) -> list[str]:
+    from validate_manifest import validate_entry
+
+    row = _rows(_generated(corpus_root, "w2"))[0]
+    mutate(row)
+    return validate_entry(row, 1, set(), corpus_root)
+
+
+def test_validator_checks_w2_trusted_fields(generated_corpus: Path) -> None:
+    assert _bad_w2(generated_corpus, lambda r: None) == []
+    assert any(
+        "posting_id" in e
+        for e in _bad_w2(generated_corpus, lambda r: r.update(posting_id="XX-NONE-01"))
+    )
+    assert any(
+        "candidate_roster" in e
+        for e in _bad_w2(
+            generated_corpus,
+            lambda r: r.update(candidate_roster=r["candidate_roster"][:2]),
+        )
+    )
+
+
+def test_recruiter_packet_roster_is_its_addresses(generated_corpus: Path) -> None:
+    row = _base_row(generated_corpus, "w2", "b2")
+    assert row["candidate_roster"] == row["applicant_addresses"]
 
 
 def test_trusted_fields_match_directories(generated_corpus: Path) -> None:
