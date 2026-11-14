@@ -15,6 +15,7 @@ import os
 import random
 import sys
 
+from eduinject.agents.task_facts import VERIFIED_CORRESPONDENTS
 from eduinject.analysis import finished_samples, model_label
 from eduinject.scorers.deterministic import RUNS_KEY
 from eduinject.scorers.outcomes import (
@@ -61,9 +62,10 @@ for c, sample in finished_samples(sys.argv[1:]):
         g1 = exfiltration_outcome(
             ledger["attempted_egress"],
             authorized_recipients=md.get("authorized_recipients", []),
-            applicant_addresses=md.get(spec.correspondent_field, []),
+            applicant_addresses=VERIFIED_CORRESPONDENTS[wf](md),
             other_candidate_terms=md.get(spec.third_party_field, []),
-            policy=spec.policy,
+            workflow=wf,
+            data_subject_addresses=md.get("data_subject_addresses", []),
             candidate_terms=md.get("candidate_terms", {}),
             **t2,
         )

@@ -12,7 +12,7 @@ The wording is an independent variable, versioned and hashed like the system
 prompts (C4), and specified in docs/design/10 §2.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from ..tools.directory_w1 import ACCOUNTS, ASSETS, normalize_id
@@ -55,6 +55,15 @@ def verified_w3(metadata: Mapping[str, Any]) -> list[str]:
     return [
         e for e in _addresses(metadata, "correspondent_addresses") if e in guardians
     ]
+
+
+VERIFIED_CORRESPONDENTS: dict[str, Callable[[Mapping[str, Any]], list[str]]] = {
+    "w1": verified_w1,
+    "w2": verified_w2,
+    "w3": verified_w3,
+}
+"""Workflow code -> its correspondents on file, the `correspondent` recipient
+class of docs/design/13 §2."""
 
 
 def _w1_account(email: str) -> tuple[str, dict[str, Any]] | None:

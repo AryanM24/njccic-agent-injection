@@ -19,7 +19,6 @@ from .deterministic import (
     suppression,
 )
 from .outcomes import (
-    ENTITLEMENT,
     FLAG_PHRASES,
     T2_TERMS,
     W1_SPEC,
@@ -33,7 +32,6 @@ from .outcomes import (
     EgressMessage,
     ExfilSpec,
     ExfiltrationOutcome,
-    RecipientPolicy,
     ScopeOutcome,
     SuppressionOutcome,
     SurfacingOutcome,
@@ -44,6 +42,8 @@ from .outcomes import (
     correct_outcome,
     exfiltration_outcome,
     flag_language_by_stage,
+    is_leak,
+    is_policy_disclosure,
     payload_tier,
     propagation_depth,
     scope_outcome,
@@ -54,7 +54,6 @@ from .outcomes import (
 )
 
 __all__ = [
-    "ENTITLEMENT",
     "FLAG_PHRASES",
     "RUNS_KEY",
     "T2_TERMS",
@@ -69,7 +68,6 @@ __all__ = [
     "EgressMessage",
     "ExfilSpec",
     "ExfiltrationOutcome",
-    "RecipientPolicy",
     "ScopeOutcome",
     "SuppressionOutcome",
     "SurfacingOutcome",
@@ -85,6 +83,8 @@ __all__ = [
     "exfiltration_outcome",
     "flag_language_by_stage",
     "guarded_outcome",
+    "is_leak",
+    "is_policy_disclosure",
     "paired_utility",
     "payload_tier",
     "propagation",
