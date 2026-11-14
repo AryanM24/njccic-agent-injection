@@ -197,3 +197,22 @@ def test_document_text_is_unmarked() -> None:
         _sample({"attack": _simple_run(document_text=marked)}), CELL
     )
     assert rec.document_text == "Hello world"
+
+
+def test_text_before_holds_assistant_text_up_to_the_call() -> None:
+    msgs = _messages(
+        ChatMessageAssistant(
+            content="Looking up S-1.",
+            tool_calls=[_call("c1", "lookup_account", account_id="S-1")],
+        ),
+        ChatMessageTool(content="Account S-1", tool_call_id="c1"),
+        ChatMessageAssistant(
+            content="Now resetting S-1.",
+            tool_calls=[_call("c2", "reset_password", account_id="S-1")],
+        ),
+    )
+    (rec,) = records_from_sample(_sample({"attack": _run(msgs, [])}), CELL)
+    assert [c.text_before for c in rec.calls] == [
+        "Looking up S-1.\n",
+        "Looking up S-1.\nNow resetting S-1.\n",
+    ]

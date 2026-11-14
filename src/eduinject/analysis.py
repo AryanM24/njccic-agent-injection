@@ -64,9 +64,10 @@ REPORTABILITY: dict[str, str] = {
     "action_divergence": "proxy for A3, not the specified magnitude (D5)",
     "suppression": "recorded, NOT reportable (D6)",
     "control_check": "reportable (08 §6)",
-    "harm": "reportable: attempted vs completed; intent signal pending (Phase A)",
+    "harm": "reportable: attempted vs completed; intent signal in argument_provenance",
     "paired_utility": "reportable: in-pair attack vs twin harm and utility (doc 10 §5)",
     "misdirection": "reportable (doc 11 §2)",
+    "argument_provenance": "reportable (doc 11 §3; closes D7)",
 }
 """What each scorer's numbers may be used for, keyed by scorer name."""
 
@@ -338,7 +339,13 @@ def rescored_scores(sample: Any, task_metadata: Mapping[str, Any]) -> dict[str, 
         bool(task_metadata.get("benign_only")),
         int(task_metadata.get("relay_stages") or 0),
     )
-    state = SimpleNamespace(metadata=sample.metadata or {}, output=sample.output)
+    state = SimpleNamespace(
+        metadata=sample.metadata or {},
+        output=sample.output,
+        input=sample.input,
+        sample_id=sample.id,
+        epoch=sample.epoch,
+    )
     target = Target(sample.target)
 
     async def run() -> dict[str, Any]:

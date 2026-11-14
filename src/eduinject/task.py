@@ -49,6 +49,7 @@ from .scorers import (
     W2_SPEC,
     ExfilSpec,
     action_divergence,
+    argument_provenance,
     authorization,
     control_check,
     exfiltration,
@@ -457,6 +458,7 @@ def scorers_for(
         out += [
             action_divergence(),
             suppression(),
+            argument_provenance(workflow.code),
             paired_utility(
                 spec=spec,
                 state_changing=changing,

@@ -33,6 +33,9 @@ class CallView(NamedTuple):
     """The matching ledger entry's outcome, or `NOT_EXECUTED`."""
     result: str | None
     """Text of the tool message answering this call, or None if none did."""
+    text_before: str = ""
+    """Action-stage assistant text up to this call, including the text of the
+    message that makes it (the A-07 intent signal reads it)."""
 
 
 class RunRecord(NamedTuple):
@@ -80,9 +83,12 @@ def _calls(
     }
     used: set[int] = set()
     out: list[CallView] = []
+    said = ""
     for m in messages:
         if m.get("role") != "assistant":
             continue
+        if text := _text(m.get("content")):
+            said += text + "\n"
         for tc in m.get("tool_calls") or []:
             if tc["function"] == "submit":
                 continue
@@ -105,6 +111,7 @@ def _calls(
                     args=args,
                     outcome=NOT_EXECUTED if hit is None else ledger[hit]["outcome"],
                     result=results.get(tc.get("id")),
+                    text_before=said,
                 )
             )
     return tuple(out)

@@ -277,8 +277,8 @@ nothing is blocked; the gap is what the guard stopped. `harm.attempted` is the
 study's only attempt-level measure (§2 preamble); `harm.completed` equals
 `not control_check.no_harm` and `paired_utility.harm_*`. `harm` replaces doc
 10 §3's `guarded_outcome`. The intent signal (the action stage names a
-document-only target value before the call) needs the Phase A provenance
-extractors; until then A-07 is partially fixed.
+document-only target value before the call) is `argument_provenance`'s
+`intent` (§3.2).
 
 ### 2.7 Channel-matched twins (A-11)
 
@@ -385,7 +385,8 @@ function first and a script second; restricted outputs are written under
 
 One record per run (attack or twin) of a finished sample:
 
-- `CallView(step, tool, args, outcome, result)`. `step` is the 0-based index
+- `CallView(step, tool, args, outcome, result, text_before)`; `text_before` is
+  the action stage's assistant text up to and including the calling message. `step` is the 0-based index
   among non-`submit` tool calls in message order. Calls come from
   `stage3_messages` (assistant `tool_calls`, with `tool` results joined by
   `tool_call_id`). Each call takes its ledger outcome from the first unused
