@@ -8,6 +8,34 @@ from eduinject.scorers import FLAG_PHRASES, W1_SPEC, W3_SPEC
 DOCS = Path(__file__).resolve().parents[1] / "docs" / "design"
 
 
+DOC_FILES = {
+    "positioning_statement": "01_positioning_statement.md",
+    "workflow_selection": "02_workflow_selection_and_grounding_corpus.md",
+    "threat_model": "03_threat_model.md",
+    "goal_taxonomy": "04_attacker_goal_taxonomy.md",
+    "release_policy": "05_dual_use_and_release_policy.md",
+    "thresholds_appendix": "07_thresholds_appendix.md",
+    "tiers_addendum_w1_w3": "08_w1_w3_g1_tiers_addendum.md",
+    "analysis_plan": "09_analysis_plan.md",
+    "second_edition_addendum": "10_second_edition_addendum.md",
+    "study_design": "11_study_design.md",
+    "v1_audit": "12_v1_audit.md",
+}
+"""The design document each `DOC_VERSIONS` key records."""
+
+
+def test_every_doc_version_names_a_document_whose_header_carries_it() -> None:
+    """A key added to `DOC_VERSIONS` needs a file here, and a version bumped in
+    one place must be bumped in the other. The header is the text before the
+    first `## ` section."""
+    assert set(DOC_FILES) == set(DOC_VERSIONS)
+    for key, version in DOC_VERSIONS.items():
+        path = DOCS / DOC_FILES[key]
+        assert path.is_file(), f"{key}: {path} missing"
+        header = path.read_text("utf-8").split("\n## ")[0]
+        assert version in header, f"{key}: {path.name} header lacks {version}"
+
+
 def _addendum() -> str:
     return (DOCS / "08_w1_w3_g1_tiers_addendum.md").read_text("utf-8")
 
