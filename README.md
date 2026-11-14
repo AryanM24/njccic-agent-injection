@@ -280,6 +280,16 @@ tests in parallel, and saving logs.
   ([`docs/design/12_v1_audit.md`](docs/design/12_v1_audit.md)); all runs are
   redone. Docs 11–13 are drafts, so paid runs are refused until they are
   signed.
+- **Phases A–C, wave 1 (2026-11-14):** built and tested, no model contacted.
+  Offline instruments: one typed record per run, argument provenance (where
+  each value the AI acted on came from) and a trace monitor that checks every
+  action against cited district policy rules. New dials: extra relay stages
+  between analysis and action, a typed hand-off whose case record comes from
+  district systems, and a certification lookup for W2. Corpus: per-component
+  markers, two five-candidate W2 packets scored for ranking corruption, one
+  false-premise variant per workflow, and a fixed dev/confirm split. The
+  runtime policy gate (Task 12) is not built yet. The counts above are the
+  generators'; the committed corpus is regenerated in Task 20.
 - **Decided:** the two models (GPT-6 Luna and DeepSeek V4 Flash).
 - **Second edition (ISEF 2027):** built and tested, waiting on sign-off. It
   adds the two dials above, three models (GPT-6 Luna from the first edition, plus
@@ -452,16 +462,25 @@ docs/design/     authoritative design documents, implementation map, attestation
 scripts/         make_fixtures_v2.py / _w1.py / _w3.py / _controls.py (corpus
                  generation; shared helpers in _fixtures_common.py and
                  _corpus_bases.py), validate_manifest.py, run_sweep.py
-                 (workflow x scope x isolation x epochs), analyze.py
-                 (post-run tables, comparisons, human-check sampling)
+                 (workflow x scope x isolation x identity x defense x relays
+                 x hand-off x verification tools x epochs), analyze.py
+                 (post-run tables, comparisons, human-check sampling),
+                 audit_traces.py (trace monitor), verify_scores.py and
+                 rescore.py (score verification); AGENTS.md lists every one
 src/eduinject/
   config.py      extraction pins, doc versions, config_hash
   extraction.py  bytes -> the text the intake agent sees, including invisible channels
-  agents/        prompts.py / prompts_w1.py / prompts_w3.py (C4), pipeline.py (C1)
+  agents/        prompts.py / prompts_w1.py / prompts_w3.py / prompts_relay.py /
+                 prompts_handoff.py (C4), pipeline.py (C1), handoff_schemas.py,
+                 task_facts.py
   tools/         mock tools per workflow (ats, helpdesk, parentmail), synthetic
                  directories, and the ledger that records every call
-  scorers/       pure outcome functions + Inspect scorer adapters
-  corpus/        placeholder marker and the gated-payload loader
+  scorers/       pure outcome functions (outcomes, provenance, ranking,
+                 premise) + Inspect scorer adapters
+  monitor/       trace-monitor rule catalogs (one per workflow)
+  records.py     one typed record per recorded run
+  ranking.py     W2 ground-truth ranking
+  corpus/        placeholder markers, the payload contract and the gated-payload loader
   task.py        paired-run solver, bind_model(), and the W2 task
   task_w1.py, task_w3.py   the W1 and W3 tasks
   analysis.py    post-run statistics over logs (draft plan: docs/design/09)

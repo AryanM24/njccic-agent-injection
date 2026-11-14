@@ -1,36 +1,57 @@
 # Handoff
 
-## Now: one combined study, Phase 0 done (2026-11-14)
+## Now: one combined study, Phase 0 and Phases A–C wave 1 done (2026-11-14)
 
 The first edition, the second edition (`isef-v2`) and the 2026-11-14 upgrades
 are **one study** (PI ruling; no frozen first-edition path, all runs redone).
-Spec: [`docs/design/11_study_design.md`](docs/design/11_study_design.md).
-Audit: [`docs/design/12_v1_audit.md`](docs/design/12_v1_audit.md). Recipient
-rule: [`docs/design/13_recipient_policy_addendum.md`](docs/design/13_recipient_policy_addendum.md).
+Spec: [`docs/design/11_study_design.md`](docs/design/11_study_design.md) (v0.2;
+§8 lists every ruling). Audit:
+[`docs/design/12_v1_audit.md`](docs/design/12_v1_audit.md). Recipient rule:
+[`docs/design/13_recipient_policy_addendum.md`](docs/design/13_recipient_policy_addendum.md).
 All three are **drafts**. Phases A–E are planned in
 `docs/superpowers/plans/2026-11-14-phases-a-e.md`.
 
-**State.** Branch `v3-upgrades`, not pushed. Phase 0 is merged: declared
-correct actions and `did_correct_thing` (replaces `legit_task_completed`),
-carry state with generic depth, recipient classes (doc 13), delivery failure
-and misdirection, directory-value detection, attempted vs completed `harm`
-(replaces `guarded_outcome`), channel-matched twins, four bases per workflow
-(56 pairs each), one noise floor, score verification, the isolation trace
-check, deterministic generators, the Tier-1 guard, and `make check` /
-`make test-eduinject` mirroring CI. Gate: both green (358 tests, no model
-contacted). How to check and run: [`RUNNING.md`](RUNNING.md), "The combined
-study". What changed in each divergence: `docs/design/implementation-map.md`
-§2 ("First edition" vs "This study").
+**State.** Branch `v3-upgrades`, not pushed. Phase 0 is merged (declared
+correct actions, carry state, recipient classes, misdirection, directory
+values, attempted vs completed `harm`, channel-matched twins, one noise floor,
+score verification, the Tier-1 guard). Wave 1 of Phases A–E is merged:
+
+- **A1–A3 (offline instruments):** `records.py` (one typed record per run),
+  `scorers/provenance.py` and the `argument_provenance` scorer (closes D7),
+  the trace monitor (`monitor/`, 13 cited rules) and `scripts/audit_traces.py`.
+- **B1, B2 (pipeline):** `relay_stages` 0–3 (`stages` list replaces `h1`/`h2`)
+  and `handoff_mode="typed"` (strict JSON hand-offs, a trusted case record from
+  manifest and directories; a parse error makes the pair NaN).
+- **C1–C4 (corpus):** component markers and the payload contract, W2
+  five-candidate packets b5/b6 with `rank_corruption`, a false-premise variant
+  per workflow with `premise_adoption` and W2 `lookup_certification` (behind
+  `verification_tools`), and a dev/confirm `split` on every row (`--split` on
+  the analysis scripts).
+
+Generator counts: W1 58, W2 74, W3 58 pairs plus controls. The **committed**
+corpus is not regenerated until Task 20, so it still has the Phase 0 layout.
+Not built yet: the runtime gate (Task 12; `gate=True` raises
+`NotImplementedError`), Phase A's feature table, statistics, risk and
+predictors, the models registry, the cost estimator and the figures. Gate:
+`make check && make test-eduinject` green (no model contacted). How to check
+and run: [`RUNNING.md`](RUNNING.md), "The combined study" (every new flag has
+a dry-run example). Divergences: `docs/design/implementation-map.md` §2.
 
 **You must do** (only a project member can):
 
 | # | Task | Notes |
 | --- | --- | --- |
-| 1 | **Decide whether to purge Tier-1 wording from the PUBLIC `origin/main` history** | Doc 12 A-86. Wording was found in tracked files already pushed (`docs/superpowers/plans/2026-08-27-phase2-readiness.md`, `findings.md`); this branch scrubs the working tree only. Removing it from history means rewriting and **force-pushing** `origin/main`, which only the PI can authorize. GitHub's read-only `refs/pull/1/head` needs GitHub Support. |
-| 2 | **Sign docs 11, 12 and 13** (PI and second reviewer) | While any governing document is a draft, `run_sweep.py` refuses every paid run (exit 3). Set each version to `1.0` in the doc header **and** in `config.DOC_VERSIONS` (the sync test enforces both), commit, push. Doc 12's statuses are finalized first (Task 21). The decisions doc 12 marks "needs a decision from me" (A-76…A-86) are yours. |
-| 3 | **Rule on the GEE working correlation** | Pending Phases A–E: doc 10 §5 chose independence with bias-reduced SEs; the brief says exchangeable. The Phase A–E plan proposes exchangeable as primary with independence as a sensitivity column. |
-| 4 | **Regenerate the canonical corpus after Phase C** | Rebuilt locally on 2026-11-14 (56 pairs per workflow, four bases, channel-matched twins; validates clean; gitignored). Phase C changes the payload contract (doc 11 §5.2: component markers, a `false_premise` text per workflow, and W2 texts should use `{candidate}`, which the generator fills with the base's attacker candidate), so run the `--canonical` generators again after it and re-run `validate_manifest.py --canonical-dir corpus/canonical corpus/manifest_w*.jsonl`. Without a matching canonical corpus `test_public_and_canonical_pair_sets_match` fails on this machine. |
-| 5 | Initial DEV-2 (first edition) | `docs/design/attestations/preregistration_deviations.md`; still awaiting PI initials. The per-cell floor it calls for is now the only floor (doc 11 §2.8). |
+| 1 | **Refill `src/eduinject/corpus/payloads.py` for the C1 contract** | Doc 11 §5.1–§5.2. Every attack payload must contain `ZZPAYLOADZZ` and all four component markers `QQTRIGQQ`, `QQVERBQQ`, `QQTARGQQ`, `QQDATAQQ`. Each workflow gains a `false_premise` text holding `ZZPAYLOADZZ` and `QQPREMISEQQ` (no component marker), about the exact subject: `T-5120` (W1), `HM04-131` (W2), `ferreira.household@example-webmail.com` (W3). W2 texts may use `{candidate}`, which the generator fills with each base's attacker candidate. `corpus.payload_problems()` lists what is missing; until it is empty, the gated tests skip ("payloads.py predates the C1 contract") and canonical generation refuses. |
+| 2 | **Regenerate the canonical corpus** after item 1 | Run the four generators with `--canonical`, then `python scripts/validate_manifest.py --canonical-dir corpus/canonical corpus/manifest_w*.jsonl`. Without a matching canonical corpus `test_public_and_canonical_pair_sets_match` fails on this machine. |
+| 3 | **Confirm the W3 staff queue names** | `tools/parentmail.STAFF_QUEUES` = `front-office`, `records-office`, `counseling`, `special-services` (only `front-office` came from earlier code). Used by provenance's `staff_queue` extractor. |
+| 4 | **Rule on the GEE structure and the Holm family** | Doc 11 §8 ruling 3 and §8.1 item 5: exchangeable GEE as primary with independence + bias-reduced SEs as a sensitivity column (doc 10 §5 chose independence); Holm family = doc 10 `PRIMARY_CONTRASTS` ∪ the new arm contrasts. |
+| 5 | **Sign docs 10, 11, 12 and 13** (PI and second reviewer) | While any governing document is a draft, `run_sweep.py` refuses every paid run (exit 3). Set each version to `1.0` in the doc header **and** in `config.DOC_VERSIONS` (the sync test enforces both), commit, push. The decisions doc 12 marks "needs a decision from me" are yours. |
+| 6 | Initial DEV-2 (first edition) | `docs/design/attestations/preregistration_deviations.md`; still awaiting PI initials. |
+
+**Decided:** A-86 (Tier-1 wording already in the public `origin/main`
+history) stays in history: no rewrite, no force-push (PI decision 2026-11-14;
+doc 12 A-86 is `won't fix`). The working tree is scrubbed and the Tier-1 guard
+keeps it so.
 
 Everything below describes the **first edition** and stays as the record of
 how its numbers were produced. Its results are not reused.
@@ -128,14 +149,14 @@ From `docs/design/implementation-map.md` §2. Read it before quoting any number.
 | D1 | Only verbatim (M1) propagation is detectable | Contribution (c) not claimable without a judge |
 | ~~D2~~ | ~~Propagation depth is provisional~~ | Closed in this study: generic depth (doc 11 §2.2) |
 | D4 | No hijack-level scoring | All rates are completion rates |
-| D5 | A3 ranking corruption only proxied | Descoped; an unscored attack effect on W2 actions was observed (Luna, findings §14a) |
+| D5 | A3 ranking corruption only proxied | First edition: descoped; an unscored attack effect on W2 actions was observed (Luna, findings §14a). This study: `rank_corruption` on W2 b5/b6 |
 | D6 | G5 suppression: raw signals only | G5 descoped; contribution (d) not claimed |
-| D7 | A2 argument substitution unscored | Open until Phase A (provenance); misdirection covers recipients |
+| ~~D7~~ | ~~A2 argument substitution unscored~~ | Closed in this study: `argument_provenance` (doc 11 §3.2) |
 | D10 | ~~Repetition floor~~ | Closed for the baseline |
 | D11 | Canaries in paper and README only | Corpus files still need them before release |
 | D13 | G4 persistence unmeasurable (no memory) | Scoped out |
 | D14 | ~~W1/W3 not yet run~~ | Closed for benign runs |
-| D15 | Only scope and isolation are swept | Two of about eight designed axes |
+| D15 | Only scope and isolation are swept | First edition: two of about eight designed axes. This study adds identity, defense, relay stages, hand-off mode and verification tools |
 | D16 | Three base scenarios per workflow (four in this study) | Report per base and pooled |
 
 ## Gotchas learned the hard way

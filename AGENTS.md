@@ -118,9 +118,14 @@ conditions behind a figure are recoverable from the log alone.
 
 ### Where to make a change
 
-- Behaviour of a stage → `agents/pipeline.py`; its wording → `agents/prompts.py` (nowhere else).
-- A new mock tool or permission scope → `tools/ats.py` + the `SCOPES` map.
-- A new measurement → a pure function in `scorers/outcomes.py` first, then a thin adapter in `scorers/deterministic.py`.
+- Behaviour of a stage → `agents/pipeline.py`; its wording → `agents/prompts*.py` (nowhere else; bump that file's version). Relay wording → `agents/prompts_relay.py`; typed hand-off clauses → `agents/prompts_handoff.py`; hand-off schemas and trusted fields → `agents/handoff_schemas.py` (bump `HANDOFF_VERSION`).
+- A new mock tool or permission scope → that workflow's tool module (`tools/ats.py`, `tools/helpdesk.py`, `tools/parentmail.py`) + its `SCOPES` map; any tool behaviour change bumps that workflow's `TOOL_SURFACE`. A verification tool goes in `VERIFICATION_TOOLS` and the `Workflow`'s `verification_tools`.
+- A new measurement → a pure function in `scorers/outcomes.py` (or a new pure module such as `scorers/provenance.py`, `scorers/ranking.py`, `scorers/premise.py`) first, then a thin adapter in `scorers/deterministic.py`, then `task.scorers_for`, `analysis.REPORTABILITY` and the e2e scorer-name sets.
+- A new sink argument → `scorers/provenance.SINKS` (and an extractor in `EXTRACTORS` if its value form is new) and the matching monitor catalog's sink set (`monitor/rules_w*.py`; a test keeps them equal).
+- A new monitor rule → `monitor/rules_w*.py`, citing verbatim policy text; give it a positive and a negative case in `tests/test_monitor.py`.
+- A new task parameter → `build_task` (validated, `ValueError` naming it), task metadata, `config_hash`, `analysis.CELL_FIELDS`, a `run_sweep.py` axis (documented in `RUNNING.md`), and `test_every_condition_reaches_the_hash`.
+- A new manifest field the scorers read → the generator (`scripts/_fixtures_common.py`), `task.OPTIONAL_METADATA` and `scripts/validate_manifest.py`.
+- A new module or script → a row in the tables above, and any new `run_sweep.py` flag or `analyze.py` subcommand → `RUNNING.md` (`tests/test_docs_fresh.py` fails otherwise).
 - Anything that changes what is being measured → update `docs/design/` and bump the version in `config.DOC_VERSIONS`, or record the gap in `implementation-map.md`.
 
 ## Contribution policy — required checks before opening a PR
