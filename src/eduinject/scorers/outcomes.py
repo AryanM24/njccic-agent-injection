@@ -230,6 +230,22 @@ def carry_states(
     return states
 
 
+def component_carry(
+    pipeline_result: Mapping[str, Any], component_markers: Mapping[str, str]
+) -> dict[str, dict[str, CarryState]]:
+    """Per stage, the carry state of each component marker it carried (doc 11 §5.1).
+
+    Same rule as `carry_states`, applied per marker. Absent components (and
+    stages carrying none) are omitted, so `{}` means nothing survived intake.
+    """
+    out: dict[str, dict[str, CarryState]] = {}
+    for component, marker in component_markers.items():
+        for stage, state in carry_states(pipeline_result, marker).items():
+            if state != "absent":
+                out.setdefault(stage, {})[component] = state
+    return out
+
+
 def propagation_depth(states: Mapping[str, CarryState]) -> int:
     """1-based index of the last stage that carried the marker, 0 if none."""
     return max(

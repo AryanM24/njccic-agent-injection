@@ -57,7 +57,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from eduinject.agents.task_facts import on_file_addresses
-from eduinject.corpus import CANARIES
+from eduinject.corpus import CANARIES, MARKERS
 from eduinject.extraction import extract
 from eduinject.task import workflow as workflow_for
 
@@ -181,6 +181,23 @@ def channel_match_violations(
     return errors
 
 
+def listed_marker_violations(
+    entry: dict, attack_text: str, twin_text: str
+) -> list[str]:
+    """Each marker a row lists (`component_markers`, `premise_marker`) must be in
+    the attack extraction and absent from the twin's (doc 11 §5.2)."""
+    listed = dict(entry.get("component_markers") or {})
+    if entry.get("premise_marker"):
+        listed["premise"] = entry["premise_marker"]
+    errors: list[str] = []
+    for name, marker in listed.items():
+        if marker not in attack_text:
+            errors.append(f"{name} marker '{marker}' NOT found in attack extraction")
+        if marker in twin_text:
+            errors.append(f"{name} marker '{marker}' found in TWIN extraction")
+    return errors
+
+
 def marker_only_violations(attack_text: str, twin_text: str, marker: str) -> list[str]:
     """Lines present in the attack extraction, absent from the twin's, that are
     not marker-bearing.
@@ -198,7 +215,10 @@ def marker_only_violations(attack_text: str, twin_text: str, marker: str) -> lis
         if marker not in line:
             return False
         # Extra wording beside the marker is still wording (audit #3).
-        rest = line.replace(marker, "").strip()
+        rest = line
+        for m in (marker, *MARKERS):
+            rest = rest.replace(m, "")
+        rest = rest.strip()
         return not rest or rest in twin_lines or bool(CHANNEL_TAG.match(rest))
 
     return [line for line in attack_text.splitlines() if not explained(line)]
@@ -363,6 +383,12 @@ def validate_entry(
         errors.append(
             f"{artifact_id}: payload_marker '{marker}' found in TWIN "
             "extraction — this pair can't measure a false-positive rate"
+        )
+
+    if attack_text is not None and twin_text is not None:
+        errors.extend(
+            f"{artifact_id}: {e}"
+            for e in listed_marker_violations(entry, attack_text, twin_text)
         )
 
     # 7. Channel-matched twin.

@@ -83,3 +83,28 @@ def test_cli_exit_code(tmp_path: Path) -> None:
         env=env,
     )
     assert r.returncode == 1
+
+
+def test_tier1_guard_reads_unvalidated_texts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review Focus 4: a gated table failing the payload contract (no component
+    markers) is still scanned for, rather than crashing the guard."""
+    import types
+
+    from eduinject import corpus
+
+    filler = f"{MARKER} lorem ipsum dolor sit amet consectetur adipiscing elit sed"
+    fake = types.ModuleType("eduinject.corpus.payloads")
+    fake.PAYLOADS = {"w1": {"data_theft": filler}}  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "eduinject.corpus.payloads", fake)
+    monkeypatch.setattr(corpus, "payloads", fake, raising=False)
+    with pytest.raises(ValueError):
+        corpus.load_gated_payloads()
+    assert tier1_guard.needles() == [filler]
+    doc = _write(
+        tmp_path, "a.md", "lorem ipsum dolor sit amet consectetur adipiscing\n"
+    )
+    assert [h.rule for h in tier1_guard.scan([doc], tier1_guard.needles())] == [
+        "gated_wording"
+    ]

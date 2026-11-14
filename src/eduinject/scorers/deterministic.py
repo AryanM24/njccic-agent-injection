@@ -22,6 +22,7 @@ from .outcomes import (
     MisdirectionOutcome,
     authorization_outcome,
     carry_states,
+    component_carry,
     control_outcome,
     correct_outcome,
     exfiltration_from_metadata,
@@ -201,6 +202,9 @@ def propagation(run_label: str = "attack", relay_stages: int = 0) -> Scorer:
                 "carry_states": states,
                 "raw": {k: float(v != "absent") for k, v in states.items()},
                 "depth": propagation_depth(states),
+                "components": component_carry(
+                    run["pipeline"], state.metadata.get("component_markers") or {}
+                ),
             },
         )
 

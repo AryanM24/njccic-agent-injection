@@ -389,7 +389,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from eduinject.agents.task_facts import on_file_addresses
-from eduinject.corpus import CANARIES, GOALS, MARKER, load_gated_payloads
+from eduinject.corpus import (
+    ATTACK_GOALS,
+    CANARIES,
+    COMPONENT_MARKERS,
+    MARKER,
+    PLACEHOLDERS,
+    load_gated_payloads,
+)
 
 SLIM_CHANNELS: tuple[tuple[str, str], ...] = (("docx", "visible"), ("docx", "comment"))
 """The (file type, channel) pairs a "slim" base covers: one visible and one
@@ -486,12 +493,14 @@ def plan(base: Base) -> list[tuple[str, str, str]]:
     """
     if base.slice == "slim":
         return [
-            (ftype, goal, channel) for goal in GOALS for ftype, channel in SLIM_CHANNELS
+            (ftype, goal, channel)
+            for goal in ATTACK_GOALS
+            for ftype, channel in SLIM_CHANNELS
         ]
     return [
         (ftype, goal, channel)
         for ftype, channels in CHANNELS.items()
-        for goal in GOALS
+        for goal in ATTACK_GOALS
         for channel in channels
     ]
 
@@ -504,7 +513,7 @@ def select_payloads(workflow: str, canonical: bool) -> tuple[dict[str, str], str
     `corpus/canonical/` tree.
     """
     if not canonical:
-        return {goal: MARKER for goal in GOALS}, "placeholder"
+        return PLACEHOLDERS, "placeholder"
     table = load_gated_payloads()
     if table is None:
         raise SystemExit(
@@ -576,6 +585,7 @@ def generate_workflow(
                 "base_id": base.base_id,
                 "payload_class": payload_class,
                 "canaries": list(CANARIES),
+                "component_markers": COMPONENT_MARKERS,
             }
             rows.append(row)
             label = f"{row['artifact_id']} {base.base_id} {goal}/{channel}/{ftype}"

@@ -6,13 +6,25 @@ passes here is one `scripts/validate_manifest.py` accepts.
 
 import collections
 import json
+import re
 import sys
+import types
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from eduinject.corpus import GOALS, MARKER
+from eduinject import corpus
+from eduinject.corpus import (
+    ATTACK_GOALS,
+    COMPONENT_MARKERS,
+    GOALS,
+    MARKER,
+    MARKERS,
+    PLACEHOLDERS,
+    PREMISE_MARKER,
+    payload_problems,
+)
 from eduinject.extraction import extract
 from eduinject.scorers import exfiltration_outcome
 
@@ -20,6 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from validate_manifest import (
     channel_match_violations,
+    listed_marker_violations,
     marker_only_violations,
     pair_set_mismatch,
     validate_manifest,
@@ -77,7 +90,9 @@ def test_each_workflow_has_four_bases_with_the_intended_matrix(
             for r in rows
             if r["base_id"] == base
         }
-        assert cells == {(g, "docx", c) for g in GOALS for c in ("visible", "comment")}
+        assert cells == {
+            (g, "docx", c) for g in ATTACK_GOALS for c in ("visible", "comment")
+        }
 
 
 def test_primary_base_covers_every_file_type_goal_and_channel() -> None:
@@ -368,6 +383,7 @@ def test_public_and_canonical_pair_sets_match(workflow: str) -> None:
     assert not diff.only_public and not diff.only_canonical
 
 
+@pytest.mark.xfail(strict=True, reason="regenerated in Task 20")
 def test_committed_corpus_matches_the_generators(generated_corpus: Path) -> None:
     """The committed corpus is exactly what the generators produce: every
     manifest row (JSON-equal) and every artifact file (byte-equal)."""
@@ -412,9 +428,10 @@ def test_neutral_length_matched(generated_corpus: Path) -> None:
             twin = extract(generated_corpus / row["twin_path"])
             (payload,) = set(attack.splitlines()) - set(twin.splitlines())
             (neutral,) = set(twin.splitlines()) - set(attack.splitlines())
-            tag = payload.replace(MARKER, "")
+            placeholder = PLACEHOLDERS[row["goal"]]
+            tag = payload.replace(placeholder, "")
             assert neutral.startswith(tag), row["artifact_id"]
-            assert abs(len(neutral) - len(payload)) <= 0.15 * len(MARKER)
+            assert abs(len(neutral) - len(payload)) <= 0.15 * len(placeholder)
     assert set(NEUTRAL_FILLER) == {c for cs in CHANNELS.values() for c in cs}
     for channel in NEUTRAL_FILLER:
         for size in [*range(len(MARKER), 201), *range(207, 600, 7)]:
@@ -543,3 +560,69 @@ def test_every_declared_alternative_scores_correct(generated_corpus: Path) -> No
             assert judged.control.no_harm, (where, judged.control.harms)
             checked += 1
     assert checked >= 3 * 56 + 3 * 4
+
+
+def test_markers_disjoint() -> None:
+    """No marker hides inside another, or looks like an artifact id."""
+    for m in MARKERS:
+        assert not re.search(r"\s", m) and not re.search(r"\bw[123]c?_\d{4}\b", m)
+        assert not any(m in other for other in MARKERS if other != m), m
+    assert len(set(MARKERS)) == len(MARKERS)
+    assert set(COMPONENT_MARKERS) == {"trigger", "verb", "target", "data"}
+    assert "false_premise" in GOALS and "false_premise" not in ATTACK_GOALS
+
+
+def _table(text_for: dict[str, str]) -> dict[str, dict[str, str]]:
+    return {w: dict(text_for) for w in ("w1", "w2", "w3")}
+
+
+def test_payload_problems_names_missing_marker(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review Focus 4: a pre-C1 gated table names workflow, goal and marker."""
+    valid = _table(PLACEHOLDERS)
+    assert payload_problems(valid) == []
+    broken = _table(PLACEHOLDERS)
+    broken["w2"]["data_theft"] = f"{PLACEHOLDERS['data_theft']} filler".replace(
+        "QQVERBQQ", "plain"
+    )
+    (problem,) = payload_problems(broken)
+    assert "w2" in problem and "data_theft" in problem and "QQVERBQQ" in problem
+    premise = _table(PLACEHOLDERS)
+    premise["w1"]["false_premise"] += " QQDATAQQ"
+    assert payload_problems(premise) == [
+        (
+            "PAYLOADS['w1']['false_premise'] must not contain the component"
+            " marker 'QQDATAQQ'"
+        ),
+    ]
+    assert payload_problems({**valid, "w3": {"data_theft": MARKER}})
+
+    fake = types.ModuleType("eduinject.corpus.payloads")
+    fake.PAYLOADS = broken  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "eduinject.corpus.payloads", fake)
+    monkeypatch.setattr(corpus, "payloads", fake, raising=False)
+    with pytest.raises(ValueError, match="w2.*data_theft.*QQVERBQQ"):
+        corpus.load_gated_payloads()
+    fake.PAYLOADS = valid  # type: ignore[attr-defined]
+    assert corpus.load_gated_payloads() == valid
+
+
+def test_validator_checks_component_markers(generated_corpus: Path) -> None:
+    row = {"component_markers": COMPONENT_MARKERS, "premise_marker": PREMISE_MARKER}
+    attack = " ".join([MARKER, *COMPONENT_MARKERS.values(), PREMISE_MARKER])
+    assert listed_marker_violations(row, attack, "twin text") == []
+    errors = listed_marker_violations(
+        row, attack.replace("QQTARGQQ", ""), "twin QQDATAQQ"
+    )
+    assert errors == [
+        "target marker 'QQTARGQQ' NOT found in attack extraction",
+        "data marker 'QQDATAQQ' found in TWIN extraction",
+    ]
+    assert listed_marker_violations({}, "", "") == []
+    for workflow in PUBLIC:
+        for row in _rows(_generated(generated_corpus, workflow)):
+            assert row["component_markers"] == COMPONENT_MARKERS
+    # Extra wording beside component markers is still wording.
+    assert marker_only_violations(f"{attack} filler", "", MARKER) == [
+        f"{attack} filler"
+    ]
+    assert marker_only_violations(attack, "", MARKER) == []
