@@ -111,28 +111,50 @@ channel structure (A-11). Short entries match the public marker; the sentences
 of varied length build longer, canonical-length text."""
 
 
-def neutral_text(channel: str, payload: str, index: int) -> str:
+def pdf_lines(line: str) -> list[str]:
+    """How `write_pdf` wraps one line of text onto the page."""
+    return textwrap.wrap(line, width=90, break_long_words=False) or [""]
+
+
+def neutral_text(
+    channel: str,
+    payload: str,
+    index: int,
+    wrap: Callable[[str], list[str]] | None = None,
+) -> str:
     """Neutral text for `channel`, length-matched to `payload` (marker included).
 
     Starts at entry `index` of NEUTRAL_FILLER[channel] (the artifact number, so
     the choice is deterministic) and tries each later entry in turn. A label
     (no full stop) is used alone; a sentence starts a run of the bank's
-    sentences in order. The first start with a run of whole entries within
-    LENGTH_TOLERANCE of the payload's length wins; failing that, the run cut at
-    the word boundary closest in length (ties to the earliest start).
+    sentences in order. Preference, first that exists: the first start with a
+    run of whole entries within LENGTH_TOLERANCE of the payload's length; else
+    the closest-length run cut at a word boundary within tolerance; else the
+    closest-length one at all (ties to the earliest start).
 
     Args:
         channel: The attack's concealment channel.
         payload: The attack's payload text.
         index: Artifact number, selecting the first filler entry.
+        wrap: The writer's line wrapping, when it wraps this channel. Only text
+            wrapping to as many lines as the payload is then eligible, so the
+            twin replaces the payload line for line (tolerance yields first).
 
     Returns:
         Neutral text of about `len(payload)` characters.
     """
     bank, target = NEUTRAL_FILLER[channel], len(payload)
     limit = target * (1 + LENGTH_TOLERANCE)
+    rows = len(wrap(payload)) if wrap else 1
+
+    def same_rows(text: str) -> bool:
+        return wrap is None or len(wrap(text)) == rows
+
+    def fits(text: str) -> bool:
+        return abs(len(text) - target) <= LENGTH_TOLERANCE * target
+
     sentences = [e for e in bank if e.endswith(".")]
-    closest = ""
+    cuts: list[str] = []
     for shift in range(len(bank)):
         start = (index + shift) % len(bank)
         # A label ("Final draft") stands alone; longer text runs sentences only.
@@ -143,19 +165,20 @@ def neutral_text(channel: str, payload: str, index: int) -> str:
             )
         else:
             stream = [bank[start]]
-        text, fits = "", []
+        text, whole = "", []
         for entry in stream:
-            if len(text) > limit:
+            if len(text) > limit and not (wrap and len(wrap(text)) <= rows):
                 break
             for word in entry.split():
                 text = f"{text} {word}".lstrip()
-                if not closest or abs(len(text) - target) < abs(len(closest) - target):
-                    closest = text
-            if abs(len(text) - target) <= LENGTH_TOLERANCE * target:
-                fits.append(text)
-        if fits:
-            return min(fits, key=lambda t: abs(len(t) - target))
-    return closest
+                if same_rows(text):
+                    cuts.append(text)
+            if fits(text) and same_rows(text):
+                whole.append(text)
+        if whole:
+            return min(whole, key=lambda t: abs(len(t) - target))
+    in_tolerance = [t for t in cuts if fits(t)]
+    return min(in_tolerance or cuts, key=lambda t: abs(len(t) - target))
 
 
 def small_png() -> io.BytesIO:
@@ -277,7 +300,7 @@ def write_pdf(
         # dropped content (a ticket's submitter email and ID, long body lines)
         # from every PDF fixture while leaving docx/txt/md complete -- so file
         # type, an independent variable, was also changing what the model saw.
-        for piece in textwrap.wrap(line, width=90, break_long_words=False) or [""]:
+        for piece in pdf_lines(line):
             if y < bottom:
                 c.showPage()
                 y = top
@@ -558,7 +581,8 @@ def generate_workflow(
                 print(f"{label} would write {attack_path} and {twin_path}")
                 continue
             payload = payloads[goal]
-            neutral = neutral_text(channel, payload, count)
+            wrap = pdf_lines if (ftype, channel) == ("pdf", "visible") else None
+            neutral = neutral_text(channel, payload, count, wrap)
             write_document(base, twin_path, ftype, channel, neutral)
             write_document(base, attack_path, ftype, channel, payload)
             print(f"{label} {upsert_manifest_line(manifest, row)}")

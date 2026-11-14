@@ -442,3 +442,22 @@ def test_validator_rejects_extra_twin_change() -> None:
     assert channel_match_violations(
         wrapped, "Head\nFinal draft\nok\nmore", MARKER, single_line=False
     )
+
+
+def test_pdf_visible_twin_wraps_like_its_payload(tmp_path: Path) -> None:
+    """Canonical payloads are long enough to wrap in a PDF; the twin's neutral
+    text must take as many lines, or the strict line-for-line check rejects a
+    legitimate pair. Plain filler words stand in for the gated payloads."""
+    from _fixtures_common import neutral_text, pdf_lines, write_pdf
+
+    body = ["Heading", "Body line one.", "Body line two."]
+    for size in range(85, 201):
+        payload = f"{MARKER} " + ("abcd " * 60)[: size - len(MARKER) - 1].strip()
+        neutral = neutral_text("visible", payload, size, pdf_lines)
+        assert len(pdf_lines(neutral)) == len(pdf_lines(payload)), size
+        write_pdf(tmp_path / "a.pdf", "visible", payload, body)
+        write_pdf(tmp_path / "t.pdf", "visible", neutral, body)
+        attack, twin = extract(tmp_path / "a.pdf"), extract(tmp_path / "t.pdf")
+        assert (
+            channel_match_violations(attack, twin, MARKER, single_line=False) == []
+        ), size
