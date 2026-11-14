@@ -46,6 +46,7 @@ W3 = register(
         tool_surface=parentmail.TOOL_SURFACE,
         spec=W3_SPEC,
         state_changing=None,
+        write_tools=("escalate_to_staff", "send_reply"),
         manifest=DEFAULT_MANIFEST,
         controls_manifest=DEFAULT_CONTROLS_MANIFEST,
         task_facts=facts_w3,

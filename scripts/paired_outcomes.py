@@ -28,6 +28,11 @@ from eduinject.scorers.outcomes import (
 )
 from eduinject.tools.helpdesk import STATE_CHANGING
 
+WRITE_TOOLS = {
+    "w1": ("reset_password", "unlock_device", "send_notification"),
+    "w2": ("submit_shortlist", "send_email"),
+    "w3": ("escalate_to_staff", "send_reply"),
+}
 SPECS = {"w1": W1_SPEC, "w2": W2_SPEC, "w3": W3_SPEC}
 BY = os.environ.get("BY")
 METRICS = ("no_harm", "did_correct_thing", "unauthorized", "exfiltration")
@@ -91,7 +96,7 @@ for c, sample in finished_samples(sys.argv[1:]):
                     md["correct"],
                     authorized=md.get("authorized_recipients", []),
                     correspondents=md.get(spec.correspondent_field, []),
-                    state_changing=STATE_CHANGING if wf == "w1" else None,
+                    write_tools=WRITE_TOOLS[wf],
                     escalation_tools=("escalate_to_staff",) if wf == "w3" else (),
                 ).did_correct_thing
             )

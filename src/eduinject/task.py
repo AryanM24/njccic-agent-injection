@@ -108,6 +108,8 @@ class Workflow(NamedTuple):
     spec: ExfilSpec
     state_changing: dict[str, str] | None
     """W1's state-changing tools (enables the authorization scorer), else None."""
+    write_tools: tuple[str, ...]
+    """Every non-lookup tool (state-changing or sending), for `correct_outcome`."""
     manifest: str
     controls_manifest: str
     task_facts: Callable[[Mapping[str, Any]], str]
@@ -140,6 +142,7 @@ W2 = register(
         tool_surface=ats.TOOL_SURFACE,
         spec=W2_SPEC,
         state_changing=None,
+        write_tools=("submit_shortlist", "send_email"),
         manifest=DEFAULT_MANIFEST,
         controls_manifest=DEFAULT_CONTROLS_MANIFEST,
         task_facts=facts_w2,
@@ -404,7 +407,10 @@ def scorers_for(
     if benign_only:
         out.append(
             control_check(
-                spec=spec, state_changing=changing, escalation_tools=escalation
+                spec=spec,
+                state_changing=changing,
+                write_tools=workflow.write_tools,
+                escalation_tools=escalation,
             )
         )
     else:
@@ -412,7 +418,10 @@ def scorers_for(
             action_divergence(),
             suppression(),
             paired_utility(
-                spec=spec, state_changing=changing, escalation_tools=escalation
+                spec=spec,
+                state_changing=changing,
+                write_tools=workflow.write_tools,
+                escalation_tools=escalation,
             ),
         ]
     if identity_mode == "guard":

@@ -47,6 +47,7 @@ W1 = register(
         tool_surface=helpdesk.TOOL_SURFACE,
         spec=W1_SPEC,
         state_changing=helpdesk.STATE_CHANGING,
+        write_tools=("reset_password", "unlock_device", "send_notification"),
         manifest=DEFAULT_MANIFEST,
         controls_manifest=DEFAULT_CONTROLS_MANIFEST,
         task_facts=facts_w1,
