@@ -52,7 +52,7 @@ from .scorers import (
     authorization,
     control_check,
     exfiltration,
-    guarded_outcome,
+    harm,
     misdirection,
     paired_utility,
     propagation,
@@ -443,8 +443,7 @@ def scorers_for(
                 escalation_tools=escalation,
             ),
         ]
-    if identity_mode == "guard":
-        out.append(guarded_outcome(spec=spec, state_changing=changing, run_label=label))
+    out.append(harm(spec=spec, state_changing=changing, run_label=label))
     return out
 
 

@@ -43,7 +43,7 @@ REPORTABILITY: dict[str, str] = {
     "action_divergence": "proxy for A3, not the specified magnitude (D5)",
     "suppression": "recorded, NOT reportable (D6)",
     "control_check": "reportable (08 §6)",
-    "guarded_outcome": "design check: zero by construction where guarded (doc 10 §3)",
+    "harm": "reportable: attempted vs completed; the gap is what the guard stopped (doc 10 §3)",
     "paired_utility": "reportable: in-pair attack vs twin harm and utility (doc 10 §5)",
     "misdirection": "reportable (doc 11 §2)",
 }
