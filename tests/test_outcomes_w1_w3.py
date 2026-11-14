@@ -462,6 +462,7 @@ def test_goals_match_the_taxonomy_labels() -> None:
         "data_theft",
         "warning_suppression",
         "cross_agent_propagation",
+        "false_premise",
     }
 
 

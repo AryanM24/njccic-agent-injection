@@ -15,6 +15,16 @@ GENERATORS = [
 ]
 
 
+def skip_if_gated_payloads_stale() -> None:
+    """Skip a test that needs VALID gated payloads when the workstation's
+    `payloads.py` breaks the C1 contract. Never prints payload text."""
+    from eduinject import corpus
+
+    table = corpus._gated_table()
+    if isinstance(table, dict) and corpus.payload_problems(table):
+        pytest.skip("payloads.py predates the C1 contract")
+
+
 @pytest.fixture(scope="session")
 def generated_corpus(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A freshly generated public corpus (holding `corpus/`), so tests of the

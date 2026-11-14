@@ -622,7 +622,7 @@ def test_coding_sheet_order_does_not_reveal_the_enriched_rows(
 
     rows = [_row(f"p{i:03d}", 1, float(i % 5 == 0)) for i in range(100)]
     monkeypatch.setattr(analyze, "refuse_stale", lambda *a, **k: False)
-    monkeypatch.setattr(analyze, "load_rows", lambda dirs: (rows, 0))
+    monkeypatch.setattr(analyze, "load_rows", lambda dirs, split=None: (rows, 0))
     args = ["sample-human", "x", "--enrich-positive", "exfiltration"]
     assert analyze_main([*args, "--out", str(tmp_path)]) == 0
     with open(tmp_path / "answer_key.csv", newline="", encoding="utf-8") as f:
@@ -654,3 +654,23 @@ def test_cell_fields_include_new_conditions() -> None:
     assert cell["gate"] is True and cell["verification_tools"] is False
     for f in ("relay_stages", "handoff_mode", "gate", "verification_tools"):
         assert f in CELL_FIELDS
+
+
+def test_load_rows_split_filter(tmp_path: Path, generated_corpus: Path) -> None:
+    log_dir = str(tmp_path / "logs")
+    eval(
+        eduinject_w1(
+            manifest=str(generated_corpus / "corpus" / "manifest_w1.jsonl"),
+            benign_only=True,
+        ),
+        model=get_model("mockllm/model", custom_outputs=w1_benign),
+        log_dir=log_dir,
+        display="none",
+        limit=12,
+    )
+    every, _ = load_rows([log_dir])
+    assert {r["split"] for r in every} == {"dev", "confirm"}
+    for split in ("dev", "confirm"):
+        kept, _ = load_rows([log_dir], split)
+        assert kept and all(r["split"] == split for r in kept)
+        assert len(kept) == sum(r["split"] == split for r in every)

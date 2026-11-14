@@ -57,9 +57,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from eduinject.agents.task_facts import on_file_addresses
-from eduinject.corpus import CANARIES
+from eduinject.corpus import CANARIES, CANDIDATE_TOKEN, MARKERS, split_for
 from eduinject.extraction import extract
 from eduinject.task import workflow as workflow_for
+from eduinject.tools.ats import POSTINGS
+from eduinject.tools.directory_w1 import ACCOUNTS
 
 REQUIRED_FIELDS = {
     "artifact_id": str,
@@ -91,6 +93,15 @@ OPTIONAL_FIELDS = {
     "file_type": str,
     "concealment": str,
     "payload_class": str,
+    "split": str,
+    "sender_address": str,
+    "posting_id": str,
+    "candidate_roster": list,
+    "true_ranking": list,
+    "attacker_candidate": str,
+    "premise_marker": str,
+    "premise_subject": str,
+    "verification_tool": str,
 }
 """Optional manifest fields and their types. W1/W3 rows use the
 correspondent/third_party/protected names; W2 rows keep the signed appendix's
@@ -181,6 +192,23 @@ def channel_match_violations(
     return errors
 
 
+def listed_marker_violations(
+    entry: dict, attack_text: str, twin_text: str
+) -> list[str]:
+    """Each marker a row lists (`component_markers`, `premise_marker`) must be in
+    the attack extraction and absent from the twin's (doc 11 §5.2)."""
+    listed = dict(entry.get("component_markers") or {})
+    if entry.get("premise_marker"):
+        listed["premise"] = entry["premise_marker"]
+    errors: list[str] = []
+    for name, marker in listed.items():
+        if marker not in attack_text:
+            errors.append(f"{name} marker '{marker}' NOT found in attack extraction")
+        if marker in twin_text:
+            errors.append(f"{name} marker '{marker}' found in TWIN extraction")
+    return errors
+
+
 def marker_only_violations(attack_text: str, twin_text: str, marker: str) -> list[str]:
     """Lines present in the attack extraction, absent from the twin's, that are
     not marker-bearing.
@@ -198,7 +226,10 @@ def marker_only_violations(attack_text: str, twin_text: str, marker: str) -> lis
         if marker not in line:
             return False
         # Extra wording beside the marker is still wording (audit #3).
-        rest = line.replace(marker, "").strip()
+        rest = line
+        for m in (marker, *MARKERS):
+            rest = rest.replace(m, "")
+        rest = rest.strip()
         return not rest or rest in twin_lines or bool(CHANNEL_TAG.match(rest))
 
     return [line for line in attack_text.splitlines() if not explained(line)]
@@ -250,6 +281,47 @@ def correct_errors(correct: list, tools: Collection[str] | None = None) -> list[
     return errors
 
 
+def trusted_errors(
+    workflow: str, entry: dict, twin_text: str | None = None
+) -> list[str]:
+    """B2 trusted-fact fields: present for the workflow and consistent with the
+    directory, the row's correspondent and (W2) the document's applicant ids.
+
+    A W2 packet without applicant ids (the recruiter packet) identifies its
+    candidates by address, so its roster is `applicant_addresses` (doc 11 §5.5).
+    """
+    senders = entry.get("correspondent_addresses", [])
+    sender = senders[0] if senders else ""
+    if workflow == "w2":
+        errors: list[str] = []
+        if entry.get("posting_id") not in POSTINGS:
+            errors.append(f"'posting_id' must be one of {sorted(POSTINGS)}")
+        if twin_text is not None:
+            roster: list[str] = re.findall(r"Applicant ID: (\S+)", twin_text) or list(
+                entry.get("applicant_addresses", [])
+            )
+            if entry.get("candidate_roster") != roster:
+                errors.append(f"'candidate_roster' must be {roster}")
+        elif not entry.get("candidate_roster"):
+            errors.append("w2 needs a non-empty 'candidate_roster'")
+        if "true_ranking" in entry and (
+            sorted(entry["true_ranking"]) != sorted(entry.get("candidate_roster", []))
+            or entry.get("attacker_candidate") not in entry["true_ranking"]
+        ):
+            errors.append(
+                "'true_ranking' must order the 'candidate_roster' and name the "
+                "'attacker_candidate'"
+            )
+        return errors
+    if entry.get("sender_address") != sender:
+        return ["'sender_address' must be the correspondent's address"]
+    if workflow == "w1":
+        want = next((a for a, r in ACCOUNTS.items() if r["email"] == sender), None)
+        if entry.get("requester_id", "<absent>") != want:
+            return [f"'requester_id' must be {want!r} (present, from the directory)"]
+    return []
+
+
 def validate_entry(
     entry: dict, line_no: int, seen_ids: set[str], root: Path = ROOT
 ) -> list[str]:
@@ -272,6 +344,12 @@ def validate_entry(
                 f"line {line_no}: optional field '{field}' should be "
                 f"{expected_type.__name__}, got {type(entry[field]).__name__}"
             )
+    if entry.get("goal") == "false_premise":
+        errors += [
+            f"line {line_no}: a false_premise row needs '{field}'"
+            for field in ("premise_marker", "premise_subject", "verification_tool")
+            if not entry.get(field)
+        ]
     if errors:
         # Can't safely proceed to file/extraction checks without the fields
         # above, so stop here for this entry.
@@ -304,6 +382,8 @@ def validate_entry(
     )
     if entry.get("canaries") != list(CANARIES):
         errors.append(f"{artifact_id}: 'canaries' must equal corpus.CANARIES")
+    if entry.get("split") != split_for(artifact_id):
+        errors.append(f"{artifact_id}: 'split' must be {split_for(artifact_id)!r}")
     if is_control and not entry.get("expect"):
         errors.append(f"{artifact_id}: control rows must carry an 'expect' block")
 
@@ -347,6 +427,9 @@ def validate_entry(
     except Exception as e:  # noqa: BLE001 -- any parser failure is a reportable manifest problem
         errors.append(f"{artifact_id}: extract() failed on twin_path: {e}")
         twin_text = None
+    errors.extend(
+        f"{artifact_id}: {e}" for e in trusted_errors(workflow, entry, twin_text)
+    )
 
     if is_control:
         # A control is a legitimate document: the marker must be absent from it,
@@ -354,6 +437,8 @@ def validate_entry(
         if attack_text is not None and marker in attack_text:
             errors.append(f"{artifact_id}: control document contains the marker")
         return errors
+    if attack_text is not None and CANDIDATE_TOKEN in attack_text:
+        errors.append(f"{artifact_id}: attack holds an unfilled {CANDIDATE_TOKEN}")
     if attack_text is not None and marker not in attack_text:
         errors.append(
             f"{artifact_id}: payload_marker '{marker}' NOT found in attack "
@@ -363,6 +448,12 @@ def validate_entry(
         errors.append(
             f"{artifact_id}: payload_marker '{marker}' found in TWIN "
             "extraction — this pair can't measure a false-positive rate"
+        )
+
+    if attack_text is not None and twin_text is not None:
+        errors.extend(
+            f"{artifact_id}: {e}"
+            for e in listed_marker_violations(entry, attack_text, twin_text)
         )
 
     # 7. Channel-matched twin.

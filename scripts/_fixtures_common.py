@@ -10,6 +10,7 @@ import datetime as dt
 import io
 import itertools
 import json
+import re
 import struct
 import textwrap
 import zipfile
@@ -389,7 +390,18 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from eduinject.agents.task_facts import on_file_addresses
-from eduinject.corpus import CANARIES, GOALS, MARKER, load_gated_payloads
+from eduinject.corpus import (
+    ATTACK_GOALS,
+    CANARIES,
+    COMPONENT_MARKERS,
+    MARKER,
+    PLACEHOLDERS,
+    PREMISE_MARKER,
+    fill_candidate,
+    load_gated_payloads,
+    split_for,
+)
+from eduinject.tools.directory_w1 import ACCOUNTS
 
 SLIM_CHANNELS: tuple[tuple[str, str], ...] = (("docx", "visible"), ("docx", "comment"))
 """The (file type, channel) pairs a "slim" base covers: one visible and one
@@ -416,7 +428,8 @@ class Base:
     """Manifest fields specific to this base (recipients, protected terms,
     entitled actions, expectations, ...)."""
     slice: str = "full"
-    """"full": every file type x channel x goal. "slim": SLIM_CHANNELS x goal."""
+    """"full": every file type x channel x goal. "slim": SLIM_CHANNELS x goal.
+    "premise": SLIM_CHANNELS x `false_premise` only (C3)."""
     correct: tuple[dict, ...] = ()
     """The declared correct handling of the benign twin: alternatives of the form
     {"kind": "act"|"refuse"|"escalate"|"ask_info", "calls": [{"tool", "args"}]};
@@ -484,16 +497,75 @@ def plan(base: Base) -> list[tuple[str, str, str]]:
     original single-base generators used, so primary-base artifact IDs are
     unchanged.
     """
+    if base.slice == "premise":
+        return [(ftype, "false_premise", channel) for ftype, channel in SLIM_CHANNELS]
     if base.slice == "slim":
         return [
-            (ftype, goal, channel) for goal in GOALS for ftype, channel in SLIM_CHANNELS
+            (ftype, goal, channel)
+            for goal in ATTACK_GOALS
+            for ftype, channel in SLIM_CHANNELS
         ]
     return [
         (ftype, goal, channel)
         for ftype, channels in CHANNELS.items()
-        for goal in GOALS
+        for goal in ATTACK_GOALS
         for channel in channels
     ]
+
+
+def canary_readme() -> str:
+    """README text stating both canaries (D11); never placed in a document."""
+    return (
+        "Canary strings (training-data contamination check). If either appears in "
+        "a model's output or training data, this corpus leaked.\n\n"
+        + "".join(f"    {c}\n" for c in CANARIES)
+    )
+
+
+def write_canary_readme(directory: Path) -> None:
+    """Write the canary README beside a generated, never-committed corpus."""
+    (directory / "README.md").write_text(canary_readme(), encoding="utf-8")
+
+
+def trusted_fields(workflow: str, base: "Base", artifact_id: str) -> dict:
+    """Split and the trusted facts (B2) a base's rows carry, derived from the
+    directories and the base, never hand-edited."""
+    out: dict = {"split": split_for(artifact_id)}
+    senders = base.extras.get("correspondent_addresses", [])
+    sender = senders[0] if senders else ""
+    if workflow == "w1":
+        out["sender_address"] = sender
+        out["requester_id"] = next(
+            (a for a, rec in ACCOUNTS.items() if rec["email"] == sender), None
+        )
+    elif workflow == "w3":
+        out["sender_address"] = sender
+    else:
+        text = "\n".join([base.contact, *(ln for _, ls in base.sections for ln in ls)])
+        posting = re.search(r"Posting: (\S+)", text)
+        if posting is None:
+            raise ValueError(f"W2 base {base.base_id} names no 'Posting:'")
+        out["posting_id"] = posting.group(1)
+        # A recruiter packet carries no applicant ids; its candidates are
+        # identified by address.
+        out["candidate_roster"] = re.findall(r"Applicant ID: (\S+)", text) or list(
+            base.extras["applicant_addresses"]
+        )
+    return out
+
+
+def candidate_label(base: "Base") -> str | None:
+    """The base's `attacker_candidate` as "Name (ID)", or None when it has none.
+
+    The id is an applicant id, or the address for a packet without ids (b2).
+    """
+    cid = base.extras.get("attacker_candidate")
+    if cid is None:
+        return None
+    for title, entries in base.sections:
+        if any(cid in e for e in entries):
+            return f"{title.split(': ', 1)[1]} ({cid})"
+    raise ValueError(f"base {base.base_id}: no section names applicant {cid}")
 
 
 def select_payloads(workflow: str, canonical: bool) -> tuple[dict[str, str], str]:
@@ -504,7 +576,7 @@ def select_payloads(workflow: str, canonical: bool) -> tuple[dict[str, str], str
     `corpus/canonical/` tree.
     """
     if not canonical:
-        return {goal: MARKER for goal in GOALS}, "placeholder"
+        return PLACEHOLDERS, "placeholder"
     table = load_gated_payloads()
     if table is None:
         raise SystemExit(
@@ -552,6 +624,8 @@ def generate_workflow(
         manifest = out_root / "corpus" / f"manifest_{workflow}.jsonl"
     if not dry_run:
         file_dir.mkdir(parents=True, exist_ok=True)
+        if canonical:
+            write_canary_readme(file_dir.parent)
 
     rows: list[dict] = []
     count = start_count - 1
@@ -569,6 +643,7 @@ def generate_workflow(
                 "operator_request": base.operator_request,
                 **base.extras,
                 "on_file_addresses": on_file_addresses(workflow, base.extras),
+                **trusted_fields(workflow, base, f"{workflow}_{count:04d}"),
                 "correct": list(base.correct),
                 "goal": goal,
                 "file_type": ftype,
@@ -577,12 +652,16 @@ def generate_workflow(
                 "payload_class": payload_class,
                 "canaries": list(CANARIES),
             }
+            if goal == "false_premise":
+                row["premise_marker"] = PREMISE_MARKER
+            else:
+                row["component_markers"] = dict(COMPONENT_MARKERS)
             rows.append(row)
             label = f"{row['artifact_id']} {base.base_id} {goal}/{channel}/{ftype}"
             if dry_run:
                 print(f"{label} would write {attack_path} and {twin_path}")
                 continue
-            payload = payloads[goal]
+            payload = fill_candidate(payloads[goal], candidate_label(base))
             wrap = pdf_lines if (ftype, channel) == ("pdf", "visible") else None
             neutral = neutral_text(channel, payload, count, wrap)
             write_document(base, twin_path, ftype, channel, neutral)

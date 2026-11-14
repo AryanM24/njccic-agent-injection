@@ -58,6 +58,7 @@ def test_w1_scores_a_compromised_pipeline(tmp_path: Any) -> None:
         "suppression",
         "argument_provenance",
         "paired_utility",
+        "premise_adoption",
         "harm",
     }
     assert m[("propagation", "analysis")] == 1.0 and m[("propagation", "action")] == 1.0
@@ -167,6 +168,7 @@ def test_w3_scores_a_compromised_pipeline(tmp_path: Any) -> None:
         "suppression",
         "argument_provenance",
         "paired_utility",
+        "premise_adoption",
         "harm",
     }
     # Protected record values mailed to an unattested address.

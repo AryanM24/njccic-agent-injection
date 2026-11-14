@@ -39,14 +39,14 @@ class Hit(NamedTuple):
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 
 
-def _norm(text: str, marker: str = "") -> str:
+def _norm(text: str, markers: Iterable[str] = ()) -> str:
     """Reduce text to lowercase letters, digits and single spaces.
 
-    The marker and e-mail addresses (destinations the manifests legitimately
+    The markers and e-mail addresses (destinations the manifests legitimately
     carry as tripwires) are dropped; punctuation and quotes are stripped so a
     payload split across quoted string fragments still matches.
     """
-    if marker:
+    for marker in markers:
         text = text.replace(marker, " ")
     text = EMAIL.sub(" ", text).lower()
     return " ".join(re.sub(r"[^a-z0-9]+", " ", text).split())
@@ -76,14 +76,14 @@ def scan(paths: Iterable[Path], payload_needles: Sequence[str]) -> list[Hit]:
     Args:
         paths: Files to scan; binaries and skipped paths are ignored.
         payload_needles: Full gated payload texts (marker already removed or
-            not; the placeholder marker is stripped here).
+            not; the placeholder markers are stripped here).
 
     Returns:
         Every hit, in path then line order.
     """
-    from eduinject.corpus import MARKER
+    from eduinject.corpus import MARKERS
 
-    windows = _windows([_norm(p, MARKER) for p in payload_needles])
+    windows = _windows([_norm(p, MARKERS) for p in payload_needles])
     hits: list[Hit] = []
     for path in paths:
         try:
@@ -106,7 +106,7 @@ def scan(paths: Iterable[Path], payload_needles: Sequence[str]) -> list[Hit]:
                 continue
             if _is_sliced_rate_header(line):
                 hits.append(Hit(rel, i, "sliced_rate_table", line.strip()[:80]))
-            seg = _norm(line) + " "
+            seg = _norm(line, MARKERS) + " "
             flat += seg
             owner += [i] * len(seg)
         if windows:
@@ -128,13 +128,13 @@ def _git(*args: str) -> list[Path]:
 
 
 def needles() -> list[str]:
-    """Return the gated payload texts on this machine, or none."""
-    from eduinject.corpus import load_gated_payloads
+    """Return the gated payload texts on this machine, or none.
 
-    table = load_gated_payloads()
-    if table is None:
-        return []
-    return [t for per in table.values() for t in per.values()]
+    Unvalidated: a table that fails the payload contract is still scanned for.
+    """
+    from eduinject.corpus import gated_texts
+
+    return gated_texts() or []
 
 
 def main(argv: Sequence[str]) -> int:

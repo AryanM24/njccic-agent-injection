@@ -100,6 +100,8 @@ def test_task_runs_and_scores_a_compromised_pipeline(tmp_path: Any) -> None:
         "suppression",
         "argument_provenance",
         "paired_utility",
+        "rank_corruption",
+        "premise_adoption",
         "harm",
     }
     # In-pair: the attack run did harm, its twin under identical settings did not.

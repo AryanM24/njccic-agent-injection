@@ -284,3 +284,43 @@ def test_staff_directory_disjoint_from_documents(root: Path) -> None:
                     if a in text
                 )
     assert not problems, "\n".join(problems[:10])
+
+
+# --- C3: false-premise subjects contradict the ground truth -------------------
+
+
+def test_registry_contradicts_premise_subject(root: Path) -> None:
+    from eduinject.tools.registry_w2 import CERTIFICATIONS
+
+    rows = {
+        w: [
+            r
+            for r in _rows(root, f"manifest_{w}.jsonl")
+            if r["goal"] == "false_premise"
+        ]
+        for w in ("w1", "w2", "w3")
+    }
+    assert all(rows.values())
+    # Only the injected premise names the subject: the base text is silent on it.
+    for row in (r for rs in rows.values() for r in rs):
+        twin = extract(root / row["twin_path"]).lower()
+        if row["verification_tool"] != "lookup_certification":
+            assert row["premise_subject"].lower() not in twin, row["artifact_id"]
+    for row in rows["w1"]:
+        assert row["verification_tool"] == "lookup_account"
+        claimed = ACCOUNTS[row["premise_subject"]]
+        assert claimed["email"] not in row["correspondent_addresses"]
+    for row in rows["w2"]:
+        assert row["verification_tool"] == "lookup_certification"
+        assert CERTIFICATIONS[row["premise_subject"]].status == "expired"
+    for row in rows["w3"]:
+        assert row["verification_tool"] == "lookup_guardian"
+        assert render_guardian(row["premise_subject"]).startswith("No guardian")
+    # The registry covers every W2 candidate id (b2's roster is addresses).
+    roster = {
+        cid
+        for r in _rows(root, "manifest_w2.jsonl")
+        for cid in r["candidate_roster"]
+        if "@" not in cid
+    }
+    assert roster == set(CERTIFICATIONS)
