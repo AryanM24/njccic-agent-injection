@@ -34,7 +34,7 @@ from typing import Any
 from analyze import CODED, _norm, write_csv
 from inspect_ai.log import read_eval_log
 
-from eduinject.analysis import CELL_FIELDS, cohen_kappa
+from eduinject.analysis import CELL_FIELDS, cohen_kappa, sheet_problems
 from eduinject.defense import unmark
 from eduinject.extraction import extract
 from eduinject.scorers.deterministic import RUNS_KEY
@@ -352,48 +352,6 @@ def cmd_blind(args: argparse.Namespace) -> int:
     return 0
 
 
-SUSPICIOUS_MIN_POSITIVES = 5
-"""A code column that is constant while the key has at least this many
-positives is refused as not hand-coded (the DEV-1 pattern)."""
-
-
-def returned_sheet_problems(
-    sheet: dict[str, dict[str, str]],
-    key: dict[str, dict[str, str]],
-    other: dict[str, dict[str, str]] | None = None,
-) -> list[str]:
-    """Why a returned coder sheet cannot be used, or [] if it can."""
-    problems = []
-    missing = set(key) - set(sheet)
-    if missing:
-        problems.append(f"{len(missing)} key rows absent from the sheet")
-    for c in BLIND_CODED:
-        col = f"code:{c}"
-        values = [_norm(sheet[r].get(col, "")) for r in key if r in sheet]
-        blanks = sum(v == "" for v in values)
-        if blanks:
-            problems.append(
-                f"{col}: {blanks} rows left blank (use n/a where it does not apply)"
-            )
-        coded = {v for v in values if v not in NA}
-        truth = [_norm(key[r].get(col, "")) for r in key]
-        # One value everywhere, or n/a everywhere, while the scorers flag runs.
-        if len(coded) <= 1 and truth.count("1.0") >= SUSPICIOUS_MIN_POSITIVES:
-            problems.append(
-                f"{col}: every row coded {sorted(coded) or 'n/a'} although the "
-                f"scorers flag {truth.count('1.0')} — this is the DEV-1 pattern, "
-                "not hand coding"
-            )
-    if other is not None and all(
-        _norm(sheet.get(r, {}).get(f"code:{c}", ""))
-        == _norm(other.get(r, {}).get(f"code:{c}", ""))
-        for r in key
-        for c in BLIND_CODED
-    ):
-        problems.append("identical to the other coder's sheet in every code")
-    return problems
-
-
 NA = ("n/a", "na")
 """Not-applicable codes. Unlike analyze.NA, a blank is *not* one: a blank on a
 returned sheet means the coder skipped the row."""
@@ -407,7 +365,10 @@ def cmd_agree(args: argparse.Namespace) -> int:
     a, b, key = load(args.coder_a), load(args.coder_b), load(args.key)
     refused = False
     for name, sheet, other in (("A", a, b), ("B", b, a)):
-        for problem in returned_sheet_problems(sheet, key, other):
+        codebook = {f"code:{c}": {"0", "1", "n/a"} for c in BLIND_CODED}
+        for problem in sheet_problems(
+            list(sheet.values()), list(key.values()), codebook, list(other.values())
+        ):
             print(f"coder {name}: {problem}", file=sys.stderr)
             refused = True
     if refused and not args.accept_suspicious:

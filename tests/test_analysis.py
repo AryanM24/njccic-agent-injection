@@ -16,10 +16,12 @@ from eduinject.analysis import (
     denominators,
     epoch_spread,
     flatten_scores,
+    kappa_report,
     load_rows,
     paired_difference,
     rate_with_ci,
     saturated,
+    sheet_problems,
     stratified_sample,
 )
 from eduinject.task_w1 import eduinject_w1
@@ -128,10 +130,56 @@ def test_stratified_sample_covers_every_cell() -> None:
     rows = [_row(f"p{i}", 1, 1.0) for i in range(30)]
     rows += [_row("q1", 1, 1.0, scope="standard")]
     chosen = stratified_sample(rows, 0.1, seed=1)
-    assert len(chosen) == 4
     assert {r["scope"] for r in chosen} == {"read_write", "standard"}
     with pytest.raises(ValueError):
         stratified_sample(rows, 0.0)
+
+
+def test_min_per_cell_enforced() -> None:
+    rows = [_row(f"p{i}", 1, 1.0) for i in range(30)]
+    assert len(stratified_sample(rows, 0.02)) == 5
+
+
+def test_small_cell_takes_all() -> None:
+    rows = [_row(f"p{i}", 1, 1.0) for i in range(3)]
+    assert len(stratified_sample(rows, 0.02)) == 3
+
+
+def test_enriched_sample_is_labelled_and_separate() -> None:
+    rows = [_row(f"p{i}", 1, float(i % 5 == 0)) for i in range(100)]
+    chosen = stratified_sample(rows, 0.02, enrich_positive="exfiltration")
+    primary = [r for r in chosen if r["sample"] == "primary"]
+    extra = [r for r in chosen if r["sample"] == "supplementary_positive_enriched"]
+    assert len(primary) == 5 and len(extra) == 5
+    assert not {r["sample_id"] for r in primary} & {r["sample_id"] for r in extra}
+    assert sum(r["score:exfiltration"] == 1.0 for r in extra) == 2
+
+
+_BOOK = {"code:exfiltration": {"0", "1", "n/a"}}
+
+
+def test_sheet_validator_flags_constant_missing_and_out_of_codebook() -> None:
+    key = [
+        {"row_id": f"R{i}", "code:exfiltration": "1.0" if i < 6 else "0.0"}
+        for i in range(30)
+    ]
+    ok = [
+        {"row_id": k["row_id"], "code:exfiltration": k["code:exfiltration"]}
+        for k in key
+    ]
+    assert sheet_problems(ok, key, _BOOK) == []
+    constant = [{**r, "code:exfiltration": "0"} for r in ok]
+    assert any("DEV-1" in p for p in sheet_problems(constant, key, _BOOK))
+    assert any("absent" in p for p in sheet_problems(ok[:-3], key, _BOOK))
+    odd = [{**ok[0], "code:exfiltration": "2"}, *ok[1:]]
+    assert any("outside the codebook" in p for p in sheet_problems(odd, key, _BOOK))
+
+
+def test_kappa_report_fields() -> None:
+    r = kappa_report(["1", "1", "0", "0"], ["1", "0", "0", "0"])
+    assert (r.n, r.kappa, r.raw_agreement) == (4, 0.5, 0.75)
+    assert (r.positives_a, r.positives_b) == (2, 1)
+    assert r.positive_agreement == pytest.approx(2 / 3)
 
 
 def test_cohen_kappa_matches_a_hand_computed_value() -> None:
@@ -271,13 +319,15 @@ def test_kappa_scores_a_metric_only_where_it_applies(
     head = "log,sample_id,epoch,code:exfiltration,code:scope_violation,code:authorization,code:action_divergence"
     key = [head, "l,a,1,0,0,1,0", "l,b,1,0,0,0,0", "l,c,1,1,0,,0"]
     coder = [head, "l,a,1,0,0,1,0", "l,b,1,0,0,0,1", "l,c,1,1,0,n/a,0"]
-    for name, lines in (("key", key), ("a", coder), ("b", coder)):
+    other = [ln.replace("l,b,1,0,0,0,1", "l,b,1,0,0,0,0") for ln in coder]
+    for name, lines in (("key", key), ("a", coder), ("b", other)):
         (tmp_path / f"{name}.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
     sheets = [str(tmp_path / n) for n in ("a.csv", "b.csv")]
     assert analyze_main(["kappa", *sheets, "--key", str(tmp_path / "key.csv")]) == 0
     out = capsys.readouterr().out
     assert "code:authorization A-auto: kappa = 1.000 (n=2" in out
     assert "skipped" not in out
+    assert "positive_agreement" in (tmp_path / "kappa.csv").read_text()
 
 
 # --------------------------------------------------------------------------
@@ -403,37 +453,33 @@ def test_blind_sample_balances_scorer_positives_and_negatives() -> None:
 
 
 def test_agree_refuses_the_dev1_pattern() -> None:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-    from human_coding import returned_sheet_problems
-
-    key = {f"R{i}": {"code:exfiltration": "1.0" if i < 6 else "0.0"} for i in range(30)}
-    zeros = {
-        r: {
+    cols = ("code:exfiltration", "code:authorization", "code:scope_violation")
+    book = {c: {"0", "1", "n/a"} for c in cols}
+    key = [
+        {"row_id": f"R{i}", "code:exfiltration": "1.0" if i < 6 else "0.0"}
+        for i in range(30)
+    ]
+    zeros = [
+        {
+            "row_id": k["row_id"],
             "code:exfiltration": "0",
             "code:authorization": "n/a",
             "code:scope_violation": "0",
         }
-        for r in key
-    }
-    problems = returned_sheet_problems(zeros, key)
-    assert any("DEV-1" in p for p in problems)
-    honest = {
-        r: {**v, "code:exfiltration": key[r]["code:exfiltration"]}
-        for r, v in zeros.items()
-    }
-    honest["R0"]["code:exfiltration"] = "0"  # an honest disagreement is fine
-    assert returned_sheet_problems(honest, key) == []
-    blank = {r: {**v, "code:scope_violation": ""} for r, v in honest.items()}
-    assert any("blank" in p for p in returned_sheet_problems(blank, key))
-    # All n/a is the DEV-1 pattern too, and 1 vs 1.0 is still a copy (review #8).
-    all_na = {r: {**v, "code:exfiltration": "n/a"} for r, v in zeros.items()}
-    assert any("DEV-1" in p for p in returned_sheet_problems(all_na, key))
-    floats = {
-        r: {k: ("1.0" if x == "1" else x) for k, x in v.items()}
-        for r, v in honest.items()
-    }
-    copied = returned_sheet_problems(honest, key, floats)
-    assert any("identical" in p for p in copied)
+        for k in key
+    ]
+    assert any("DEV-1" in p for p in sheet_problems(zeros, key, book))
+    honest = [
+        {**z, "code:exfiltration": k["code:exfiltration"]} for z, k in zip(zeros, key)
+    ]
+    honest[0]["code:exfiltration"] = "0"  # an honest disagreement is fine
+    assert sheet_problems(honest, key, book) == []
+    blank = [{**v, "code:scope_violation": ""} for v in honest]
+    assert any("blank" in p for p in sheet_problems(blank, key, book))
+    all_na = [{**v, "code:exfiltration": "n/a"} for v in zeros]
+    assert any("DEV-1" in p for p in sheet_problems(all_na, key, book))
+    floats = [{k: ("1.0" if x == "1" else x) for k, x in v.items()} for v in honest]
+    assert any("identical" in p for p in sheet_problems(honest, key, book, floats))
 
 
 def test_h2_interaction_isolates_what_restoring_facts_changes() -> None:

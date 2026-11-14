@@ -51,17 +51,19 @@ from eduinject.analysis import (
     CELL_FIELDS,
     N_BOOT,
     REPORTABILITY,
-    cohen_kappa,
     comparison_floor,
     denominators,
     epoch_spread,
     group,
+    kappa_report,
     load_rows,
     mean_with_ci,
     metrics_in,
+    norm_code,
     paired_difference,
     rate_with_ci,
     saturated,
+    sheet_problems,
     stratified_sample,
     tool_use_check,
     verdict,
@@ -493,11 +495,22 @@ def cmd_report(args: argparse.Namespace) -> int:
 
 def cmd_sample_human(args: argparse.Namespace) -> int:
     rows, _ = load_rows(args.log_dirs)
-    chosen = stratified_sample(rows, args.fraction, args.seed)
+    chosen = stratified_sample(
+        rows, args.fraction, args.min_per_cell, args.seed, args.enrich_positive
+    )
     if not chosen:
         print("no scored runs to sample", file=sys.stderr)
         return 1
-    ids = ("log", "sample_id", "epoch", *CELL_FIELDS, "artifact_id", "goal", "channel")
+    ids = (
+        "log",
+        "sample_id",
+        "epoch",
+        *CELL_FIELDS,
+        "artifact_id",
+        "goal",
+        "channel",
+        "sample",
+    )
     sheet = [
         {**{f: r.get(f) for f in ids}, **{f"code:{c}": "" for c in CODED}}
         for r in chosen
@@ -524,24 +537,39 @@ def read_codes(path: str) -> dict[tuple[str, str, str], dict[str, str]]:
         return {(r["log"], r["sample_id"], r["epoch"]): r for r in csv.DictReader(f)}
 
 
-def _norm(value: str) -> str:
-    """Treat 1, 1.0 and '1' alike, so coder sheets compare with the key."""
-    try:
-        return str(float(value))
-    except ValueError:
-        return value.strip().lower()
+_norm = norm_code
 
 
 def cmd_kappa(args: argparse.Namespace) -> int:
     sheets = {"A": read_codes(args.coder_a), "B": read_codes(args.coder_b)}
     if args.key:
         sheets["auto"] = read_codes(args.key)
+    codebook = {f"code:{c}": {"0", "1", "n/a"} for c in CODED}
+    refused = False
+    for name in ("A", "B"):
+        ref = sheets.get("auto", sheets[name])
+        other = sheets["B" if name == "A" else "A"]
+        for problem in sheet_problems(
+            list(sheets[name].values()),
+            list(ref.values()),
+            codebook,
+            list(other.values()),
+        ):
+            print(f"coder {name}: {problem}", file=sys.stderr)
+            refused = True
+    if refused and not args.accept_suspicious:
+        print(
+            "refused: fix the sheets (or pass --accept-suspicious and report why)",
+            file=sys.stderr,
+        )
+        return 2
     runs = sorted(set.intersection(*(set(s) for s in sheets.values())))
     if not runs:
         print("the sheets share no runs", file=sys.stderr)
         return 1
     print(f"{len(runs)} runs coded by every party")
-    for column in (f"code:{c}" for c in CODED):
+    out_rows = []
+    for column in codebook:
         # A metric that does not apply to a run (authorization outside W1) is
         # blank in the key; coders may write "n/a" there. Score only the rest.
         applies = [
@@ -555,12 +583,17 @@ def cmd_kappa(args: argparse.Namespace) -> int:
             if not applies or any(v in NA for v in a + b):
                 print(f"  {column} {x}-{y}: incomplete, skipped")
                 continue
-            agree = sum(u == v for u, v in zip(a, b, strict=True)) / len(a)
+            rep = kappa_report(a, b)
             print(
-                f"  {column} {x}-{y}: kappa = {cohen_kappa(a, b):.3f} "
-                f"(n={len(a)}, raw agreement {agree:.3f}, "
-                f"positives {a.count('1.0')}/{b.count('1.0')})"
+                f"  {column} {x}-{y}: kappa = {rep.kappa:.3f} (n={rep.n}, raw "
+                f"agreement {rep.raw_agreement:.3f}, positive agreement "
+                f"{rep.positive_agreement:.3f}, positives "
+                f"{rep.positives_a}/{rep.positives_b})"
             )
+            out_rows.append({"column": column, "pair": f"{x}-{y}", **rep._asdict()})
+    out = Path(args.out) if args.out else Path(args.coder_a).parent
+    write_csv(out / "kappa.csv", out_rows)
+    print(f"kappa -> {(out / 'kappa.csv').resolve()}")
     return 0
 
 
@@ -634,7 +667,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     human = sub.add_parser("sample-human", help="stratified human-coding sample")
     human.add_argument("log_dirs", nargs="+")
-    human.add_argument("--fraction", type=float, default=0.10)
+    human.add_argument("--fraction", type=float, default=0.02)
+    human.add_argument("--min-per-cell", type=int, default=5)
+    human.add_argument(
+        "--enrich-positive",
+        default=None,
+        metavar="METRIC",
+        help="Add a supplementary sample, half runs METRIC flagged (never pooled).",
+    )
     human.add_argument("--seed", type=int, default=0)
     human.add_argument("--out", default="logs/analysis/human")
     human.set_defaults(func=cmd_sample_human)
@@ -643,6 +683,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     kappa.add_argument("coder_a")
     kappa.add_argument("coder_b")
     kappa.add_argument("--key", default=None, help="answer_key.csv (automated)")
+    kappa.add_argument("--out", default=None, help="default: next to CODER_A")
+    kappa.add_argument("--accept-suspicious", action="store_true")
     kappa.set_defaults(func=cmd_kappa)
 
     export = sub.add_parser("export-pairs", help="pseudonymized pair-level aggregates")

@@ -642,24 +642,123 @@ def in_pair_rates(
 
 
 def stratified_sample(
-    rows: Sequence[dict[str, Any]], fraction: float = 0.10, seed: int = 0
+    rows: Sequence[dict[str, Any]],
+    fraction: float = 0.02,
+    min_per_cell: int = 5,
+    seed: int = 0,
+    enrich_positive: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Draw `fraction` of scored runs from every cell, at least one per cell.
+    """Draw `fraction` of scored runs from every cell, at least `min_per_cell`.
 
-    Doc 04 §13.2: sampled deliberately across all conditions, not at random
-    overall, so every condition is checked.
+    Doc 09 §6 decision 6a: every cell is sampled, never fewer than
+    `min(min_per_cell, len(cell))` runs, about 2% overall. Every returned row is
+    a copy tagged `sample="primary"`. With `enrich_positive=<metric>` a separate
+    supplementary sample is appended, as large as the primary one, half of it
+    runs the metric flagged and half not, drawn from runs the primary sample
+    left out and tagged `sample="supplementary_positive_enriched"`; it is for
+    scorer-precision checks and must never be pooled into a rate.
+
+    Raises:
+        ValueError: If `fraction` is outside (0, 1] or `min_per_cell` is < 1.
     """
     if not 0 < fraction <= 1:
         raise ValueError(f"fraction must be in (0, 1], got {fraction}")
+    if min_per_cell < 1:
+        raise ValueError(f"min_per_cell must be >= 1, got {min_per_cell}")
     rng = random.Random(seed)
-    chosen: list[dict[str, Any]] = []
+    primary: list[dict[str, Any]] = []
+    left: list[dict[str, Any]] = []
     groups = group(rows)
     for key in sorted(groups, key=str):
         scored = [r for r in groups[key] if r["status"] == "scored"]
         if scored:
-            k = max(1, round(len(scored) * fraction))
-            chosen.extend(rng.sample(scored, k))
-    return chosen
+            k = min(len(scored), max(min_per_cell, round(len(scored) * fraction)))
+            picked = rng.sample(range(len(scored)), k)
+            primary += [{**scored[i], "sample": "primary"} for i in picked]
+            left += [r for i, r in enumerate(scored) if i not in picked]
+    if enrich_positive is None:
+        return primary
+    metric = f"score:{enrich_positive}"
+    pos = [r for r in left if r.get(metric) == 1.0]
+    neg = [r for r in left if r.get(metric) == 0.0]
+    half = len(primary) // 2
+    k_pos = min(len(pos), half)
+    k_neg = min(len(neg), len(primary) - k_pos)
+    tag = {"sample": "supplementary_positive_enriched"}
+    return primary + [
+        {**r, **tag} for r in rng.sample(pos, k_pos) + rng.sample(neg, k_neg)
+    ]
+
+
+NA_CODES = ("n/a", "na")
+SUSPICIOUS_MIN_POSITIVES = 5
+"""A code column that is constant while the key has at least this many
+positives is refused as not hand-coded (the DEV-1 pattern)."""
+
+
+def norm_code(value: Any) -> str:
+    """Treat 1, 1.0 and '1' alike, and 'na' as 'n/a', so sheets compare."""
+    try:
+        return str(float(value))
+    except (TypeError, ValueError):
+        v = str(value).strip().lower()
+        return "n/a" if v in NA_CODES else v
+
+
+def _ident(row: Mapping[str, Any]) -> Any:
+    if "row_id" in row:
+        return row["row_id"]
+    return row["log"], row["sample_id"], str(row["epoch"])
+
+
+def sheet_problems(
+    sheet: Sequence[Mapping[str, Any]],
+    key: Sequence[Mapping[str, Any]],
+    codebook: Mapping[str, set[str]],
+    other: Sequence[Mapping[str, Any]] | None = None,
+) -> list[str]:
+    """Why a returned coder sheet cannot be used, or [] if it can.
+
+    Rows match on `row_id` (blind sheets) or on log/sample_id/epoch. `codebook`
+    maps each coded column to the values it may take; a blank is never one
+    (n/a is the way to skip), so blanks are reported separately.
+    """
+    by_id = {_ident(r): r for r in sheet}
+    keyed = {_ident(r): r for r in key}
+    problems = []
+    missing = set(keyed) - set(by_id)
+    if missing:
+        problems.append(f"{len(missing)} key rows absent from the sheet")
+    for col, allowed in codebook.items():
+        values = [norm_code(by_id[r].get(col, "")) for r in keyed if r in by_id]
+        blanks = sum(v == "" for v in values)
+        if blanks:
+            problems.append(
+                f"{col}: {blanks} rows left blank (use n/a where it does not apply)"
+            )
+        legal = {norm_code(v) for v in allowed}
+        bad = sorted({v for v in values if v != "" and v not in legal})
+        if bad:
+            problems.append(f"{col}: values outside the codebook: {bad}")
+        coded = {v for v in values if v not in NA_CODES}
+        truth = [norm_code(keyed[r].get(col, "")) for r in keyed]
+        # One value everywhere, or n/a everywhere, while the scorers flag runs.
+        if len(coded) <= 1 and truth.count("1.0") >= SUSPICIOUS_MIN_POSITIVES:
+            problems.append(
+                f"{col}: every row coded {sorted(coded) or 'n/a'} although the "
+                f"scorers flag {truth.count('1.0')} — this is the DEV-1 pattern, "
+                "not hand coding"
+            )
+    if other is not None:
+        theirs = {_ident(r): r for r in other}
+        if all(
+            norm_code(by_id.get(r, {}).get(c, ""))
+            == norm_code(theirs.get(r, {}).get(c, ""))
+            for r in keyed
+            for c in codebook
+        ):
+            problems.append("identical to the other coder's sheet in every code")
+    return problems
 
 
 def cohen_kappa(a: Sequence[str], b: Sequence[str]) -> float:
@@ -677,3 +776,33 @@ def cohen_kappa(a: Sequence[str], b: Sequence[str]) -> float:
     if expected == 1:
         return 1.0
     return (observed - expected) / (1 - expected)
+
+
+class KappaReport(NamedTuple):
+    """Agreement between two codings of one column; positive means "1.0"."""
+
+    n: int
+    kappa: float
+    raw_agreement: float
+    positive_agreement: float
+    """Both positive over mean positives; nan when neither coder has any."""
+    positives_a: int
+    positives_b: int
+
+
+def kappa_report(a: Sequence[str], b: Sequence[str]) -> KappaReport:
+    """Kappa with the counts that show whether it is informative.
+
+    Kappa alone hides a rare-positive column (high raw agreement, kappa near 0).
+    """
+    a, b = [norm_code(x) for x in a], [norm_code(x) for x in b]
+    both = sum(x == y == "1.0" for x, y in zip(a, b, strict=True))
+    pa, pb = a.count("1.0"), b.count("1.0")
+    return KappaReport(
+        n=len(a),
+        kappa=cohen_kappa(a, b),
+        raw_agreement=sum(x == y for x, y in zip(a, b, strict=True)) / len(a),
+        positive_agreement=2 * both / (pa + pb) if pa + pb else math.nan,
+        positives_a=pa,
+        positives_b=pb,
+    )
