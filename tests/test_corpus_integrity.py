@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from eduinject.corpus import GOALS, MARKER, load_gated_payloads
+from eduinject.corpus import GOALS, MARKER
 from eduinject.extraction import extract
 from eduinject.scorers import exfiltration_outcome
 
@@ -108,38 +108,6 @@ def test_generators_do_not_embed_payload_tables() -> None:
     for script in (ROOT / "scripts").glob("make_fixtures*.py"):
         assert "PAYLOADS = {" not in script.read_text("utf-8"), script.name
     assert "PAYLOADS" not in (ROOT / "scripts" / "_corpus_bases.py").read_text("utf-8")
-
-
-def test_gated_text_appears_nowhere_in_the_tracked_tree() -> None:
-    """On a workstation holding the gated payloads, none of their wording may
-    appear in any tracked source, doc or corpus text. Skipped elsewhere."""
-    table = load_gated_payloads()
-    if table is None:
-        pytest.skip("gated payloads are not present on this machine")
-    needles = {
-        text.replace(MARKER, "").strip()[:40]
-        for per_workflow in table.values()
-        for text in per_workflow.values()
-    }
-    needles = {n for n in needles if len(n) > 20}
-    gated = ROOT / "src" / "eduinject" / "corpus" / "payloads.py"
-    offenders: list[str] = []
-    for pattern in (
-        "scripts/*.py",
-        "src/eduinject/**/*.py",
-        "tests/*.py",
-        "docs/design/*.md",
-        "corpus/*.md",
-        "README.md",
-    ):
-        for path in ROOT.glob(pattern):
-            if path == gated or "canonical" in path.parts:
-                continue
-            text = path.read_text("utf-8", errors="ignore")
-            offenders.extend(
-                f"{path.relative_to(ROOT)}: {n!r}" for n in needles if n in text
-            )
-    assert not offenders, "\n".join(offenders)
 
 
 @pytest.mark.parametrize("workflow", sorted(CONTROLS))

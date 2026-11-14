@@ -18,7 +18,7 @@ functions add what a reader expects next to it, all still clustered by pair:
 - `gee_contrast`: a population-averaged logistic GEE with pair clusters
   (independence working correlation, bias-reduced robust errors), the
   regression sensitivity analysis, if `statsmodels` is installed (the optional
-  `stats` extra).
+  `analysis` extra).
 
 Everything is deterministic under its seed. Nothing here contacts a model.
 """

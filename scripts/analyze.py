@@ -672,7 +672,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--gee",
         action="store_true",
         help="Add the pair-clustered GEE sensitivity analysis (needs the "
-        "`stats` extra: statsmodels).",
+        "`analysis` extra: statsmodels).",
     )
     report.set_defaults(func=cmd_report)
 

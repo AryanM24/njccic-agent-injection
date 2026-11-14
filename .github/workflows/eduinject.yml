@@ -33,12 +33,8 @@ jobs:
         # to start on any other parser version.
         run: |
           pip install -r requirements.lock.txt
-          pip install -e ".[dev,openrouter]" ruff==0.16.5 mypy==2.3.1
-      - name: Lint
-        run: ruff check src/eduinject tests scripts
-      - name: Format
-        run: ruff format --check src/eduinject tests scripts
-      - name: Type check
-        run: mypy --exclude tests/test_package src/eduinject tests
+          pip install -e ".[dev,openrouter,analysis]" ruff==0.16.5 mypy==2.3.1
+      - name: Check
+        run: make check
       - name: Test
-        run: pytest -q
+        run: make test-eduinject

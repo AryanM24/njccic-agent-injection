@@ -183,7 +183,7 @@ The code's family is `analyze.PRIMARY_CONTRASTS × PRIMARY_METRICS`.
    difference (exact up to 16 differing pairs, 10,000 draws above).
 2. **Sensitivity:** a logistic GEE clustered by pair, with independence working
    correlation and bias-reduced robust standard errors (the small-cluster
-   recommendation of Thompson et al. 2021, *Stat. Methods Med. Res.* 30(2)) (`--gee`, optional `stats` extra). Not
+   recommendation of Thompson et al. 2021, *Stat. Methods Med. Res.* 30(2)) (`--gee`, optional `analysis` extra). Not
    reported where fewer than 5 events or non-events, or either arm has no events:
    the estimate is separated. (The first-edition recompute returned p ≈ 0 for a
    contrast with a single event before this guard.)
