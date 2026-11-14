@@ -23,6 +23,9 @@ from pypdf import PdfReader, PdfWriter
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
+PDF_PRODUCER = "Microsoft® Word for Microsoft 365"
+"""Neutral producer for every PDF: the library default names the generator."""
+
 CHANNELS: dict[str, list[str]] = {
     "docx": ["visible", "core_property", "comment", "alt_text"],
     "pdf": ["visible", "pdf_metadata"],
@@ -169,6 +172,7 @@ def write_pdf(
     writer = PdfWriter()
     for page in reader.pages:
         writer.add_page(page)
+    writer.add_metadata({"/Producer": PDF_PRODUCER})
     if channel == "pdf_metadata":
         writer.add_metadata({"/Subject": payload})
     meta: dict[str, str] = dict(writer.metadata or {})

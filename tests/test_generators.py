@@ -1,8 +1,9 @@
-"""Fixture generators: real CLIs that write nothing on --help/--dry-run and are byte-deterministic."""
+"""Fixture generators: real CLIs, nothing written on --help or --dry-run, byte-deterministic."""
 
 import os
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -67,3 +68,18 @@ def test_generation_is_byte_identical(tmp_path: Path) -> None:
     assert any(k.endswith(".pdf") for k in first)
     assert [k for k in first if first[k] != second[k]] == []
     assert not any(b"\r\n" in v for k, v in first.items() if k.endswith(".jsonl"))
+
+
+def test_docx_dates_are_fixed(tmp_path: Path) -> None:
+    result = _run("make_fixtures_v2.py", "--out-root", str(tmp_path))
+    assert result.returncode == 0, result.stderr
+    found = {"core": False, "comment": False}
+    for p in sorted(tmp_path.rglob("*.docx")):
+        with zipfile.ZipFile(p) as z:
+            assert "2026-01-01" in z.read("docProps/core.xml").decode()
+            found["core"] = True
+            if "word/comments.xml" in z.namelist():
+                comments = z.read("word/comments.xml").decode()
+                assert 'w:date="2026-01-01T00:00:00Z"' in comments
+                found["comment"] = True
+    assert all(found.values())
