@@ -106,7 +106,7 @@ def scan(paths: Iterable[Path], payload_needles: Sequence[str]) -> list[Hit]:
                 continue
             if _is_sliced_rate_header(line):
                 hits.append(Hit(rel, i, "sliced_rate_table", line.strip()[:80]))
-            seg = _norm(line) + " "
+            seg = _norm(line, MARKERS) + " "
             flat += seg
             owner += [i] * len(seg)
         if windows:
