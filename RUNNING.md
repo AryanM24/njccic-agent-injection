@@ -63,6 +63,45 @@ copies there) and those copies are what gets analysed. `--allow-stale`
 overrides the refusal, and a table made that way must say so. Comparisons print one of four
 verdicts (`null`, `above_floor`, `significant`, `no_floor`; doc 11 §2.8).
 
+**Phases A–E conditions** (doc 11 §4; each defaults off, is validated by the
+task, is folded into `config_hash` and is a cell field):
+
+| Flag | Values | What it does |
+| --- | --- | --- |
+| `--relay-stages` | `0`–`3` | Extra relay stages between analysis and action (B1). Each relay sees the previous stage's output and the operator request, and the document only when not isolated. |
+| `--handoff-modes` | `free_text` `typed` | `typed` (B2): stages hand off validated JSON and the action stage gets a trusted case record built from manifest fields and directories. Cannot combine with `--identity facts`; a stage whose output fails to parse makes the whole pair NaN (`handoff_parse_error`). |
+| `--verification-tools` | `off` `on` | W2 only (C3): adds `lookup_certification` against the synthetic certification registry; the tool surface hash changes with it. |
+| `--gate` | `off` `on` | Runtime policy gate (Task 12, not built yet): `on` raises `NotImplementedError` at task construction. |
+| `-M` / `--model-arg` | `KEY=VALUE` | Provider argument bound with the model (repeatable); OpenRouter models must pin their host. |
+
+```bash
+python scripts/run_sweep.py --model mockllm/model --workflow w2 \
+  --scopes read_write --isolation isolated --relay-stages 0 2 \
+  --handoff-modes free_text typed --verification-tools off on \
+  --epochs 1 --dry-run                   # 8 cells: run counts and config hashes
+```
+
+**Dev/confirm split** (C4). Every manifest row carries `split` (`dev` or
+`confirm`). Explore on `dev`; report only `confirm`:
+
+```bash
+python scripts/analyze.py report logs/<dir>... --split confirm --out logs/analysis-<name>
+python scripts/analyze.py sample-human logs/<dir>... --split confirm --out logs/human-<name>
+python scripts/analyze.py export-pairs logs/<dir>... --split confirm --salt <private> \
+  --out logs/analysis/pairs.csv          # pseudonymized pair-level aggregates
+python scripts/paired_outcomes.py logs/<dir>... --split confirm
+python scripts/exfil_recipients.py logs/<dir>... --split confirm
+```
+
+**Trace monitor** (A3). Audits every action-stage call of finished runs against
+the doc 11 §3.3 rule catalogs and compares with the scorers. Output must go under
+`logs/` (traces are Tier 1); it refuses stale logs like `analyze.py`:
+
+```bash
+python scripts/audit_traces.py --log-dir logs/<dir> --out logs/audit/<name>/ \
+  --runs both --split confirm            # violations.csv, runs.csv, cell_rules.csv, disagreements.csv
+```
+
 ---
 
 ## Second edition (ISEF 2027)
