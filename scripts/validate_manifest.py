@@ -24,6 +24,9 @@ Checks, in order:
      an `expect` block.
  10. `correct` declares at least one well-formed correct-handling alternative
      (see `correct_errors`).
+ 11. `canaries` equals `eduinject.corpus.CANARIES`.
+ 12. With `--canonical-dir`, each public manifest has the identical pair set
+     as its gated canonical twin (A-10; see `pair_set_mismatch`).
 
 Paths in a manifest resolve against the manifest's grandparent directory, the
 same rule `eduinject.task.dataset_from_manifest` uses, so the public manifest
@@ -32,6 +35,7 @@ same rule `eduinject.task.dataset_from_manifest` uses, so the public manifest
 Usage:
     python scripts/validate_manifest.py corpus/manifest_w2.jsonl
     python scripts/validate_manifest.py corpus/manifest_w1.jsonl corpus/manifest_w3.jsonl
+    python scripts/validate_manifest.py --canonical-dir corpus/canonical corpus/manifest_w*.jsonl
 
 Exits 0 if every entry in every given manifest passes, 1 otherwise. Prints
 one line per failure so a bad batch is easy to hand back with specifics
@@ -40,15 +44,18 @@ rather than "something's wrong, try again."
 
 from __future__ import annotations
 
+import argparse
 import difflib
 import json
 import re
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from eduinject.corpus import CANARIES
 from eduinject.extraction import extract
 
 REQUIRED_FIELDS = {
@@ -275,6 +282,8 @@ def validate_entry(
             f"{sorted(stray)}"
         )
     errors.extend(f"{artifact_id}: {e}" for e in correct_errors(entry["correct"]))
+    if entry.get("canaries") != list(CANARIES):
+        errors.append(f"{artifact_id}: 'canaries' must equal corpus.CANARIES")
     if is_control and not entry.get("expect"):
         errors.append(f"{artifact_id}: control rows must carry an 'expect' block")
 
@@ -391,15 +400,53 @@ def validate_manifest(path: Path) -> tuple[int, list[str]]:
     return len(lines), all_errors
 
 
-def main() -> int:
-    if len(sys.argv) < 2:
-        print("usage: validate_manifest.py <manifest.jsonl> [more manifests...]")
-        return 1
+class PairSetDiff(NamedTuple):
+    """Artifact ids present in only one of two manifests."""
+
+    only_public: frozenset[str]
+    only_canonical: frozenset[str]
+
+
+def pair_set_mismatch(public: Path, canonical: Path) -> PairSetDiff:
+    """Compare the artifact-id sets of a public and a canonical manifest.
+
+    The canonical corpus must hold exactly the public pairs, or a canonical-run
+    rate is measured over a different population than the public one.
+    """
+
+    def ids(path: Path) -> frozenset[str]:
+        return frozenset(
+            json.loads(ln)["artifact_id"]
+            for ln in path.read_text(encoding="utf-8").splitlines()
+            if ln.strip()
+        )
+
+    pub, can = ids(public), ids(canonical)
+    return PairSetDiff(pub - can, can - pub)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Validate corpus manifests.")
+    parser.add_argument("manifests", nargs="+", type=Path, help="manifest .jsonl files")
+    parser.add_argument(
+        "--canonical-dir",
+        type=Path,
+        help="also compare each manifest's pair set with the same-named file here "
+        "(when present)",
+    )
+    args = parser.parse_args(argv)
 
     overall_ok = True
-    for arg in sys.argv[1:]:
-        path = Path(arg)
+    for path in args.manifests:
         count, errors = validate_manifest(path)
+        if args.canonical_dir and (args.canonical_dir / path.name).exists():
+            diff = pair_set_mismatch(path, args.canonical_dir / path.name)
+            if diff.only_public or diff.only_canonical:
+                errors.append(
+                    f"pair sets differ from canonical: only public "
+                    f"{sorted(diff.only_public)}, only canonical "
+                    f"{sorted(diff.only_canonical)}"
+                )
         if errors:
             overall_ok = False
             print(f"{path}: {count} entries, {len(errors)} problem(s)")

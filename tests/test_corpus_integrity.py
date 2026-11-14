@@ -21,7 +21,11 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from validate_manifest import (
     channel_match_violations,
     marker_only_violations,
+    pair_set_mismatch,
     validate_manifest,
+)
+from validate_manifest import (
+    main as validator_main,
 )
 
 PUBLIC = {w: ROOT / "corpus" / f"manifest_{w}.jsonl" for w in ("w1", "w2", "w3")}
@@ -327,21 +331,71 @@ def test_new_bases_present(generated_corpus: Path) -> None:
         assert new_address in doc and "change the email on file" in doc
 
 
-def test_every_manifest_row_carries_both_canaries_and_no_document_does() -> None:
+def test_every_manifest_row_carries_both_canaries_and_no_document_does(
+    generated_corpus: Path,
+) -> None:
     """D11. The canaries mark the corpus for training-data contamination checks;
     they must never reach the agent, which would see an evaluation marker."""
     from eduinject.corpus import CANARIES
 
-    for manifest in sorted((ROOT / "corpus").glob("manifest_w*.jsonl")):
-        for line in manifest.read_text("utf-8").splitlines():
-            row = json.loads(line)
-            assert row["canaries"] == list(CANARIES), (
-                manifest.name,
-                row["artifact_id"],
-            )
+    for manifest in sorted((generated_corpus / "corpus").glob("manifest_w*.jsonl")):
+        _, errors = validate_manifest(manifest)
+        assert not [e for e in errors if "canaries" in e], manifest.name
+        for row in _rows(manifest):
             for key in ("artifact_path", "twin_path"):
-                text = extract(ROOT / row[key])
+                text = extract(generated_corpus / row[key])
                 assert not any(c in text for c in CANARIES), row[key]
+
+
+def test_validator_rejects_missing_canaries(generated_corpus: Path) -> None:
+    rows = _rows(_generated(generated_corpus, "w1"))
+    del rows[0]["canaries"]
+    bad = generated_corpus / "corpus" / "manifest_bad.jsonl"
+    bad.write_text("\n".join(json.dumps(r) for r in rows) + "\n", "utf-8")
+    try:
+        _, errors = validate_manifest(bad)
+    finally:
+        bad.unlink()  # the corpus fixture is shared across tests
+    assert any("canaries" in e for e in errors)
+
+
+def _write_ids(path: Path, ids: list[str]) -> None:
+    path.write_text("".join(json.dumps({"artifact_id": i}) + "\n" for i in ids))
+
+
+def test_pair_set_mismatch_detected(tmp_path: Path) -> None:
+    _write_ids(tmp_path / "pub.jsonl", ["a", "b"])
+    _write_ids(tmp_path / "can.jsonl", ["a"])
+    diff = pair_set_mismatch(tmp_path / "pub.jsonl", tmp_path / "can.jsonl")
+    assert diff.only_public == {"b"} and not diff.only_canonical
+
+
+def test_validator_help_does_not_treat_flag_as_path() -> None:
+    with pytest.raises(SystemExit) as exc:
+        validator_main(["--help"])
+    assert exc.value.code == 0
+
+
+def test_cli_canonical_dir_flags_a_pair_set_mismatch(
+    generated_corpus: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    public = _generated(generated_corpus, "w1")
+    canon = tmp_path / "canonical"
+    canon.mkdir()
+    (canon / public.name).write_text("".join(public.read_text().splitlines(True)[1:]))
+    assert validator_main(["--canonical-dir", str(canon), str(public)]) == 1
+    assert "pair sets differ" in capsys.readouterr().out
+    (canon / public.name).write_text(public.read_text())
+    assert validator_main(["--canonical-dir", str(canon), str(public)]) == 0
+
+
+@pytest.mark.parametrize("workflow", sorted(PUBLIC))
+def test_public_and_canonical_pair_sets_match(workflow: str) -> None:
+    canonical = ROOT / "corpus" / "canonical" / f"manifest_{workflow}.jsonl"
+    if not canonical.exists():
+        pytest.skip("gated canonical corpus absent")
+    diff = pair_set_mismatch(PUBLIC[workflow], canonical)
+    assert not diff.only_public and not diff.only_canonical
 
 
 @pytest.mark.xfail(strict=True, reason="regenerated in Task 19")
