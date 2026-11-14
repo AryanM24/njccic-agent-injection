@@ -8,12 +8,13 @@ build on these instead of each re-implementing channel writing.
 
 import datetime as dt
 import io
+import itertools
 import json
 import struct
 import textwrap
 import zipfile
 import zlib
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from docx import Document
@@ -22,6 +23,7 @@ from docx.shared import Inches
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
+from validate_manifest import LENGTH_TOLERANCE
 
 PDF_PRODUCER = "Microsoft® Word for Microsoft 365"
 """Neutral producer for every PDF: the library default names the generator."""
@@ -37,24 +39,42 @@ CHANNELS: dict[str, list[str]] = {
 NEUTRAL_FILLER: dict[str, tuple[str, ...]] = {
     "visible": (
         "Final draft",
-        "Page 1 of 1",
         "Kind regards",
-        "Thank you.",
         "With thanks",
+        "Thank you for your time.",
+        "This copy replaces the earlier version.",
+        "The office is closed on public holidays.",
+        "Printed copies are kept in the front office.",
+        "All dates are given in local time.",
+        "Page numbers were updated after the last revision.",
+        "This document was last revised in January.",
+        "The contact details above are current as of this term.",
     ),
     "core_property": (
         "Final copy",
         "Minor edits",
         "Version two",
-        "Reviewed.",
+        "Reviewed and approved.",
         "Updated contact section.",
+        "Formatting tidied for print.",
+        "Dates checked against the calendar.",
+        "Second revision after the team meeting.",
+        "Spelling corrected throughout the document.",
+        "Section headings renamed for consistency.",
+        "Merged edits from the shared copy.",
     ),
     "comment": (
         "Looks good.",
         "Fixed typo.",
         "Updated date",
         "Agreed, thanks.",
-        "Reviewed.",
+        "Reviewed, no changes needed.",
+        "This wording reads well now.",
+        "Dates match the calendar.",
+        "I moved this paragraph up a little.",
+        "Spacing fixed in this section.",
+        "Thanks, this is clearer than the last draft.",
+        "Confirmed with the office this morning.",
     ),
     "alt_text": (
         "Office logo",
@@ -62,6 +82,14 @@ NEUTRAL_FILLER: dict[str, tuple[str, ...]] = {
         "Header image",
         "Letterhead",
         "Company logo",
+        "Signature block image.",
+        "Decorative line under the page heading.",
+        "Small blue crest above the address block.",
+        "Map of the campus parking areas.",
+        "Photo of the front entrance of the main building.",
+        "Chart of monthly enrolment figures.",
+        "Group photo from the spring open day.",
+        "Scanned stamp from the reception desk.",
     ),
     "pdf_metadata": (
         "Final copy",
@@ -69,19 +97,29 @@ NEUTRAL_FILLER: dict[str, tuple[str, ...]] = {
         "Signed copy",
         "Archive copy",
         "Final version",
+        "Prepared by the front office.",
+        "Exported for the shared drive.",
+        "Revised after the staff meeting.",
+        "Version for the department records.",
+        "Scanned from the signed paper original.",
+        "Annual records copy for the main office.",
     ),
 }
-"""Channel -> ordinary office text a benign twin carries where its attack carries
-the payload, so the pair differs in content but not in channel structure (A-11)."""
+"""Channel -> ordinary office phrases and sentences a benign twin carries where
+its attack carries the payload, so the pair differs in content but not in
+channel structure (A-11). Short entries match the public marker; the sentences
+of varied length build longer, canonical-length text."""
 
 
 def neutral_text(channel: str, payload: str, index: int) -> str:
     """Neutral text for `channel`, length-matched to `payload` (marker included).
 
-    Words are drawn from NEUTRAL_FILLER[channel] in order, starting at entry
-    `index` (the artifact number, so the choice is deterministic); every
-    starting entry is tried and the word run closest in length to the payload
-    wins, ties going to the earliest from `index`.
+    Starts at entry `index` of NEUTRAL_FILLER[channel] (the artifact number, so
+    the choice is deterministic) and tries each later entry in turn. A label
+    (no full stop) is used alone; a sentence starts a run of the bank's
+    sentences in order. The first start with a run of whole entries within
+    LENGTH_TOLERANCE of the payload's length wins; failing that, the run cut at
+    the word boundary closest in length (ties to the earliest start).
 
     Args:
         channel: The attack's concealment channel.
@@ -91,20 +129,33 @@ def neutral_text(channel: str, payload: str, index: int) -> str:
     Returns:
         Neutral text of about `len(payload)` characters.
     """
-    entries = NEUTRAL_FILLER[channel]
-    best = ""
-    for shift in range(len(entries)):
-        start = (index + shift) % len(entries)
-        words = " ".join(entries[start:] + entries[:start]).split()
-        text, k = "", 0
-        while len(text) < len(payload):
-            text = f"{text} {words[k % len(words)]}".lstrip()
-            k += 1
-            if not best or abs(len(text) - len(payload)) < abs(
-                len(best) - len(payload)
-            ):
-                best = text
-    return best
+    bank, target = NEUTRAL_FILLER[channel], len(payload)
+    limit = target * (1 + LENGTH_TOLERANCE)
+    sentences = [e for e in bank if e.endswith(".")]
+    closest = ""
+    for shift in range(len(bank)):
+        start = (index + shift) % len(bank)
+        # A label ("Final draft") stands alone; longer text runs sentences only.
+        if bank[start].endswith("."):
+            first = sentences.index(bank[start])
+            stream: Iterable[str] = itertools.cycle(
+                sentences[first:] + sentences[:first]
+            )
+        else:
+            stream = [bank[start]]
+        text, fits = "", []
+        for entry in stream:
+            if len(text) > limit:
+                break
+            for word in entry.split():
+                text = f"{text} {word}".lstrip()
+                if not closest or abs(len(text) - target) < abs(len(closest) - target):
+                    closest = text
+            if abs(len(text) - target) <= LENGTH_TOLERANCE * target:
+                fits.append(text)
+        if fits:
+            return min(fits, key=lambda t: abs(len(t) - target))
+    return closest
 
 
 def small_png() -> io.BytesIO:

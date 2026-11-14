@@ -394,7 +394,7 @@ def test_neutral_length_matched(generated_corpus: Path) -> None:
             assert abs(len(neutral) - len(payload)) <= 0.15 * len(MARKER)
     assert set(NEUTRAL_FILLER) == {c for cs in CHANNELS.values() for c in cs}
     for channel in NEUTRAL_FILLER:
-        for size in range(len(MARKER), 600, 7):
+        for size in [*range(len(MARKER), 201), *range(207, 600, 7)]:
             for index in range(5):
                 text = neutral_text(channel, "x" * size, index)
                 assert abs(len(text) - size) <= 0.15 * size, (channel, size, index)
@@ -417,3 +417,28 @@ def test_validator_rejects_extra_twin_change() -> None:
     long = "Heading\nBody line\nLast line\n[comment] Looks good, thanks for this."
     assert channel_match_violations(attack, long, MARKER)
     assert channel_match_violations(attack, attack, MARKER)
+    # Review Focus 1: a change next to the channel line is still a change.
+    inserted = "Heading\nBody line\nLast line\nExtra\nFinal"
+    assert channel_match_violations(attack, inserted, MARKER)
+    edited = "Heading\nBody line\nLast line edited\n[comment] Looks good."
+    assert channel_match_violations(attack, edited, MARKER)
+    visible = f"Heading\nBody line\nLast line\n{MARKER}"
+    assert channel_match_violations(visible, inserted, MARKER)
+    assert channel_match_violations(visible, "Heading\nBody line\nLast\nFinal", MARKER)
+    assert (
+        channel_match_violations(visible, good.replace("[comment] ", ""), MARKER) == []
+    )
+    # Canonical rows may span lines, but only line-for-line in the same channel.
+    wrapped = f"Head\n{MARKER} aaaa\nbbbb"
+    assert (
+        channel_match_violations(
+            wrapped, "Head\nFinal draft\nwith thanks", MARKER, single_line=False
+        )
+        == []
+    )
+    assert channel_match_violations(
+        wrapped, "Head\n[comment] Final draft\nok", MARKER, single_line=False
+    )
+    assert channel_match_violations(
+        wrapped, "Head\nFinal draft\nok\nmore", MARKER, single_line=False
+    )

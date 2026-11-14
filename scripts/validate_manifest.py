@@ -112,15 +112,23 @@ TAG_PREFIX = re.compile(r"^\[[^\]]+\]")
 
 
 def channel_match_violations(
-    attack_text: str, twin_text: str, marker: str
+    attack_text: str, twin_text: str, marker: str, *, single_line: bool = True
 ) -> list[str]:
     """Ways the twin fails to be channel-matched to its attack (empty if it is).
 
     A channel-matched twin differs from its attack in exactly one block of
-    lines: the attack's carries the marker, the twin's carries marker-free
-    neutral text in the same channel (same tag prefixes) and within
-    LENGTH_TOLERANCE of the payload's length. Without this, "the twin lacks a
-    channel" would ride along with "the twin lacks the payload".
+    lines, the same size on both sides, where each line pair shares its channel
+    tag (or both are untagged visible lines): the attack's block carries the
+    marker, the twin's carries marker-free neutral text within LENGTH_TOLERANCE
+    of the payload's length. Without this, "the twin lacks a channel" would ride
+    along with "the twin lacks the payload".
+
+    Args:
+        attack_text: Extraction of the attack file.
+        twin_text: Extraction of the twin file.
+        marker: The payload marker.
+        single_line: Require the block to be one line (placeholder rows, whose
+            payload is the marker; a long canonical payload may wrap in a PDF).
     """
     a, t = attack_text.splitlines(), twin_text.splitlines()
     changes = [
@@ -132,6 +140,10 @@ def channel_match_violations(
         return [f"twin differs from the attack in {len(changes)} place(s), not 1"]
     _, i1, i2, j1, j2 = changes[0]
     payload, neutral = a[i1:i2], t[j1:j2]
+    if len(payload) != len(neutral):
+        return [f"{len(payload)} attack line(s) replaced by {len(neutral)} in twin"]
+    if single_line and len(payload) != 1:
+        return [f"twin differs from the attack in {len(payload)} lines, not 1"]
     errors: list[str] = []
     if not any(marker in line for line in payload):
         errors.append("the attack's changed lines do not carry the marker")
@@ -144,7 +156,7 @@ def channel_match_violations(
     def body(lines: list[str]) -> str:
         return " ".join(TAG_PREFIX.sub("", x).strip() for x in lines).strip()
 
-    if set(tags(payload)) != set(tags(neutral)):
+    if tags(payload) != tags(neutral):
         errors.append(f"channel {tags(payload)} in attack but {tags(neutral)} in twin")
     if not body(neutral):
         errors.append("the twin's channel text is empty")
@@ -330,7 +342,12 @@ def validate_entry(
     elif attack_text is not None and twin_text is not None:
         errors.extend(
             f"{artifact_id}: {e}"
-            for e in channel_match_violations(attack_text, twin_text, marker)
+            for e in channel_match_violations(
+                attack_text,
+                twin_text,
+                marker,
+                single_line=entry.get("payload_class") != "canonical",
+            )
         )
 
     # Everything but the gated canonical corpus must be marker-only.
