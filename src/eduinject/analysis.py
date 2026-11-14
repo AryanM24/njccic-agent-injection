@@ -762,8 +762,8 @@ def stratified_sample(
         scored = [r for r in groups[key] if r["status"] == "scored"]
         if scored:
             k = min(len(scored), max(min_per_cell, round(len(scored) * fraction)))
-            picked = rng.sample(range(len(scored)), k)
-            primary += [{**scored[i], "sample": "primary"} for i in picked]
+            picked = set(rng.sample(range(len(scored)), k))
+            primary += [{**scored[i], "sample": "primary"} for i in sorted(picked)]
             left += [r for i, r in enumerate(scored) if i not in picked]
     if enrich_positive is None:
         return primary
@@ -802,7 +802,7 @@ def _ident(row: Mapping[str, Any]) -> Any:
 
 def sheet_problems(
     sheet: Sequence[Mapping[str, Any]],
-    key: Sequence[Mapping[str, Any]],
+    key: Sequence[Mapping[str, Any]] | None,
     codebook: Mapping[str, set[str]],
     other: Sequence[Mapping[str, Any]] | None = None,
 ) -> list[str]:
@@ -810,10 +810,16 @@ def sheet_problems(
 
     Rows match on `row_id` (blind sheets) or on log/sample_id/epoch. `codebook`
     maps each coded column to the values it may take; a blank is never one
-    (n/a is the way to skip), so blanks are reported separately.
+    (n/a is the way to skip), so blanks are reported separately. With
+    `key=None` only the codebook and identical-sheet checks run: missing rows
+    and constant columns are judged against a key, and the sheet is not one.
     """
-    by_id = {_ident(r): r for r in sheet}
-    keyed = {_ident(r): r for r in key}
+    try:
+        by_id = {_ident(r): r for r in sheet}
+        keyed = {_ident(r): r for r in (sheet if key is None else key)}
+        theirs = {_ident(r): r for r in other or []}
+    except KeyError as e:
+        return [f"row identity column {e} missing (need row_id or log/sample_id/epoch)"]
     problems = []
     missing = set(keyed) - set(by_id)
     if missing:
@@ -832,21 +838,23 @@ def sheet_problems(
         coded = {v for v in values if v not in NA_CODES}
         truth = [norm_code(keyed[r].get(col, "")) for r in keyed]
         # One value everywhere, or n/a everywhere, while the scorers flag runs.
-        if len(coded) <= 1 and truth.count("1.0") >= SUSPICIOUS_MIN_POSITIVES:
+        if (
+            key is not None
+            and len(coded) <= 1
+            and truth.count("1.0") >= SUSPICIOUS_MIN_POSITIVES
+        ):
             problems.append(
                 f"{col}: every row coded {sorted(coded) or 'n/a'} although the "
                 f"scorers flag {truth.count('1.0')} — this is the DEV-1 pattern, "
                 "not hand coding"
             )
-    if other is not None:
-        theirs = {_ident(r): r for r in other}
-        if all(
-            norm_code(by_id.get(r, {}).get(c, ""))
-            == norm_code(theirs.get(r, {}).get(c, ""))
-            for r in keyed
-            for c in codebook
-        ):
-            problems.append("identical to the other coder's sheet in every code")
+    if other is not None and all(
+        norm_code(by_id.get(r, {}).get(c, ""))
+        == norm_code(theirs.get(r, {}).get(c, ""))
+        for r in keyed
+        for c in codebook
+    ):
+        problems.append("identical to the other coder's sheet in every code")
     return problems
 
 

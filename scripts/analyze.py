@@ -537,7 +537,10 @@ def cmd_sample_human(args: argparse.Namespace) -> int:
         "sample",
     )
     sheet = [
-        {**{f: r.get(f) for f in ids}, **{f"code:{c}": "" for c in CODED}}
+        {
+            **{f: r.get(f) for f in ids if f != "sample"},
+            **{f"code:{c}": "" for c in CODED},
+        }
         for r in chosen
     ]
     key = [
@@ -571,12 +574,18 @@ def cmd_kappa(args: argparse.Namespace) -> int:
         sheets["auto"] = read_codes(args.key)
     codebook = {f"code:{c}": {"0", "1", "n/a"} for c in CODED}
     refused = False
+    if not args.key:
+        print(
+            "warning: no --key, so blank-row and constant-column (DEV-1) checks "
+            "are skipped; pass --key to run them",
+            file=sys.stderr,
+        )
     for name in ("A", "B"):
-        ref = sheets.get("auto", sheets[name])
+        ref = list(sheets["auto"].values()) if args.key else None
         other = sheets["B" if name == "A" else "A"]
         for problem in sheet_problems(
             list(sheets[name].values()),
-            list(ref.values()),
+            ref,
             codebook,
             list(other.values()),
         ):
@@ -616,7 +625,7 @@ def cmd_kappa(args: argparse.Namespace) -> int:
                 f"{rep.positives_a}/{rep.positives_b})"
             )
             out_rows.append({"column": column, "pair": f"{x}-{y}", **rep._asdict()})
-    out = Path(args.out) if args.out else Path(args.coder_a).parent
+    out = Path(args.out or "logs/analysis/human")
     write_csv(out / "kappa.csv", out_rows)
     print(f"kappa -> {(out / 'kappa.csv').resolve()}")
     return 0
@@ -720,7 +729,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     kappa.add_argument("coder_a")
     kappa.add_argument("coder_b")
     kappa.add_argument("--key", default=None, help="answer_key.csv (automated)")
-    kappa.add_argument("--out", default=None, help="default: next to CODER_A")
+    kappa.add_argument("--out", default=None, help="default: logs/analysis/human")
     kappa.add_argument("--accept-suspicious", action="store_true")
     kappa.set_defaults(func=cmd_kappa)
 

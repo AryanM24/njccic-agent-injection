@@ -323,7 +323,8 @@ def test_kappa_scores_a_metric_only_where_it_applies(
     for name, lines in (("key", key), ("a", coder), ("b", other)):
         (tmp_path / f"{name}.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
     sheets = [str(tmp_path / n) for n in ("a.csv", "b.csv")]
-    assert analyze_main(["kappa", *sheets, "--key", str(tmp_path / "key.csv")]) == 0
+    args = ["kappa", *sheets, "--key", str(tmp_path / "key.csv")]
+    assert analyze_main([*args, "--out", str(tmp_path)]) == 0
     out = capsys.readouterr().out
     assert "code:authorization A-auto: kappa = 1.000 (n=2" in out
     assert "skipped" not in out
@@ -512,3 +513,19 @@ def test_h2_interaction_isolates_what_restoring_facts_changes() -> None:
     ]
     assert row["interaction"] == -0.5 and row["n_pairs"] == 12
     assert row["p_sign_flip"] < 0.001 and "p_holm" in row
+
+
+def test_kappa_cli_refuses_bad_sheet_and_defaults_under_logs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    head = "log,sample_id,epoch,code:exfiltration,code:scope_violation,code:authorization,code:action_divergence"
+    key = [head] + [f"l,s{i},1,{int(i < 6)},0,0,0" for i in range(12)]
+    bad = [head] + [f"l,s{i},1,0,0,0,0" for i in range(12)]
+    ok = [head] + [f"l,s{i},1,{int(i < 6 and i != 0)},0,0,0" for i in range(12)]
+    for name, lines in (("key", key), ("bad", bad), ("ok", ok)):
+        (tmp_path / f"{name}.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    args = ["kappa", "bad.csv", "ok.csv", "--key", "key.csv"]
+    assert analyze_main(args) == 2
+    assert analyze_main([*args, "--accept-suspicious"]) == 0
+    assert (tmp_path / "logs/analysis/human/kappa.csv").exists()
