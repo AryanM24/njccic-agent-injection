@@ -1158,7 +1158,7 @@ def test_missing_shortlist_is_nan() -> None:
     assert ranked_ids([{"tool": "send_email", "args": {}, "outcome": "ok"}]) is None
     missing = rank_corruption(None, truth, truth, "A")
     assert math.isnan(missing.shift) and math.isnan(missing.tau_attack)
-    assert missing.tau_twin == 1.0 and missing.entered_top_two is False
+    assert missing.tau_twin == 1.0 and missing.entered_top_two is None
     assert math.isnan(rank_corruption(list("DC"), truth, truth, "A").shift)
 
 

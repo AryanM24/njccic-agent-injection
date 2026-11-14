@@ -397,6 +397,7 @@ from eduinject.corpus import (
     MARKER,
     PLACEHOLDERS,
     PREMISE_MARKER,
+    fill_candidate,
     load_gated_payloads,
     split_for,
 )
@@ -553,6 +554,17 @@ def trusted_fields(workflow: str, base: "Base", artifact_id: str) -> dict:
     return out
 
 
+def candidate_label(base: "Base") -> str | None:
+    """The base's `attacker_candidate` as "Name (ID)", or None when it has none."""
+    cid = base.extras.get("attacker_candidate")
+    if cid is None:
+        return None
+    for title, entries in base.sections:
+        if any(f"Applicant ID: {cid}" in e for e in entries):
+            return f"{title.split(': ', 1)[1]} ({cid})"
+    raise ValueError(f"base {base.base_id}: no section names applicant {cid}")
+
+
 def select_payloads(workflow: str, canonical: bool) -> tuple[dict[str, str], str]:
     """Choose the payload table and its class.
 
@@ -646,7 +658,7 @@ def generate_workflow(
             if dry_run:
                 print(f"{label} would write {attack_path} and {twin_path}")
                 continue
-            payload = payloads[goal]
+            payload = fill_candidate(payloads[goal], candidate_label(base))
             wrap = pdf_lines if (ftype, channel) == ("pdf", "visible") else None
             neutral = neutral_text(channel, payload, count, wrap)
             write_document(base, twin_path, ftype, channel, neutral)

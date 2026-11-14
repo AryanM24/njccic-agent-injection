@@ -82,7 +82,7 @@ def test_controls_manifest_validates_clean(
 
 
 @pytest.mark.parametrize("workflow", sorted(PUBLIC))
-def test_each_workflow_has_four_bases_with_the_intended_matrix(
+def test_each_workflow_has_its_bases_with_the_intended_matrix(
     workflow: str, generated_corpus: Path
 ) -> None:
     rows = _rows(_generated(generated_corpus, workflow))
@@ -782,3 +782,90 @@ def test_new_bases_ground_truth(base_id: str, generated_corpus: Path) -> None:
     text = extract(generated_corpus / rows[0]["twin_path"])
     assert all(c.candidate_id in text for c in facts)
     assert "5 candidates" in text
+
+
+def _candidate_table() -> dict[str, dict[str, str]]:
+    """A valid fake gated table whose W2 texts use the candidate token."""
+    table = _table(PLACEHOLDERS)
+    table["w2"] = {
+        goal: f"{text} Reference line for {corpus.CANDIDATE_TOKEN}."
+        for goal, text in PLACEHOLDERS.items()
+    }
+    return table
+
+
+def _fake_payloads(monkeypatch: pytest.MonkeyPatch, table: dict) -> None:
+    fake = types.ModuleType("eduinject.corpus.payloads")
+    fake.PAYLOADS = table  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "eduinject.corpus.payloads", fake)
+    monkeypatch.setattr(corpus, "payloads", fake, raising=False)
+
+
+def test_candidate_token_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    table = _candidate_table()
+    assert payload_problems(table) == []
+    table["w1"]["data_theft"] += f" {corpus.CANDIDATE_TOKEN}"
+    (problem,) = payload_problems(table)
+    assert "w1" in problem and corpus.CANDIDATE_TOKEN in problem
+    assert all(corpus.CANDIDATE_TOKEN not in t for t in PLACEHOLDERS.values())
+    with pytest.raises(ValueError, match="attacker_candidate"):
+        corpus.fill_candidate(f"x {corpus.CANDIDATE_TOKEN}", None)
+
+
+def test_generator_fills_the_attacker_candidate(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import _corpus_bases
+    import _fixtures_common
+    from validate_manifest import validate_entry
+
+    _fake_payloads(monkeypatch, _candidate_table())
+    rows = _fixtures_common.generate_workflow(
+        workflow="w2",
+        stem="resume",
+        bases=[_corpus_bases.W2_B5],
+        canonical=True,
+        out_root=tmp_path,
+    )
+    root = tmp_path / "corpus" / "canonical" / "w2"
+    attack = extract(root / Path(rows[0]["artifact_path"]).name)
+    assert "Rafael D. Montenegro (HM04-133)" in attack
+    assert corpus.CANDIDATE_TOKEN not in attack
+    with pytest.raises(ValueError, match="attacker_candidate"):
+        _fixtures_common.generate_workflow(
+            workflow="w2",
+            stem="resume",
+            bases=[_corpus_bases.W2_B1],
+            canonical=True,
+            out_root=tmp_path / "b1",
+        )
+
+    monkeypatch.setattr(_fixtures_common, "fill_candidate", lambda text, _: text)
+    (row, *_) = _fixtures_common.generate_workflow(
+        workflow="w2",
+        stem="resume",
+        bases=[_corpus_bases.W2_B5],
+        canonical=True,
+        out_root=tmp_path / "raw",
+    )
+    errors = validate_entry(row, 1, set(), tmp_path / "raw" / "corpus")
+    assert any("unfilled" in e for e in errors), errors
+
+
+def test_validator_checks_true_ranking(generated_corpus: Path) -> None:
+    def bad(mutate: Any) -> list[str]:
+        from validate_manifest import validate_entry
+
+        row = _base_row(generated_corpus, "w2", "b5")
+        mutate(row)
+        return validate_entry(row, 1, set(), generated_corpus)
+
+    assert bad(lambda r: None) == []
+    assert any(
+        "true_ranking" in e
+        for e in bad(lambda r: r.update(true_ranking=r["true_ranking"][:4]))
+    )
+    assert any(
+        "attacker_candidate" in e
+        for e in bad(lambda r: r.update(attacker_candidate="HM04-999"))
+    )

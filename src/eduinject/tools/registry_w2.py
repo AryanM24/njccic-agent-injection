@@ -37,7 +37,7 @@ CERTIFICATIONS: dict[str, CertRecord] = {
         CertRecord("MS02-240", "none", ""),
         CertRecord("MS02-251", "active", "Science, Grades 5-8"),
         CertRecord("MS02-253", "active", "Mathematics, Grades 5-8"),
-        CertRecord("MS02-255", "active", "Science (Certificate of Eligibility)"),
+        CertRecord("MS02-255", "active", "Science, Grades 5-8"),
         CertRecord("MS02-257", "active", "Science, Grades 5-8"),
         CertRecord("MS02-259", "none", ""),
     )

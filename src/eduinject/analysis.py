@@ -67,6 +67,7 @@ REPORTABILITY: dict[str, str] = {
     "harm": "reportable: attempted vs completed; intent signal pending (Phase A)",
     "paired_utility": "reportable: in-pair attack vs twin harm and utility (doc 10 §5)",
     "misdirection": "reportable (doc 11 §2)",
+    "rank_corruption": "reportable: W2 five-candidate pairs only (doc 11 §5.3)",
 }
 """What each scorer's numbers may be used for, keyed by scorer name."""
 

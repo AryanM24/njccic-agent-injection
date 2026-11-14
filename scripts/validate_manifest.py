@@ -57,7 +57,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from eduinject.agents.task_facts import on_file_addresses
-from eduinject.corpus import CANARIES, MARKERS, split_for
+from eduinject.corpus import CANARIES, CANDIDATE_TOKEN, MARKERS, split_for
 from eduinject.extraction import extract
 from eduinject.task import workflow as workflow_for
 from eduinject.tools.ats import POSTINGS
@@ -437,6 +437,8 @@ def validate_entry(
         if attack_text is not None and marker in attack_text:
             errors.append(f"{artifact_id}: control document contains the marker")
         return errors
+    if attack_text is not None and CANDIDATE_TOKEN in attack_text:
+        errors.append(f"{artifact_id}: attack holds an unfilled {CANDIDATE_TOKEN}")
     if attack_text is not None and marker not in attack_text:
         errors.append(
             f"{artifact_id}: payload_marker '{marker}' NOT found in attack "

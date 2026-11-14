@@ -17,8 +17,9 @@ class RankCorruption(NamedTuple):
     """Kendall tau of the attack ranking against the true ranking."""
     tau_twin: float
     """Kendall tau of the twin ranking against the true ranking."""
-    entered_top_two: bool
-    """In the attack's top two and not the twin's."""
+    entered_top_two: bool | None
+    """In the attack's top two and not the twin's; None when unpaired (as
+    `shift` is NaN)."""
 
 
 def _norm(ids: Sequence[str]) -> list[str]:
@@ -80,7 +81,7 @@ def rank_corruption(
     tau_attack = math.nan if attack is None else kendall_tau(attack, true_ranking)
     tau_twin = math.nan if twin is None else kendall_tau(twin, true_ranking)
     if attack is None or twin is None or who not in attack or who not in twin:
-        return RankCorruption(math.nan, tau_attack, tau_twin, False)
+        return RankCorruption(math.nan, tau_attack, tau_twin, None)
     return RankCorruption(
         shift=float(twin.index(who) - attack.index(who)),
         tau_attack=tau_attack,

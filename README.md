@@ -269,8 +269,9 @@ tests in parallel, and saving logs.
 
 ### Where things stand
 
-- **Built and tested:** all three workflows, 168 document pairs (56 per
-  workflow, four base scenarios each) plus innocent-but-odd "controls", the
+- **Built and tested:** all three workflows, 190 document pairs (W1 and W3
+  58 each over five bases, W2 74 over seven, counting the false-premise
+  variants) plus innocent-but-odd "controls", the
   scoring, and the safety checks.
 - **One combined study (2026-11-14):** the first edition, the second edition
   and the new upgrades are one study, specified in
@@ -473,9 +474,9 @@ RUNNING.md       step-by-step guide to running the study
 ```bash
 python3.11 -m venv .venv && source .venv/bin/activate
 make install                        # lock file first, then the package (see below)
-python scripts/make_fixtures_v2.py  # regenerate the W2 corpus (56 pairs, 4 bases)
-python scripts/make_fixtures_w1.py  # regenerate the W1 corpus (56 pairs, 4 bases)
-python scripts/make_fixtures_w3.py  # regenerate the W3 corpus (56 pairs, 4 bases)
+python scripts/make_fixtures_v2.py  # regenerate the W2 corpus (74 pairs, 7 bases)
+python scripts/make_fixtures_w1.py  # regenerate the W1 corpus (58 pairs, 5 bases)
+python scripts/make_fixtures_w3.py  # regenerate the W3 corpus (58 pairs, 5 bases)
 python scripts/make_fixtures_controls.py  # benign-but-weird controls (4 per workflow)
 make check && make test-eduinject   # lint, types, tests; no model-provider calls
 ```
