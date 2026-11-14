@@ -2,10 +2,13 @@
 
 These guard the two things every later measurement rests on: that the parsers
 are the pinned ones, and that each attack/twin pair differs by the payload and
-nothing else.
+nothing else: the twin carries length-matched neutral text in the attack's
+channel, so the pair differs in content, not in channel structure (A-11).
 """
 
 import json
+import re
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -14,76 +17,49 @@ import pytest
 from eduinject.config import assert_extraction_pinned
 from eduinject.extraction import extract
 
-ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = ROOT / "corpus" / "manifest_w2.jsonl"
+TAG = re.compile(r"^\[(?:metadata|property|comment|alt-text)[^\]]*\]")
+"""The channel-tag prefixes extraction puts on non-visible channels."""
 
 
-def _manifest_entries() -> list[dict[str, Any]]:
-    lines = MANIFEST.read_text(encoding="utf-8").splitlines()
-    return [json.loads(line) for line in lines if line.strip()]
+def _pairs(root: Path, workflow: str) -> Iterator[tuple[dict[str, Any], str, str]]:
+    manifest = root / "corpus" / f"manifest_{workflow}.jsonl"
+    for line in manifest.read_text(encoding="utf-8").splitlines():
+        row = json.loads(line)
+        yield (
+            row,
+            extract(root / row["artifact_path"]),
+            extract(root / row["twin_path"]),
+        )
 
 
-MANIFEST_ENTRIES = _manifest_entries()
-
-W1_MANIFEST = ROOT / "corpus" / "manifest_w1.jsonl"
-W3_MANIFEST = ROOT / "corpus" / "manifest_w3.jsonl"
-
-
-def _entries(manifest: Path) -> list[dict[str, Any]]:
-    lines = manifest.read_text(encoding="utf-8").splitlines()
-    return [json.loads(line) for line in lines if line.strip()]
-
-
-W1_ENTRIES = _entries(W1_MANIFEST)
-W3_ENTRIES = _entries(W3_MANIFEST)
+def _tags(text: str) -> set[str]:
+    return {m.group(0) for line in text.splitlines() if (m := TAG.match(line))}
 
 
 def test_stack_is_pinned() -> None:
     assert_extraction_pinned()
 
 
-@pytest.mark.parametrize(
-    "entry", MANIFEST_ENTRIES, ids=[e["artifact_id"] for e in MANIFEST_ENTRIES]
-)
-def test_attack_and_twin(entry: dict[str, Any]) -> None:
-    marker = entry["payload_marker"]
-    attack = extract(ROOT / entry["artifact_path"])
-    twin = extract(ROOT / entry["twin_path"])
-
-    assert marker in attack, "payload marker did not survive extraction"
-    assert marker not in twin, "benign twin is contaminated with the marker"
-
-    # A twin that drifted by more than the payload would silently corrupt every
-    # difference-based outcome, so bound how far apart the pair may be.
-    ratio = len(twin) / len(attack)
-    assert 0.85 < ratio < 1.0, f"twin/attack length ratio {ratio:.4f} out of range"
+@pytest.mark.parametrize("workflow", ["w1", "w2", "w3"])
+def test_twin_has_same_channel_lines(workflow: str, generated_corpus: Path) -> None:
+    for row, attack, twin in _pairs(generated_corpus, workflow):
+        marker = row["payload_marker"]
+        assert marker in attack, row["artifact_id"]
+        assert marker not in twin, row["artifact_id"]
+        assert _tags(twin) == _tags(attack), row["artifact_id"]
 
 
-@pytest.mark.parametrize(
-    "entry", W1_ENTRIES, ids=[e["artifact_id"] for e in W1_ENTRIES]
-)
-def test_attack_and_twin_w1(entry: dict[str, Any]) -> None:
-    marker = entry["payload_marker"]
-    attack = extract(ROOT / entry["artifact_path"])
-    twin = extract(ROOT / entry["twin_path"])
-
-    assert marker in attack, "payload marker did not survive extraction"
-    assert marker not in twin, "benign twin is contaminated with the marker"
-
-    ratio = len(twin) / len(attack)
-    assert 0.85 < ratio < 1.0, f"twin/attack length ratio {ratio:.4f} out of range"
-
-
-@pytest.mark.parametrize(
-    "entry", W3_ENTRIES, ids=[e["artifact_id"] for e in W3_ENTRIES]
-)
-def test_attack_and_twin_w3(entry: dict[str, Any]) -> None:
-    marker = entry["payload_marker"]
-    attack = extract(ROOT / entry["artifact_path"])
-    twin = extract(ROOT / entry["twin_path"])
-
-    assert marker in attack, "payload marker did not survive extraction"
-    assert marker not in twin, "benign twin is contaminated with the marker"
-
-    ratio = len(twin) / len(attack)
-    assert 0.85 < ratio < 1.0, f"twin/attack length ratio {ratio:.4f} out of range"
+@pytest.mark.parametrize("workflow", ["w1", "w2", "w3"])
+def test_twin_differs_only_in_channel_line(
+    workflow: str, generated_corpus: Path
+) -> None:
+    for row, attack, twin in _pairs(generated_corpus, workflow):
+        a, t = attack.splitlines(), twin.splitlines()
+        assert len(a) == len(t), row["artifact_id"]
+        diff = [(x, y) for x, y in zip(a, t) if x != y]
+        assert len(diff) == 1, row["artifact_id"]
+        payload_line, neutral_line = diff[0]
+        assert row["payload_marker"] in payload_line, row["artifact_id"]
+        prefix = m.group(0) if (m := TAG.match(payload_line)) else ""
+        assert neutral_line.startswith(prefix), row["artifact_id"]
+        assert neutral_line[len(prefix) :].strip(), row["artifact_id"]

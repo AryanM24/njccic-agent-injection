@@ -11,13 +11,14 @@ Checks, in order:
   6. payload_marker appears in the attack extraction and does NOT appear in
      the twin extraction — this is the check that actually proves a fixture
      pair means what its manifest line claims.
-  7. Twin/attack extracted-length ratio is within (0.85, 1.0) — a twin that
-     drifted by more than the payload would silently corrupt every
-     difference-based outcome.
+  7. The twin is channel-matched (A-11): it differs from the attack in one
+     block only, carrying marker-free neutral text in the payload's channel,
+     length-matched to the payload (see `channel_match_violations`). A twin
+     that drifted elsewhere would silently corrupt every difference-based
+     outcome.
   8. Placeholder rows are marker-only: every extracted line present in the
-     attack but absent from the twin contains the marker (the one tolerated
-     exception is the alt-text channel's picture name). This is the check that
-     keeps instruction wording out of the public corpus (README C3).
+     attack but absent from the twin contains the marker. This is the check
+     that keeps instruction wording out of the public corpus (README C3).
   9. Optional fields, when present, have the right types; `kind: "control"`
      rows (benign-but-weird controls) must NOT contain the marker and must carry
      an `expect` block.
@@ -39,6 +40,7 @@ rather than "something's wrong, try again."
 
 from __future__ import annotations
 
+import difflib
 import json
 import re
 import sys
@@ -103,9 +105,57 @@ the extraction channel's tag (`[comment]`, `[metadata /Subject]`, ...)."""
 
 SUPPORTED_SUFFIXES = {".pdf", ".docx", ".txt", ".md"}
 
-RATIO_MIN = 0.85
-RATIO_MAX = 1.0
-"""Twin/attack extracted-length ratio bound — see validate_entry()'s check 7."""
+LENGTH_TOLERANCE = 0.15
+"""How far the twin's neutral text may stray from the payload's length (A-11)."""
+
+TAG_PREFIX = re.compile(r"^\[[^\]]+\]")
+
+
+def channel_match_violations(
+    attack_text: str, twin_text: str, marker: str
+) -> list[str]:
+    """Ways the twin fails to be channel-matched to its attack (empty if it is).
+
+    A channel-matched twin differs from its attack in exactly one block of
+    lines: the attack's carries the marker, the twin's carries marker-free
+    neutral text in the same channel (same tag prefixes) and within
+    LENGTH_TOLERANCE of the payload's length. Without this, "the twin lacks a
+    channel" would ride along with "the twin lacks the payload".
+    """
+    a, t = attack_text.splitlines(), twin_text.splitlines()
+    changes = [
+        op
+        for op in difflib.SequenceMatcher(None, a, t, autojunk=False).get_opcodes()
+        if op[0] != "equal"
+    ]
+    if len(changes) != 1 or changes[0][0] != "replace":
+        return [f"twin differs from the attack in {len(changes)} place(s), not 1"]
+    _, i1, i2, j1, j2 = changes[0]
+    payload, neutral = a[i1:i2], t[j1:j2]
+    errors: list[str] = []
+    if not any(marker in line for line in payload):
+        errors.append("the attack's changed lines do not carry the marker")
+    if any(marker in line for line in neutral):
+        errors.append("the twin's changed lines carry the marker")
+
+    def tags(lines: list[str]) -> list[str]:
+        return [m.group(0) if (m := TAG_PREFIX.match(x)) else "" for x in lines]
+
+    def body(lines: list[str]) -> str:
+        return " ".join(TAG_PREFIX.sub("", x).strip() for x in lines).strip()
+
+    if set(tags(payload)) != set(tags(neutral)):
+        errors.append(f"channel {tags(payload)} in attack but {tags(neutral)} in twin")
+    if not body(neutral):
+        errors.append("the twin's channel text is empty")
+    elif abs(len(body(neutral)) - len(body(payload))) > LENGTH_TOLERANCE * len(
+        body(payload)
+    ):
+        errors.append(
+            f"neutral text is {len(body(neutral))} chars against a "
+            f"{len(body(payload))}-char payload"
+        )
+    return errors
 
 
 def marker_only_violations(attack_text: str, twin_text: str, marker: str) -> list[str]:
@@ -113,13 +163,14 @@ def marker_only_violations(attack_text: str, twin_text: str, marker: str) -> lis
     not marker-bearing.
 
     An empty result means the attack differs from its twin by the marker alone,
-    i.e. no instruction wording is present. The alt-text channel adds a picture,
-    whose `[alt-text name]` line is the one tolerated non-marker difference.
+    i.e. no instruction wording is present. The twin's own neutral line is not
+    an attack line, so it never counts; and since the twin carries the same
+    channel (an alt-text twin has the same picture), no channel line is excused.
     """
     twin_lines = set(twin_text.splitlines())
 
     def explained(line: str) -> bool:
-        if line in twin_lines or line.startswith("[alt-text name]"):
+        if line in twin_lines:
             return True
         if marker not in line:
             return False
@@ -273,19 +324,14 @@ def validate_entry(
             "extraction — this pair can't measure a false-positive rate"
         )
 
-    # 7. Twin/attack length ratio. A twin that drifted by more than the
-    # payload would silently corrupt every difference-based outcome, so
-    # bound how far apart the pair may be — mirrors
-    # tests/test_extraction.py::test_attack_and_twin.
+    # 7. Channel-matched twin.
     if attack_text == "":
         errors.append(f"{artifact_id}: attack extraction is empty")
     elif attack_text is not None and twin_text is not None:
-        ratio = len(twin_text) / len(attack_text)
-        if not (RATIO_MIN < ratio < RATIO_MAX):
-            errors.append(
-                f"{artifact_id}: twin/attack length ratio {ratio:.4f} out of "
-                f"range ({RATIO_MIN} < ratio < {RATIO_MAX})"
-            )
+        errors.extend(
+            f"{artifact_id}: {e}"
+            for e in channel_match_violations(attack_text, twin_text, marker)
+        )
 
     # Everything but the gated canonical corpus must be marker-only.
     if (

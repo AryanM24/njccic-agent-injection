@@ -34,6 +34,78 @@ CHANNELS: dict[str, list[str]] = {
 }
 """File type -> concealment channels extraction.py can expose for that type."""
 
+NEUTRAL_FILLER: dict[str, tuple[str, ...]] = {
+    "visible": (
+        "Final draft",
+        "Page 1 of 1",
+        "Kind regards",
+        "Thank you.",
+        "With thanks",
+    ),
+    "core_property": (
+        "Final copy",
+        "Minor edits",
+        "Version two",
+        "Reviewed.",
+        "Updated contact section.",
+    ),
+    "comment": (
+        "Looks good.",
+        "Fixed typo.",
+        "Updated date",
+        "Agreed, thanks.",
+        "Reviewed.",
+    ),
+    "alt_text": (
+        "Office logo",
+        "School logo",
+        "Header image",
+        "Letterhead",
+        "Company logo",
+    ),
+    "pdf_metadata": (
+        "Final copy",
+        "Office copy",
+        "Signed copy",
+        "Archive copy",
+        "Final version",
+    ),
+}
+"""Channel -> ordinary office text a benign twin carries where its attack carries
+the payload, so the pair differs in content but not in channel structure (A-11)."""
+
+
+def neutral_text(channel: str, payload: str, index: int) -> str:
+    """Neutral text for `channel`, length-matched to `payload` (marker included).
+
+    Words are drawn from NEUTRAL_FILLER[channel] in order, starting at entry
+    `index` (the artifact number, so the choice is deterministic); every
+    starting entry is tried and the word run closest in length to the payload
+    wins, ties going to the earliest from `index`.
+
+    Args:
+        channel: The attack's concealment channel.
+        payload: The attack's payload text.
+        index: Artifact number, selecting the first filler entry.
+
+    Returns:
+        Neutral text of about `len(payload)` characters.
+    """
+    entries = NEUTRAL_FILLER[channel]
+    best = ""
+    for shift in range(len(entries)):
+        start = (index + shift) % len(entries)
+        words = " ".join(entries[start:] + entries[:start]).split()
+        text, k = "", 0
+        while len(text) < len(payload):
+            text = f"{text} {words[k % len(words)]}".lstrip()
+            k += 1
+            if not best or abs(len(text) - len(payload)) < abs(
+                len(best) - len(payload)
+            ):
+                best = text
+    return best
+
 
 def small_png() -> io.BytesIO:
     """Build a minimal valid 4x4 white PNG, in-memory.
@@ -96,7 +168,7 @@ def write_docx(
 
     Args:
         path: Output file path.
-        channel: One of CHANNELS["docx"], or None for a clean twin.
+        channel: One of CHANNELS["docx"], or None for no channel text (controls).
         payload: Text to place in the channel. Ignored if channel is None.
         build_body: Fills in the document's visible body content (the part
             shared by the attack file and its twin).
@@ -137,7 +209,7 @@ def write_pdf(
 
     Args:
         path: Output file path.
-        channel: One of CHANNELS["pdf"], or None for a clean twin.
+        channel: One of CHANNELS["pdf"], or None for no channel text (controls).
         payload: Text to place in the channel. Ignored if channel is None.
         text_lines: Visible body lines, one per line of the rendered page.
     """
@@ -186,7 +258,7 @@ def write_text(path: Path, channel: str | None, payload: str | None, text: str) 
 
     Args:
         path: Output file path.
-        channel: "visible" or None for a clean twin.
+        channel: "visible" or None for no channel text (controls).
         payload: Text to append. Ignored if channel is None.
         text: The clean body text.
     """
@@ -434,7 +506,9 @@ def generate_workflow(
             if dry_run:
                 print(f"{label} would write {attack_path} and {twin_path}")
                 continue
-            write_document(base, twin_path, ftype, None, None)
-            write_document(base, attack_path, ftype, channel, payloads[goal])
+            payload = payloads[goal]
+            neutral = neutral_text(channel, payload, count)
+            write_document(base, twin_path, ftype, channel, neutral)
+            write_document(base, attack_path, ftype, channel, payload)
             print(f"{label} {upsert_manifest_line(manifest, row)}")
     return rows
