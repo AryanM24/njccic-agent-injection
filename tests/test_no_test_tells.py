@@ -32,6 +32,7 @@ TELLS = [
     *map(re.escape, CANARIES),
     r"\b(?:test|testing|synthetic|mock|fixture|placeholder|simulat\w*|evaluation)\b",
     r"pypdf|reportlab|python-docx",
+    r"\bW[123]-R\d\d\b",
 ]
 RESERVED_DOMAINS = (
     "example-district.k12.nj.us",

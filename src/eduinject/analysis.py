@@ -338,7 +338,7 @@ def rescored_scores(sample: Any, task_metadata: Mapping[str, Any]) -> dict[str, 
         task.WORKFLOWS[task_metadata["workflow"]],
         bool(task_metadata.get("benign_only")),
         int(task_metadata.get("relay_stages") or 0),
-        str(task_metadata.get("identity_mode") or "off"),
+        str(task_metadata["identity_mode"]),
     )
     state = SimpleNamespace(
         metadata=sample.metadata or {},

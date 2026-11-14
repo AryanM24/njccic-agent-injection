@@ -9,13 +9,17 @@ Tier 1):
 
     violations.csv    one row per rule violation (step, tool, args, reason,
                       origin stage)
-    runs.csv          one row per run: violated rules, first violation, and
-                      the authorization / exfiltration / scope_violation
-                      outcomes recomputed from the run's ledger
+    runs.csv          one row per run: status, violated rules, first
+                      violation, and the authorization / exfiltration /
+                      scope_violation outcomes recomputed from the run's ledger
     cell_rules.csv    per cell (analysis.CELL_FIELDS), run label and rule: runs,
-                      runs violating it, rate
+                      runs violating it, rate, and runs excluded for status
     disagreements.csv runs where the monitor (any violation) and one of those
                       scorers differ, both values listed
+
+Runs whose record status is not "ok" (doc unavailable, handoff parse error)
+appear in runs.csv with their status only and are excluded from violations,
+rates and disagreements.
 
 Disagreements are for review: rules are never edited to remove them. Nothing
 here contacts a model.
@@ -103,6 +107,7 @@ def main(argv: list[str] | None = None) -> int:
     disagreements: list[dict[str, Any]] = []
     cell_runs: Counter[tuple[Any, ...]] = Counter()
     cell_hits: Counter[tuple[Any, ...]] = Counter()
+    cell_excluded: Counter[tuple[Any, ...]] = Counter()
     for cell, sample in finished_samples(args.log_dirs):
         recorded = (sample.metadata or {}).get(RUNS_KEY) or {}
         for rec in records_from_sample(sample, cell):
@@ -111,7 +116,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.split and rec.coords.get("split") != args.split:
                 continue
             rules = RULES[rec.cell["workflow"]]
-            result = monitor(rec, rules)
+            key = (*(rec.cell.get(f) for f in CELL_FIELDS), rec.label)
             base = {
                 **{f: rec.cell.get(f) for f in CELL_FIELDS},
                 "label": rec.label,
@@ -120,6 +125,13 @@ def main(argv: list[str] | None = None) -> int:
                 "epoch": rec.epoch,
                 "split": rec.coords.get("split"),
             }
+            if rec.status != "ok":
+                # Not auditable (no document, broken handoff): counted, not rated.
+                runs.append({**base, "status": rec.status, "calls": len(rec.calls)})
+                for rule in rules:
+                    cell_excluded[(*key, rule.id)] += 1
+                continue
+            result = monitor(rec, rules)
             for v in result.violations:
                 violations.append(
                     {
@@ -130,6 +142,7 @@ def main(argv: list[str] | None = None) -> int:
                         "tool": v.tool,
                         "args": json.dumps(v.args, sort_keys=True, default=str),
                         "reason": v.reason,
+                        "values": ";".join(v.values),
                         "origin_stage": v.origin_stage,
                     }
                 )
@@ -161,7 +174,6 @@ def main(argv: list[str] | None = None) -> int:
                             "monitor_rule_ids": ";".join(hit),
                         }
                     )
-            key = (*(rec.cell.get(f) for f in CELL_FIELDS), rec.label)
             for rule in rules:
                 cell_runs[(*key, rule.id)] += 1
                 cell_hits[(*key, rule.id)] += rule.id in hit
@@ -169,11 +181,12 @@ def main(argv: list[str] | None = None) -> int:
     cell_rows = [
         {
             **dict(zip((*CELL_FIELDS, "label", "rule_id"), k, strict=True)),
-            "runs": n,
+            "runs": cell_runs[k],
             "violated": cell_hits[k],
-            "rate": cell_hits[k] / n,
+            "rate": cell_hits[k] / cell_runs[k] if cell_runs[k] else "",
+            "excluded": cell_excluded[k],
         }
-        for k, n in sorted(cell_runs.items(), key=lambda kv: tuple(map(str, kv[0])))
+        for k in sorted(cell_runs | cell_excluded, key=lambda k: tuple(map(str, k)))
     ]
     out.mkdir(parents=True, exist_ok=True)
     base_fields = (*CELL_FIELDS, *KEY_FIELDS)
@@ -188,6 +201,7 @@ def main(argv: list[str] | None = None) -> int:
             "tool",
             "args",
             "reason",
+            "values",
             "origin_stage",
         ),
     )
@@ -209,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
     _write(
         out / "cell_rules.csv",
         cell_rows,
-        (*CELL_FIELDS, "label", "rule_id", "runs", "violated", "rate"),
+        (*CELL_FIELDS, "label", "rule_id", "runs", "violated", "rate", "excluded"),
     )
     _write(
         out / "disagreements.csv",

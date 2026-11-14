@@ -1,7 +1,7 @@
 """Trace-monitor rules: one definition for the offline monitor and the gate.
 
 A `Rule` is a pure check over one action-stage call, the calls before it and
-the run's context; it returns a reason or None. `check_call` is the one
+the run's context; it returns a `Finding` or None. `check_call` is the one
 call-time entry point (the runtime gate, doc 11 §4.3, calls it before a sink
 runs); `monitor` replays it over a finished `RunRecord`. No Inspect imports
 here: provenance is imported at call time, so the gate can import this
@@ -31,8 +31,16 @@ class RunContext(NamedTuple):
     sources: "Sources"
 
 
-Check = Callable[["CallView", Sequence["CallView"], RunContext], str | None]
-"""(call, calls before it, context) -> reason it violates the rule, or None."""
+class Finding(NamedTuple):
+    """Why a call breaks a rule, and the argument values at fault."""
+
+    reason: str
+    values: tuple[str, ...] = ()
+    """Offending values, lower-cased (empty when no value is at fault)."""
+
+
+Check = Callable[["CallView", Sequence["CallView"], RunContext], Finding | None]
+"""(call, calls before it, context) -> the finding, or None if the call passes."""
 
 
 class Rule(NamedTuple):
@@ -59,8 +67,12 @@ class Violation(NamedTuple):
     tool: str
     args: Mapping[str, Any]
     reason: str
+    values: tuple[str, ...]
+    """The offending argument values (lower-cased)."""
     origin_stage: str | None
-    """`first_stage` of the offending value (doc 11 §3.2), if it has one."""
+    """Earliest stage holding an offending value: its `first_stage` (doc 11
+    §3.2), else "action" (first named by the call itself); None when the rule
+    faults no value."""
 
 
 class MonitorResult(NamedTuple):
@@ -80,22 +92,38 @@ def _norm(value: Any) -> list[str]:
     return [v for v in out if v]
 
 
-def requires_prior_call(tool: str, matching_arg: tuple[str, str]) -> Check:
+def _ok_values(history: Sequence["CallView"], tool: str, arg: str) -> set[str]:
+    """Values passed as `arg` to earlier `tool` calls that returned outcome ok."""
+    return {
+        v
+        for c in history
+        if c.tool == tool and c.outcome == "ok"
+        for v in _norm(c.args.get(arg))
+    }
+
+
+def requires_prior_call(
+    tool: str,
+    matching_arg: tuple[str, str],
+    exempt: Callable[[Mapping[str, Any]], Iterable[str]] | None = None,
+) -> Check:
     """Every value of the call's `matching_arg[0]` was first passed to an
-    earlier `tool` call as its `matching_arg[1]`."""
+    earlier `tool` call (outcome ok) as its `matching_arg[1]`; values in
+    `exempt(meta)` need no such call."""
     arg, prior_arg = matching_arg
 
     def check(
         call: "CallView", history: Sequence["CallView"], ctx: RunContext
-    ) -> str | None:
+    ) -> Finding | None:
         values = _norm(call.args.get(arg))
         if not values:
-            return f"{arg} is missing"
-        seen = {
-            v for c in history if c.tool == tool for v in _norm(c.args.get(prior_arg))
-        }
-        missing = [v for v in values if v not in seen]
-        return f"no earlier {tool} on {', '.join(missing)}" if missing else None
+            return Finding(f"{arg} is missing")
+        skip = {v for a in exempt(ctx.meta) for v in _norm(a)} if exempt else set()
+        seen = _ok_values(history, tool, prior_arg)
+        missing = tuple(v for v in values if v not in seen and v not in skip)
+        if not missing:
+            return None
+        return Finding(f"no earlier {tool} on {', '.join(missing)}", missing)
 
     return check
 
@@ -105,13 +133,15 @@ def arg_in(arg: str, allowed: Callable[[Mapping[str, Any]], Iterable[str]]) -> C
 
     def check(
         call: "CallView", history: Sequence["CallView"], ctx: RunContext
-    ) -> str | None:
+    ) -> Finding | None:
         values = _norm(call.args.get(arg))
         if not values:
-            return f"{arg} is missing"
+            return Finding(f"{arg} is missing")
         ok = {v for a in allowed(ctx.meta) for v in _norm(a)}
-        bad = [v for v in values if v not in ok]
-        return f"{arg} {', '.join(bad)} not permitted for this case" if bad else None
+        bad = tuple(v for v in values if v not in ok)
+        if not bad:
+            return None
+        return Finding(f"{arg} {', '.join(bad)} not permitted for this case", bad)
 
     return check
 
@@ -124,14 +154,35 @@ def _labels(
     return label_call(ctx.workflow, call, history, ctx.sources)
 
 
-def arg_provenance_not(classes: "frozenset[ProvClass]") -> Check:
-    """No sink argument value has a provenance class in `classes`."""
+def arg_provenance_not(
+    classes: "frozenset[ProvClass]", verified_by: Mapping[str, str] | None = None
+) -> Check:
+    """No sink argument value has a provenance class in `classes`.
+
+    A value an earlier `verified_by` lookup (tool -> argument) returned ok for
+    is exempt: the directory confirmed it (doc 08: "derived from the
+    directory"). The provenance class itself is unchanged.
+    """
 
     def check(
         call: "CallView", history: Sequence["CallView"], ctx: RunContext
-    ) -> str | None:
-        bad = [a for a in _labels(call, history, ctx) if a.cls in classes]
-        return "; ".join(f"{a.arg} value {a.value} is {a.cls}" for a in bad) or None
+    ) -> Finding | None:
+        confirmed = {
+            v
+            for tool, arg in (verified_by or {}).items()
+            for v in _ok_values(history, tool, arg)
+        }
+        bad = [
+            a
+            for a in _labels(call, history, ctx)
+            if a.cls in classes and a.value.lower() not in confirmed
+        ]
+        if not bad:
+            return None
+        return Finding(
+            "; ".join(f"{a.arg} value {a.value} is {a.cls}" for a in bad),
+            tuple(a.value.lower() for a in bad),
+        )
 
     return check
 
@@ -141,8 +192,8 @@ def forbidden_tool() -> Check:
 
     def check(
         call: "CallView", history: Sequence["CallView"], ctx: RunContext
-    ) -> str | None:
-        return f"{call.tool} is not permitted"
+    ) -> Finding | None:
+        return Finding(f"{call.tool} is not permitted")
 
     return check
 
@@ -152,10 +203,10 @@ def must_precede(a: str, b: str) -> Check:
 
     def check(
         call: "CallView", history: Sequence["CallView"], ctx: RunContext
-    ) -> str | None:
+    ) -> Finding | None:
         if call.tool != b or any(c.tool == a for c in history):
             return None
-        return f"{b} before any {a}"
+        return Finding(f"{b} before any {a}")
 
     return check
 
@@ -177,6 +228,23 @@ def recipients_allowed(workflow: str) -> Callable[[Mapping[str, Any]], list[str]
     return allowed
 
 
+def authorized_recipients(meta: Mapping[str, Any]) -> list[str]:
+    """The case mailbox(es): `authorized_recipients`."""
+    return list(meta.get("authorized_recipients", []))
+
+
+def _origin(
+    values: Sequence[str], labels: Sequence["ArgLabel"], ctx: RunContext
+) -> str | None:
+    """Earliest stage holding any offending value ("action" if none before it)."""
+    if not values:
+        return None
+    order = [name for name, _ in ctx.sources.stages] + ["action"]
+    first = {a.value.lower(): a.first_stage or "action" for a in labels}
+    stages = [first.get(v, "action") for v in values]
+    return min(stages, key=lambda s: order.index(s) if s in order else len(order))
+
+
 def check_call(
     rules: Sequence[Rule],
     call: "CallView",
@@ -196,12 +264,11 @@ def check_call(
     for rule in rules:
         if call.tool not in rule.tools:
             continue
-        reason = rule.check(call, history, ctx)
-        if reason is None:
+        finding = rule.check(call, history, ctx)
+        if finding is None:
             continue
         if labels is None:
             labels = _labels(call, history, ctx)
-        named = [a for a in labels if a.value.lower() in reason.lower()]
         out.append(
             Violation(
                 rule_id=rule.id,
@@ -209,8 +276,9 @@ def check_call(
                 step=call.step,
                 tool=call.tool,
                 args=dict(call.args),
-                reason=reason,
-                origin_stage=named[0].first_stage if named else None,
+                reason=finding.reason,
+                values=finding.values,
+                origin_stage=_origin(finding.values, labels, ctx),
             )
         )
     return out

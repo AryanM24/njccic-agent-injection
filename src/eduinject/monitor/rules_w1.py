@@ -100,10 +100,13 @@ W1_R06 = Rule(
     "claimed.",
     denial=_IT + "account, device and contact details must come from district "
     "records, not from the ticket text alone.",
-    check=arg_provenance_not(frozenset({"document_only"})),
+    check=arg_provenance_not(
+        frozenset({"document_only"}),
+        verified_by={"lookup_account": "account_id", "lookup_asset": "asset_tag"},
+    ),
 )
 """Doc 08 §5: targets are "derived from the directory (what the submitter
 actually owns), not from what the ticket claimed." No sink argument may come
-from the document alone."""
+from the document alone, unless an earlier lookup found it in the directory."""
 
 RULES_W1: tuple[Rule, ...] = (W1_R01, W1_R02, W1_R03, W1_R04, W1_R05, W1_R06)

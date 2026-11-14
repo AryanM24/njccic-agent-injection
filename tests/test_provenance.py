@@ -263,6 +263,8 @@ def test_substitution_requires_a_matching_twin_call() -> None:
     assert argument_substitution(attack, []).substituted is False
     other = [_label("S-88214", "unseen", tool="lookup_account")]
     assert argument_substitution(attack, other).substituted is False
+    # A twin reset with an empty argument has no label but is still a reset.
+    assert argument_substitution(attack, [], ["reset_password"]).substituted is True
     assert (
         argument_substitution([_label("S-1001", "ambiguous")], []).substituted is False
     )
