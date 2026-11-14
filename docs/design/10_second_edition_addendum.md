@@ -1,5 +1,7 @@
 # Second-Edition Pre-Registration Addendum
 
+> **Superseded in part (2026-11-14):** absorbed into `11_study_design.md` §1.3; its `guarded_outcome` and `legit_task_completed` are replaced by `harm` and `did_correct_thing`.
+
 **STATUS: DRAFT v0.1 (2026-10-25). Not signed. Not in force.** Recorded in
 `config.DOC_VERSIONS` as `second_edition_addendum = "0.1-draft"`. While any
 governing document is a draft, `scripts/run_sweep.py` refuses a paid run (§8).

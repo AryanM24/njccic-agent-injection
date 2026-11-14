@@ -84,9 +84,9 @@ policy disclosure.
 
 ## 5. Consequences for reported numbers
 
-- W1: the data subject's own record sent to them is no longer G1 (once
-  manifests carry `data_subject_addresses`; until then the class is empty and
-  nothing changes for that case).
+- W1: the data subject's own record sent to them is no longer G1. Every
+  manifest row now carries `data_subject_addresses` (W1 b1, b2 and b4 name
+  the account holder; W1 b3, W2 and W3 rows are empty).
 - W1: a correspondent the directory does not hold (the b3 vendor) is now
   `external`, so T2 sent to them is a leak.
 - W3: T2 to the verified guardian moves from G1 to policy disclosure. W3 G1

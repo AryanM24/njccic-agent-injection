@@ -14,7 +14,52 @@ The models are fixed (see `docs/design/06_implementation_decisions.md` §2):
 
 ---
 
-## Second edition (ISEF 2027): read this first
+## The combined study (2026-11-14): read this first
+
+The first edition, the second edition and the 2026-11-14 upgrades are **one
+study**, specified in
+[`docs/design/11_study_design.md`](docs/design/11_study_design.md) (draft). Its
+Phase 0 audited everything the first edition used and fixed it in place
+([`docs/design/12_v1_audit.md`](docs/design/12_v1_audit.md), draft); the
+recipient rule is
+[`docs/design/13_recipient_policy_addendum.md`](docs/design/13_recipient_policy_addendum.md)
+(draft). Old results are not reused: every run is redone. While docs 10–13
+are drafts, `run_sweep.py` refuses every paid run (exit 3). The second-edition
+section below still describes the run flags and presets.
+
+**Free checks** (no key, no model):
+
+```bash
+make check                     # ruff, ruff format --check, mypy (as CI)
+make test-eduinject            # the full test suite
+python scripts/make_fixtures_w1.py --dry-run          # planned files, nothing written
+python scripts/make_fixtures_w1.py --out-root /tmp/c  # build elsewhere, not corpus/
+python scripts/validate_manifest.py corpus/manifest_w*.jsonl
+```
+
+The generators are deterministic: rerunning them over `corpus/` must leave
+`git status corpus/` clean. All four (`make_fixtures_v2.py`, `_w1.py`,
+`_w3.py`, `_controls.py`) take `--out-root` and `--dry-run`; add `--canonical`
+on the approved machine to build the gated corpus, then check that public and
+canonical manifests hold the same pairs:
+`python scripts/validate_manifest.py --canonical-dir corpus/canonical corpus/manifest_w*.jsonl`.
+
+**After a run, before any table:**
+
+```bash
+python scripts/verify_scores.py logs/<dir>...      # recompute every score; exit 4 if any is stale
+python scripts/analyze.py report logs/<dir>... --out logs/analysis-<name>
+python scripts/analyze.py trace-check logs/<dir>... # W1: was the target looked up before an unauthorized action?
+```
+
+`analyze.py`, `paired_outcomes.py`, `exfil_recipients.py` and `human_coding.py`
+refuse logs whose stored scores no longer reproduce (exit 4); `--allow-stale`
+overrides, and a table made that way must say so. Comparisons print one of four
+verdicts (`null`, `above_floor`, `significant`, `no_floor`; doc 11 §2.8).
+
+---
+
+## Second edition (ISEF 2027)
 
 The second edition is governed by
 [`docs/design/10_second_edition_addendum.md`](docs/design/10_second_edition_addendum.md).
@@ -47,7 +92,7 @@ that table.
 **Free checks before any spend** (no key needed):
 
 ```bash
-pytest                                                    # 340+ tests, no model contacted
+make test-eduinject                                       # no model contacted
 python scripts/validate_manifest.py corpus/manifest_w*.jsonl
 python scripts/run_sweep.py --preset luna --workflow w1 --scopes read_write \
   --identity off facts guard --epochs 10 --dry-run        # cells, hashes, $ estimate
@@ -73,7 +118,8 @@ the 23k in / 9.5k out the estimate assumes (frontier thinking may be higher);
 what it cost.
 
 **Matrix and cost.** Per model, at list price, before retries (add 20%), with
-48 pairs × 10 epochs per cell and a matching twin baseline for every attack cell:
+48 pairs × 10 epochs per cell and a matching twin baseline for every attack cell
+(the study now has 56 pairs per workflow, so scale these by 7/6):
 
 | Matrix | Cells | DeepSeek V4.1 | Gemini 3.8 Flash | GPT-6 Luna |
 | --- | --- | --- | --- | --- |
@@ -85,7 +131,7 @@ Flex/batch tiers roughly halve these if the pilot shows their latency is
 workable (doc 10 decision 6b). The matrix and the spend ceiling are the PI's
 decisions (`docs/isef-v2-plan.md` §7).
 
-**Analysis** adds `--gee` (needs `pip install -e ".[stats]"`) and the second
+**Analysis** adds `--gee` (needs the `analysis` extra, which `make install` includes) and the second
 edition's outputs: permutation p-values, Holm over the primary family, MDE, zero
 upper bounds, `concentration.csv` and `conditional.csv` (doc 10 §5):
 
@@ -171,7 +217,7 @@ cp .env.example .env      # or: cp .env.local .env  if you already have one
 ## 2. Check everything works, for free
 
 ```bash
-pytest -q
+make check && make test-eduinject
 ```
 
 This contacts no AI model and costs nothing. Every test should pass (one is

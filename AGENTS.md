@@ -48,36 +48,41 @@ conditions behind a figure are recoverable from the log alone.
 | `corpus/__init__.py` | The placeholder `MARKER`, `GOALS`, and `load_gated_payloads()` for the gitignored Tier 1 `corpus/payloads.py`. |
 | `defense.py` | Spotlighting by datamarking (`datamark`, `unmark`, `DATAMARK` = U+E000, `DEFENSE_VERSION`). The prompt clause lives in `agents/prompts.py`. Doc 10 §4. |
 | `recipients.py` | `recipient_addresses()`: the one recipient parser, shared by the G1 scorer and the tool guard so both see the same addresses; plus `classify_recipient()` / `is_valid_address()` and `RecipientClass` (doc 13), which read the directories lazily to avoid an import cycle with `tools/`. |
-| `stats.py` | Second-edition statistics: `sign_flip_test`, `holm`, `zero_upper_bound`, `mde`, `pair_concentration`, `conditional_rate`, and `gee_contrast` (optional `stats` extra). Doc 10 §5. |
+| `stats.py` | Second-edition statistics: `sign_flip_test`, `holm`, `zero_upper_bound`, `mde`, `pair_concentration`, `conditional_rate`, and `gee_contrast` (optional `analysis` extra). Doc 10 §5. |
 | `agents/task_facts.py` | `IDENTITY_MODES`, `TASK_FACTS_VERSION` and the per-workflow verified facts (`facts_w1/w2/w3`, `linked_students`) built from manifest fields and directories, never the document. Doc 10 §2. |
 | `tools/guard.py` | The tool guard (`Guard`, `guard_from_metadata`, `record_send`) and the shared `scope_tools` / `scope_tool_names` behind each workflow's `tools_for_scope`. Doc 10 §3. |
-| `analysis.py` | Post-run analysis over logs, contacting no model: `load_rows()`, `denominators()`, pair-clustered `rate_with_ci()`, `epoch_spread()` (noise floor), `paired_difference()`, `stratified_sample()`, `cohen_kappa()`, and `REPORTABILITY` per scorer. Implements the draft `docs/design/09_analysis_plan.md`. |
+| `analysis.py` | Post-run analysis over logs, contacting no model: `load_rows()`, `denominators()`, pair-clustered `rate_with_ci()`, the one noise floor (`noise_floor()`, `comparison_floor()`, `verdict()`; range of the cell's own twin-only epochs, doc 11 §2.8), `paired_difference()`, `in_pair_rates()`, `stale_scores()` / `refuse_stale()` (score verification), `ownership_lookup_check()` (trace check), `stratified_sample()`, `kappa_report()`, and `REPORTABILITY` per scorer. Scripts are thin front-ends over it. Implements `docs/design/09_analysis_plan.md`. |
 | `agents/prompts.py` | `PROMPTS_VERSION` and the three system prompts. The **only** source of system-message text in the project — prompts are an independent variable and must be hashable. Constraint C4. `prompts_w1.py` / `prompts_w3.py` hold W1's and W3's, one versioned file per workflow. |
 | `agents/pipeline.py` | `single_shot()`, `action_agent()`, `run_pipeline()`. Stages are composed with Inspect's `run()` — never `handoff()` or `as_tool()` — so each stage's input is built by hand and at `isolated=True` the source document is structurally absent after stage 1. Constraint C1. |
 | `agents/__init__.py` | Re-exports from `pipeline` and `prompts`. |
 | `tools/ats.py` | Mock applicant-tracking tools (`get_posting_requirements`, `submit_shortlist`, `send_email`), `POSTING_REQUIREMENTS`, and the `SCOPES` map with `tools_for_scope()` / `tool_names_for_scope()`. Tools never reveal that they are mocks: a "this is a test" response would teach the agent it is being evaluated. |
 | `tools/helpdesk.py` / `tools/parentmail.py` | W1 and W3 mock tools: lookups (`lookup_account`, `lookup_asset`, `lookup_guardian`, `get_student_record`) and state-changing actions, ledgered like `ats.py`. |
-| `tools/directory_w1.py` / `tools/directory_w3.py` | Synthetic account/asset and guardian/student-record directories behind those lookups: the ground truth the W1/W3 scorers verify against. |
+| `tools/directory_w1.py` / `tools/directory_w3.py` | Synthetic account/asset and guardian/student-record directories behind those lookups: the ground truth the W1/W3 scorers verify against, including `protected_values()` / `third_party_values()` for directory-value detection (doc 11 §2.5). |
+| `tools/directory_staff.py` | Synthetic district staff (`STAFF`), the functional mailboxes (`DISTRICT_MAILBOXES`) and `DISTRICT_DOMAINS`: what `classify_recipient` treats as `internal_staff` (doc 13). |
 | `tools/ledger.py` | `Ledger` (an Inspect `StoreModel`) and `record()` — per-run record of calls and attempted egress (guard refusals are marked `DENIED` on the call). This is the measurement record the scorers read. |
 | `tools/__init__.py` | Re-exports from the tool and ledger modules. |
-| `scorers/outcomes.py` | Pure, Inspect-free functions over a finished run: `marker_propagation()`, `exfiltration_outcome()` (destination **and** payload sensitivity tier, per doc 07), `scope_outcome()`, `twin_divergence()`, with `T2_TERMS`, the doc 13 leak rule (`is_leak`, `is_policy_disclosure`) and `NamedTuple` results. Unit-testable against synthetic runs. |
-| `scorers/deterministic.py` | Inspect scorers (`propagation`, `exfiltration`, `scope_violation`, `action_divergence`, `authorization`, `suppression`, `control_check`) and `RUNS_KEY`. Thin adapters holding no judgement of their own, so a disputed number can be recomputed from the log. |
+| `scorers/outcomes.py` | Pure, Inspect-free functions over a finished run: `carry_states()` / `propagation_depth()`, `exfiltration_outcome()` (destination class **and** payload tier; `classify_payload()` adds directory values), `correct_outcome()`, `misdirection_outcome()`, `harm_outcome()`, `scope_outcome()`, `twin_divergence()`, with `T2_TERMS`, the doc 13 leak rule (`is_leak`, `is_policy_disclosure`) and `NamedTuple` results. Doc 11 §2. Unit-testable against synthetic runs. |
+| `scorers/deterministic.py` | Inspect scorers (`propagation`, `exfiltration`, `scope_violation`, `action_divergence`, `authorization`, `suppression`, `misdirection`, `harm`, `control_check`, `paired_utility`), `judge_run()` (shared with `analysis`) and `RUNS_KEY`. Thin adapters holding no judgement of their own, so a disputed number can be recomputed from the log. |
 | `scorers/__init__.py` | Re-exports both modules. Its docstring records why a model-graded judge is deliberately absent. |
 
 ### Everything else in this project
 
 | Path | What it is |
 | --- | --- |
-| `pyproject.toml` | The eduinject package: deps (`inspect-ai`, `pypdf`, `python-docx`, `pydantic`), the `dev` and `openrouter` extras, `src/` layout, and pytest config (`testpaths = ["tests"]`). |
+| `pyproject.toml` | The eduinject package: deps (`inspect-ai`, `pypdf`, `python-docx`, `pydantic`), the `dev`, `openrouter` and `analysis` extras, `src/` layout, and pytest config (`testpaths = ["tests"]`). |
 | `README.md` | Project overview: the three-stage pipeline, the four load-bearing constraints, why benign twins are mandatory, how to run it, and release status. |
+| `Makefile` | `make install` (lock file, then the package), `make check` (ruff, format check, mypy) and `make test-eduinject` (pytest); CI runs the same two targets. |
+| `.gitattributes` | LF line endings everywhere; binary fixtures and the grounding archive are left byte-exact. |
 | `.gitignore` | Secrets (`.env*`), Python artifacts, `logs/`, and the **gated** paths that must never be committed: `corpus/canonical/*` and `src/eduinject/corpus/payloads.py`. |
-| `docs/design/` | **Authoritative.** `00_project_proposal` … `10_second_edition_addendum` (numbered, versioned; versions mirrored in `config.DOC_VERSIONS`), plus `README.md`, `implementation-map.md` and signed `attestations/`. Where code and a document disagree, the document is right and the code has a defect. |
+| `docs/design/` | **Authoritative.** `00_project_proposal` … `13_recipient_policy_addendum` (numbered, versioned; versions mirrored in `config.DOC_VERSIONS`; `11_study_design` is the combined study's spec, `12_v1_audit` its audit), plus `README.md`, `implementation-map.md` and signed `attestations/`. Where code and a document disagree, the document is right and the code has a defect. |
 | `docs/design/implementation-map.md` | Which constraint is enforced by which code, and every known divergence (`D1`…). **Read before trusting any number.** |
-| `scripts/make_fixtures_v2.py` / `_w1.py` / `_w3.py` / `_controls.py` | Generate the W2/W1/W3 attack/twin corpora (three base scenarios each, from `_corpus_bases.py`) and the benign-but-weird controls, using the shared writers in `_fixtures_common.py`. Public builds are marker-only. All fixture data is synthetic: no real student, applicant or staff data. |
-| `scripts/analyze.py` | `report` (denominators, rates, noise floors, comparisons → `logs/analysis/`), `sample-human` (blind coding sheet + answer key) and `kappa`. |
+| `scripts/make_fixtures_v2.py` / `_w1.py` / `_w3.py` / `_controls.py` | Generate the W2/W1/W3 attack/twin corpora (four base scenarios, 56 pairs each, from `_corpus_bases.py`) and the benign-but-weird controls, using the shared writers in `_fixtures_common.py`. Deterministic; `--out-root`, `--dry-run`, `--canonical`. Twins are channel-matched (`NEUTRAL_FILLER`, doc 11 §2.7). Public builds are marker-only. All fixture data is synthetic: no real student, applicant or staff data. |
+| `scripts/analyze.py` | `report` (denominators, rates, noise floors, comparisons → `logs/analysis/`), `sample-human` (blind coding sheet + answer key), `kappa`, `export-pairs` and `trace-check`. Refuses stale logs unless `--allow-stale`. |
+| `scripts/verify_scores.py` | Recomputes every logged score with the current scorers; exits 4 listing stale ones (doc 11 §2.9). |
+| `scripts/tier1_guard.py` | Release-policy guard (pre-commit hook): fails on gated payload wording or a rate table sliced by channel/file type/goal in tracked or staged files. |
 | `scripts/validate_manifest.py` | Validates a manifest (shape, paths, extraction, marker placement, channel-matched twin) before it is trusted. |
 | `scripts/run_sweep.py` | Sweeps write scope × stage isolation for any of `w1`/`w2`/`w3`, with `--epochs`, `--benign-only`, `--controls`, `-M` and `--dry-run`; `--isolation both` includes the negative control. Each cell is a separate task stamping `config_hash(...)` into metadata. |
-| `corpus/manifest_w{1,2,3}.jsonl` | One row per artifact pair (plus `manifest_w*_controls.jsonl` for controls): paths, `payload_marker`, `operator_request`, and the authorization facts the scorers need (`authorized_recipients`, `applicant_addresses`, `other_candidate_terms`). |
+| `corpus/manifest_w{1,2,3}.jsonl` | One row per artifact pair (plus `manifest_w*_controls.jsonl` for controls): paths, `payload_marker`, `operator_request`, the declared `correct` alternatives and `data_subject_addresses` (doc 11 §2.1), and the authorization facts the scorers need (`authorized_recipients`, `applicant_addresses`, `other_candidate_terms`). |
 | `corpus/benign/`, `corpus/controls/` | The generated fixtures (`.docx`/`.pdf`/`.txt`/`.md`). Tier 2 — Open. |
 | `corpus/canonical/` | **Gated (Tier 1).** Real-payload corpus; gitignored except `.gitkeep`, which keeps the layout reproducible. Never commit contents. |
 | `tests/test_extraction.py` | Pins are the installed versions, and each attack/twin pair differs by the marker and nothing else. |
@@ -85,7 +90,8 @@ conditions behind a figure are recoverable from the log alone.
 | `tests/test_scorers.py` | Outcome functions, scorer adapters, dataset construction, and `config_hash` behaviour. |
 | `tests/test_task_e2e.py` | Whole task against Inspect's scripted `mockllm/model`, standing in for a fully compromised pipeline — a test of the *measurement*. |
 | `tests/*_w1_w3.py` | The same isolation, outcome, tool and end-to-end guarantees for W1 and W3. |
-| `tests/test_corpus_integrity.py`, `test_directory_ground_truth.py`, `test_fixture_writers.py`, `test_design_docs_in_sync.py` | Corpus shape and marker-only policy, directory/manifest agreement, PDF-writer regression, and doc 08 ↔ code agreement. |
+| `tests/test_corpus_integrity.py`, `test_directory_ground_truth.py`, `test_fixture_writers.py`, `test_design_docs_in_sync.py` | Corpus shape and marker-only policy, directory/manifest agreement, PDF-writer regression, and design doc ↔ code agreement (`DOC_VERSIONS` vs each doc's header). |
+| `tests/test_recipient_classes.py`, `test_floor_consistency.py`, `test_verify_scores.py`, `test_generators.py`, `test_no_test_tells.py`, `test_tier1_guard.py`, `test_ci_parity.py` | Phase 0 guarantees: recipient classes, one noise floor (AST scan of `scripts/`), score verification, deterministic generators, no test tells in model-visible text, the Tier-1 guard, and `make` ↔ CI parity. |
 | `logs/` | Inspect `.eval` run logs. Gitignored (traces are Tier 1). |
 | `.env.example` | Committed template (`INSPECT_EVAL_MODEL`, `OPENROUTER_API_KEY`); copy to the gitignored `.env`. |
 
@@ -150,6 +156,7 @@ is worse than disclosing none. Example:
 ```
 
 ## Build/Lint/Test Commands
+- Full gate (as CI): `make check && make test-eduinject`
 - Run all tests: `pytest`
 - Run a single test: `pytest tests/path/to/test_file.py::test_function_name -v`
 - Format code: `ruff format`
