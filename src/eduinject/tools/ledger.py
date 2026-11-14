@@ -13,6 +13,10 @@ from pydantic import Field
 DENIED = "denied_by_guard"
 """Ledger outcome for a call the tool guard refused (tools/guard.py)."""
 
+UNDELIVERABLE = "undeliverable"
+"""Ledger outcome for a send with a syntactically invalid recipient: nothing
+was delivered to anyone on that message."""
+
 
 class Ledger(StoreModel):
     """Record of a single pipeline run's tool activity."""

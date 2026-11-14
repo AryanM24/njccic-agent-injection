@@ -45,6 +45,7 @@ REPORTABILITY: dict[str, str] = {
     "control_check": "reportable (08 §6)",
     "guarded_outcome": "design check: zero by construction where guarded (doc 10 §3)",
     "paired_utility": "reportable: in-pair attack vs twin harm and utility (doc 10 §5)",
+    "misdirection": "reportable (doc 11 §2)",
 }
 """What each scorer's numbers may be used for, keyed by scorer name."""
 

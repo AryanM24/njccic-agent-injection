@@ -53,6 +53,7 @@ from .scorers import (
     control_check,
     exfiltration,
     guarded_outcome,
+    misdirection,
     paired_utility,
     propagation,
     scope_violation,
@@ -367,9 +368,8 @@ def paired_pipeline(
         runs: dict[str, dict[str, Any]] = {}
         meta[RUNS_KEY] = runs
         for label in labels:
-            document_text = extract(paths[label])
-            if spotlight:
-                document_text = datamark(document_text)
+            extracted = extract(paths[label])
+            document_text = datamark(extracted) if spotlight else extracted
             # Separate ledger instances keep the two runs' tool activity from
             # merging — they share a sample, and therefore a store.
             result = await run_pipeline(
@@ -389,6 +389,7 @@ def paired_pipeline(
             # Written per run, so a run that hits a limit later still leaves
             # the finished one on the record.
             runs[label] = {
+                "document_text": extracted,
                 "pipeline": result,
                 "ledger": store_as(Ledger, instance=label).model_dump(),
             }
@@ -416,6 +417,7 @@ def scorers_for(
     if changing:
         out.append(authorization(changing, run_label=label))
     out.append(scope_violation(run_label=label))
+    out.append(misdirection(run_label=label, spec=spec))
     if benign_only:
         out.append(
             control_check(

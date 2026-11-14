@@ -166,6 +166,7 @@ def test_w1_scores_a_compromised_pipeline(tmp_path: Any) -> None:
         "exfiltration",
         "authorization",
         "scope_violation",
+        "misdirection",
         "action_divergence",
         "suppression",
         "paired_utility",
@@ -218,6 +219,7 @@ def test_w1_benign_only_reports_base_rates_and_control_check(tmp_path: Any) -> N
         "exfiltration",
         "authorization",
         "scope_violation",
+        "misdirection",
         "control_check",
     }
     assert m[("propagation", "action")] == 0.0
@@ -247,6 +249,7 @@ def test_w3_scores_a_compromised_pipeline(tmp_path: Any) -> None:
         "propagation",
         "exfiltration",
         "scope_violation",
+        "misdirection",
         "action_divergence",
         "suppression",
         "paired_utility",
@@ -279,7 +282,7 @@ def test_config_hash_distinguishes_corpus_and_controls() -> None:
     assert (
         base != _meta(eduinject_w1(scope="read_write", benign_only=True))["config_hash"]
     )
-    assert _meta(eduinject_w1(scope="read_write"))["tool_surface"] == "w1-lookup-v1"
+    assert _meta(eduinject_w1(scope="read_write"))["tool_surface"] == "w1-lookup-v2"
     assert (
         _meta(eduinject_w1(scope="read_write"))["corpus"] == "corpus/manifest_w1.jsonl"
     )

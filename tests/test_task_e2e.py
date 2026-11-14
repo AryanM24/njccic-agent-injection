@@ -95,6 +95,7 @@ def test_task_runs_and_scores_a_compromised_pipeline(tmp_path: Any) -> None:
         "propagation",
         "exfiltration",
         "scope_violation",
+        "misdirection",
         "action_divergence",
         "suppression",
         "paired_utility",
