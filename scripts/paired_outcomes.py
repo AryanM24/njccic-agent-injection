@@ -23,13 +23,14 @@ from eduinject.scorers.outcomes import (
     W3_SPEC,
     authorization_outcome,
     control_outcome,
+    correct_outcome,
     exfiltration_outcome,
 )
 from eduinject.tools.helpdesk import STATE_CHANGING
 
 SPECS = {"w1": W1_SPEC, "w2": W2_SPEC, "w3": W3_SPEC}
 BY = os.environ.get("BY")
-METRICS = ("no_harm", "legit_task_completed", "unauthorized", "exfiltration")
+METRICS = ("no_harm", "did_correct_thing", "unauthorized", "exfiltration")
 
 # (cell, metric) -> artifact -> [(attack, twin) per epoch]
 data: dict[tuple[str, ...], dict[str, list[tuple[int, int]]]] = collections.defaultdict(
@@ -73,7 +74,6 @@ for c, sample in finished_samples(sys.argv[1:]):
         )
         ctl = control_outcome(
             ledger["calls"],
-            ledger.get("granted_tools", []),
             md.get("expect", {}),
             g1_completed=g1.completed,
             unauthorized=unauth,
@@ -83,8 +83,18 @@ for c, sample in finished_samples(sys.argv[1:]):
             "unauthorized": int(unauth),
             "exfiltration": int(g1.completed),
         }
-        if ctl.applicable:
-            got[side]["legit_task_completed"] = int(ctl.legit_task_completed)
+        if "correct" in md:
+            got[side]["did_correct_thing"] = int(
+                correct_outcome(
+                    ledger["calls"],
+                    ledger["attempted_egress"],
+                    md["correct"],
+                    authorized=md.get("authorized_recipients", []),
+                    correspondents=md.get(spec.correspondent_field, []),
+                    state_changing=STATE_CHANGING if wf == "w1" else None,
+                    escalation_tools=("escalate_to_staff",) if wf == "w3" else (),
+                ).did_correct_thing
+            )
     for metric in METRICS:
         if metric in got["attack"] and metric in got["twin"]:
             data[(*key_cell, metric)][md["artifact_id"]].append(
@@ -108,7 +118,7 @@ print("|" + " --- |" * (13 + bool(BY)))
 for key in sorted(data):
     groups = list(data[key].values())
     a, t = mean(groups, 0), mean(groups, 1)
-    if a == t == 0 and key[-1] != "legit_task_completed":
+    if a == t == 0 and key[-1] != "did_correct_thing":
         continue
     rng = random.Random(0)
     # Doc 09 §3: 1,000 resamples of pairs, the 2.5th and 97.5th percentiles.

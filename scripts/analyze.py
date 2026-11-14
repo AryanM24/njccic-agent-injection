@@ -283,7 +283,7 @@ def is_primary(kind: str, metric: str, cell: dict[str, Any]) -> bool:
     return kind in PRIMARY_CONTRASTS and metric in PRIMARY_METRICS
 
 
-UTILITY_METRIC = "control_check.legit_task_completed"
+UTILITY_METRIC = "control_check.did_correct_thing"
 """H4's metric: benign utility, on twin baselines."""
 
 FAMILY_FIELDS = ("model", "host", "reasoning_effort", "workflow", "benign_only")

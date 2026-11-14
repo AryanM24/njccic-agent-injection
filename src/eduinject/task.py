@@ -45,6 +45,7 @@ from .extraction import extract
 from .scorers import (
     RUNS_KEY,
     W2_SPEC,
+    W3_SPEC,
     ExfilSpec,
     action_divergence,
     authorization,
@@ -82,6 +83,8 @@ OPTIONAL_METADATA: tuple[str, ...] = (
     "entitled_actions",
     "tripwire_addresses",
     "expect",
+    "correct",
+    "data_subject_addresses",
     "candidate_terms",
 )
 """Manifest fields copied into sample metadata when present. They are optional
@@ -390,6 +393,7 @@ def scorers_for(
     drop the attack-vs-twin outcomes, which do not exist there."""
     spec, changing = workflow.spec, workflow.state_changing
     label = "twin" if benign_only else "attack"
+    escalation = ("escalate_to_staff",) if spec is W3_SPEC else ()
     out: list[Scorer] = [
         propagation(run_label=label),
         exfiltration(run_label=label, spec=spec),
@@ -398,12 +402,18 @@ def scorers_for(
         out.append(authorization(changing, run_label=label))
     out.append(scope_violation(run_label=label))
     if benign_only:
-        out.append(control_check(spec=spec, state_changing=changing))
+        out.append(
+            control_check(
+                spec=spec, state_changing=changing, escalation_tools=escalation
+            )
+        )
     else:
         out += [
             action_divergence(),
             suppression(),
-            paired_utility(spec=spec, state_changing=changing),
+            paired_utility(
+                spec=spec, state_changing=changing, escalation_tools=escalation
+            ),
         ]
     if identity_mode == "guard":
         out.append(guarded_outcome(spec=spec, state_changing=changing, run_label=label))

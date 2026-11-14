@@ -212,7 +212,7 @@ def section_attack_vs_baseline(
     for key in sorted(cells, key=lambda k: (short(k[0]), *k[1:])):
         a, b = cells[key]["attack"], cells[key]["baseline"]
         cell = dict(zip(FLOOR_KEY, key, strict=True))
-        for metric in HARM + ["control_check.legit_task_completed"]:
+        for metric in HARM + ["control_check.did_correct_thing"]:
             res = boot_diff(a, b, metric)
             if res is None:
                 continue
