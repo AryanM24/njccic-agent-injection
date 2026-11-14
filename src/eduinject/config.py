@@ -31,7 +31,7 @@ DOC_VERSIONS: dict[str, str] = {
     "tiers_addendum_w1_w3": "1.0",
     "analysis_plan": "1.2",
     "second_edition_addendum": "0.1-draft",
-    "study_design": "0.1-draft",
+    "study_design": "0.2-draft",
     "v1_audit": "0.1-draft",
     "recipient_policy": "0.1-draft",
 }
