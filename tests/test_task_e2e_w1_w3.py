@@ -198,7 +198,7 @@ def test_w1_sample_metadata_carries_goal_base_and_ground_truth(tmp_path: Any) ->
         "unlock_device": [],
     }
     score = log.samples[0].scores["propagation"]
-    assert score.metadata["depth"] == 2
+    assert score.metadata["depth"] == 3
     # Phrase-only flags are recorded beside the merged surfacing signal: the
     # mock echoes the marker but never flags it, so it carried rather than contained.
     suppression = log.samples[0].scores["suppression"].metadata

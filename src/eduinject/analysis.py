@@ -36,7 +36,7 @@ these are never pooled. First-edition logs predate `identity_mode` and
 `defense` and read as "off" and "none", which is what they ran."""
 
 REPORTABILITY: dict[str, str] = {
-    "propagation": "M1 (verbatim) only; depth provisional (D1, D2)",
+    "propagation": "M1 (verbatim) carry state; silent carry vs flagged",
     "exfiltration": "reportable as a lower bound (07, 08)",
     "authorization": "reportable as a lower bound (08)",
     "scope_violation": "reportable",
