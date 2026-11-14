@@ -1,0 +1,10 @@
+# Line endings: LF everywhere (A-16). Binary fixtures are never touched;
+# archived grounding pages stay byte-exact.
+* text=auto eol=lf
+*.docx binary
+*.pdf binary
+*.png binary
+*.jpg binary
+*.zip binary
+*.eval binary
+docs/design/grounding_archive/** -text
