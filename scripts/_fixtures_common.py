@@ -6,10 +6,12 @@ make_fixtures_v2.py (W2), make_fixtures_w1.py, and make_fixtures_w3.py all
 build on these instead of each re-implementing channel writing.
 """
 
+import datetime as dt
 import io
 import json
 import struct
 import textwrap
+import zipfile
 import zlib
 from collections.abc import Callable
 from pathlib import Path
@@ -55,6 +57,23 @@ def small_png() -> io.BytesIO:
     )
 
 
+FIXED_DATE = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+"""Every timestamp a fixture carries, so regeneration is byte-identical."""
+_ZIP_DATE = (2026, 1, 1, 0, 0, 0)
+
+
+def _normalize_docx(path: Path) -> None:
+    """Rewrite a docx zip with fixed member dates, sorted order and deflate."""
+    with zipfile.ZipFile(path) as src:
+        members = [(name, src.read(name)) for name in sorted(src.namelist())]
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as dst:
+        for name, data in members:
+            info = zipfile.ZipInfo(name, _ZIP_DATE)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o600 << 16
+            dst.writestr(info, data)
+
+
 def _channel_payload(path: Path, channel: str | None, payload: str | None) -> str:
     """Return the payload to embed; a channel without one is a generator bug."""
     if channel is None:
@@ -82,14 +101,20 @@ def write_docx(
     payload = _channel_payload(path, channel, payload)
     document = Document()
     build_body(document)
+    props = document.core_properties
+    props.created = props.modified = props.last_printed = FIXED_DATE
     if channel == "visible":
         document.add_paragraph(payload)
     elif channel == "core_property":
         document.core_properties.comments = payload
     elif channel == "comment":
         anchor = document.paragraphs[1]
-        document.add_comment(
+        comment = document.add_comment(
             runs=anchor.runs, text=payload, author="A. Reviewer", initials="AR"
+        )
+        comment._comment_elm.set(
+            "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}date",
+            "2026-01-01T00:00:00Z",
         )
     elif channel == "alt_text":
         shape = document.add_picture(small_png(), width=Inches(1))
@@ -99,6 +124,7 @@ def write_docx(
         if docPr is not None:
             docPr.set("descr", payload)
     document.save(str(path))
+    _normalize_docx(path)
 
 
 def write_pdf(
@@ -114,7 +140,7 @@ def write_pdf(
     """
     payload = _channel_payload(path, channel, payload)
     buf = io.BytesIO()
-    c = canvas.Canvas(buf, pagesize=letter)
+    c = canvas.Canvas(buf, pagesize=letter, invariant=1)
     top, bottom, leading = 720, 72, 15
     y = top
 
@@ -145,6 +171,8 @@ def write_pdf(
         writer.add_page(page)
     if channel == "pdf_metadata":
         writer.add_metadata({"/Subject": payload})
+    meta: dict[str, str] = dict(writer.metadata or {})
+    assert "/CreationDate" not in meta and "/ModDate" not in meta, "PDF carries a date"
     with open(path, "wb") as f:
         writer.write(f)
 
@@ -162,7 +190,13 @@ def write_text(path: Path, channel: str | None, payload: str | None, text: str) 
     content = text
     if channel == "visible":
         content = content + "\n" + payload
-    path.write_text(content, encoding="utf-8")
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(content)
+
+
+def _write_lines(path: Path, lines: list[str]) -> None:
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write("\n".join(lines) + "\n")
 
 
 def upsert_manifest_line(manifest: Path, entry: dict) -> str:
@@ -187,10 +221,10 @@ def upsert_manifest_line(manifest: Path, entry: dict) -> str:
             if line == serialized:
                 return "unchanged"
             lines[index] = serialized
-            manifest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            _write_lines(manifest, lines)
             return "updated"
     lines.append(serialized)
-    manifest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    _write_lines(manifest, lines)
     return "appended"
 
 
@@ -333,7 +367,9 @@ def generate_workflow(
     bases: list[Base],
     canonical: bool = False,
     start_count: int = 1,
-) -> int:
+    out_root: Path = ROOT,
+    dry_run: bool = False,
+) -> list[dict]:
     """Generate every attack/twin pair for a workflow's bases.
 
     Args:
@@ -344,21 +380,25 @@ def generate_workflow(
             instead of the public marker-only corpus.
         start_count: The last already-used number plus one (W2 reserves 1 for
             the original pilot pair).
+        out_root: Directory holding the `corpus/` tree to write into.
+        dry_run: Print the planned files and write nothing.
 
     Returns:
-        The last artifact number used.
+        The manifest rows, in artifact order.
     """
     payloads, payload_class = select_payloads(workflow, canonical)
     if canonical:
-        file_dir = ROOT / "corpus" / "canonical" / workflow
+        file_dir = out_root / "corpus" / "canonical" / workflow
         path_prefix = f"canonical/{workflow}"
-        manifest = ROOT / "corpus" / "canonical" / f"manifest_{workflow}.jsonl"
+        manifest = out_root / "corpus" / "canonical" / f"manifest_{workflow}.jsonl"
     else:
-        file_dir = ROOT / "corpus" / "benign"
+        file_dir = out_root / "corpus" / "benign"
         path_prefix = "corpus/benign"
-        manifest = ROOT / "corpus" / f"manifest_{workflow}.jsonl"
-    file_dir.mkdir(parents=True, exist_ok=True)
+        manifest = out_root / "corpus" / f"manifest_{workflow}.jsonl"
+    if not dry_run:
+        file_dir.mkdir(parents=True, exist_ok=True)
 
+    rows: list[dict] = []
     count = start_count - 1
     for base in bases:
         for ftype, goal, channel in plan(base):
@@ -366,26 +406,26 @@ def generate_workflow(
             name = f"{stem}_{count:04d}"
             attack_path = file_dir / f"{name}_attack.{ftype}"
             twin_path = file_dir / f"{name}_twin.{ftype}"
+            row = {
+                "artifact_id": f"{workflow}_{count:04d}",
+                "artifact_path": f"{path_prefix}/{name}_attack.{ftype}",
+                "twin_path": f"{path_prefix}/{name}_twin.{ftype}",
+                "payload_marker": MARKER,
+                "operator_request": base.operator_request,
+                **base.extras,
+                "goal": goal,
+                "file_type": ftype,
+                "concealment": channel,
+                "base_id": base.base_id,
+                "payload_class": payload_class,
+                "canaries": list(CANARIES),
+            }
+            rows.append(row)
+            label = f"{row['artifact_id']} {base.base_id} {goal}/{channel}/{ftype}"
+            if dry_run:
+                print(f"{label} would write {attack_path} and {twin_path}")
+                continue
             write_document(base, twin_path, ftype, None, None)
             write_document(base, attack_path, ftype, channel, payloads[goal])
-            outcome = upsert_manifest_line(
-                manifest,
-                {
-                    "artifact_id": f"{workflow}_{count:04d}",
-                    "artifact_path": f"{path_prefix}/{name}_attack.{ftype}",
-                    "twin_path": f"{path_prefix}/{name}_twin.{ftype}",
-                    "payload_marker": MARKER,
-                    "operator_request": base.operator_request,
-                    **base.extras,
-                    "goal": goal,
-                    "file_type": ftype,
-                    "concealment": channel,
-                    "base_id": base.base_id,
-                    "payload_class": payload_class,
-                    "canaries": list(CANARIES),
-                },
-            )
-            print(
-                f"{workflow}_{count:04d} {base.base_id} {goal}/{channel}/{ftype} {outcome}"
-            )
-    return count
+            print(f"{label} {upsert_manifest_line(manifest, row)}")
+    return rows
