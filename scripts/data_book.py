@@ -41,6 +41,8 @@ def runs(log_dir: str, since: str | None) -> list[tuple[str, str]]:
     """(ISO date, line) for each eduinject eval log, from its header."""
     from inspect_ai.log import list_eval_logs, read_eval_log
 
+    from eduinject.analysis import cell_from_log, cell_kind
+
     entries: list[tuple[str, str]] = []
     if not Path(log_dir).exists():
         return entries
@@ -48,25 +50,18 @@ def runs(log_dir: str, since: str | None) -> list[tuple[str, str]]:
         if not info.task.split("/")[-1].startswith("eduinject"):
             continue
         header = read_eval_log(info, header_only=True)
-        meta = header.eval.metadata or {}
         date = str(header.eval.created)[:10]
         if since and date < since:
             continue
-        kind = (
-            "controls"
-            if meta.get("controls")
-            else "baseline"
-            if meta.get("benign_only")
-            else "attack"
-        )
+        cell = cell_from_log(header)
         done = header.results.completed_samples if header.results else 0
         line = (
-            f"run {meta.get('workflow')} {kind} scope={meta.get('scope')} "
-            f"iso={'on' if meta.get('isolated') else 'off'} "
-            f"identity={meta.get('identity_mode', 'off')} "
-            f"defense={meta.get('defense', 'none')} "
-            f"model={meta.get('model') or header.eval.model} "
-            f"hash={meta.get('config_hash')} samples={done} "
+            f"run {cell['workflow']} {cell_kind(cell)} scope={cell['scope']} "
+            f"iso={'on' if cell['isolated'] else 'off'} "
+            f"identity={cell['identity_mode']} "
+            f"defense={cell['defense']} "
+            f"model={cell['model']} "
+            f"hash={(header.eval.metadata or {}).get('config_hash')} samples={done} "
             f"status={header.status}"
         )
         entries.append((date, line))

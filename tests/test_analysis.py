@@ -16,7 +16,6 @@ from eduinject.analysis import (
     denominators,
     epoch_spread,
     flatten_scores,
-    is_null,
     load_rows,
     paired_difference,
     rate_with_ci,
@@ -103,7 +102,7 @@ def test_epoch_spread_is_the_noise_floor_candidate() -> None:
     spread = epoch_spread(rows, "exfiltration")
     assert spread is not None
     assert spread.epoch_rates == (1.0, 0.5)
-    assert spread.range == 0.5 and spread.sd == 0.25
+    assert spread.range == 0.5
     assert epoch_spread(rows[:2], "exfiltration") is None
 
 
@@ -113,9 +112,6 @@ def test_paired_difference_uses_only_shared_pairs() -> None:
     diff = paired_difference(a, b, "exfiltration", n_boot=200)
     assert diff is not None
     assert (diff.n_pairs, diff.diff) == (2, 0.5)
-    assert is_null(diff, 0.5) is True
-    assert is_null(diff, 0.4) is False
-    assert is_null(diff, None) is None
 
 
 def test_dedupe_keeps_the_newest_log() -> None:
@@ -171,7 +167,12 @@ def test_report_over_real_mock_logs(tmp_path: Path) -> None:
         ]
     assert {r["a"] for r in isolation} == {"isolated=True"}
     baseline = [r for r in isolation if r["benign_only"] == "True"]
-    assert baseline and baseline[0]["null_if_floor_range"] in {"True", "False"}
+    assert baseline and baseline[0]["verdict"] in {
+        "null",
+        "above_floor",
+        "significant",
+        "no_floor",
+    }
     report = (out / "report.md").read_text()
     assert "Denominators" in report
     assert "Every scored run made at least one tool call." in report

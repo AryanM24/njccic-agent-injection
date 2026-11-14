@@ -5,11 +5,11 @@
         rows.csv          one row per (sample, epoch), with status and scores
         denominators.csv  scored / error / limit counts per cell (doc 04 §13.5)
         rates.csv         per cell and metric: rate, pair-clustered 95% CI,
-                          saturation flag, epoch SD and range (noise floor)
+                          saturation flag, epoch range
         rates_by_base.csv the same per base scenario (D16)
         comparisons.csv   isolation, scope, identity, defense and model
-                          contrasts, paired by document: the null rule under
-                          both noise floors (doc 09 §4), a sign-flip
+                          contrasts, paired by document: the noise floor and
+                          the null rule's verdict (doc 09 §4), a sign-flip
                           permutation p, Holm over the primary family, the
                           MDE, and with --gee a pair-clustered GEE (doc 10 §5)
         interaction.csv   H2: isolation's effect with facts minus without
@@ -40,7 +40,6 @@ runs is Tier 1, like the logs it is computed from. Nothing here contacts a model
 
 import argparse
 import csv
-import random
 import sys
 from collections.abc import Sequence
 from itertools import combinations
@@ -50,35 +49,27 @@ from typing import Any
 from eduinject import stats
 from eduinject.analysis import (
     CELL_FIELDS,
+    N_BOOT,
     REPORTABILITY,
     cohen_kappa,
+    comparison_floor,
     denominators,
     epoch_spread,
     group,
-    is_null,
     load_rows,
+    mean_with_ci,
     metrics_in,
     paired_difference,
     rate_with_ci,
     saturated,
     stratified_sample,
     tool_use_check,
+    verdict,
     within_pair_difference,
     within_pair_differences,
 )
 
 SCOPE_ORDER = ("read_only", "standard", "read_write")
-FLOOR_FIELDS = (
-    "model",
-    "host",
-    "reasoning_effort",
-    "workflow",
-    "scope",
-    "isolated",
-    "identity_mode",
-    "defense",
-)
-"""A benign-only cell supplies the floor for every cell matching it on these."""
 
 IDENTITY_ORDER = ("guard", "facts", "off")
 DEFENSE_ORDER = ("spotlight", "none")
@@ -117,32 +108,6 @@ def reportability(metric: str) -> str:
     return REPORTABILITY.get(metric.split(".")[0], "unclassified")
 
 
-def floors(rows: list[dict[str, Any]]) -> dict[tuple[Any, ...], dict[str, Any]]:
-    """Noise floors from benign-only (non-control) cells, keyed for matching."""
-    found: dict[tuple[Any, ...], dict[str, Any]] = {}
-    for key, cell_rows in group(r for r in rows if r["benign_only"]).items():
-        cell = cell_dict(key)
-        if cell["controls"]:
-            continue
-        match = tuple(cell[f] for f in FLOOR_FIELDS)
-        for metric in metrics_in(cell_rows):
-            spread = epoch_spread(cell_rows, metric)
-            if spread:
-                found[(*match, metric)] = {"sd": spread.sd, "range": spread.range}
-    return found
-
-
-def floor_for(
-    cells: Sequence[dict[str, Any]], metric: str, table: dict[tuple[Any, ...], Any]
-) -> dict[str, float] | None:
-    """The larger floor of the cells being compared, or None if either lacks one."""
-    found = [table.get((*(c[f] for f in FLOOR_FIELDS), metric)) for c in cells]
-    present = [f for f in found if f is not None]
-    if len(present) < len(found):
-        return None
-    return {s: max(f[s] for f in present) for s in ("sd", "range")}
-
-
 def rate_rows(
     rows: list[dict[str, Any]], extra: Sequence[str], n_boot: int
 ) -> list[dict[str, Any]]:
@@ -169,7 +134,6 @@ def rate_rows(
                         if ci.rate == 0
                         else ""
                     ),
-                    "epoch_sd": round(spread.sd, 4) if spread else "",
                     "epoch_range": round(spread.range, 4) if spread else "",
                     "reportability": reportability(metric),
                 }
@@ -222,7 +186,7 @@ def comparison_rows(
     rows: list[dict[str, Any]], n_boot: int, gee: bool = False
 ) -> list[dict[str, Any]]:
     cells = group(rows)
-    floor_table = floors(rows)
+    baselines = [r for r in rows if r["benign_only"] and not r["controls"]]
     out: list[dict[str, Any]] = []
     for kind, key_a, key_b in contrasts(cells):
         a, b = cell_dict(key_a), cell_dict(key_b)
@@ -234,7 +198,7 @@ def comparison_rows(
             diff = paired_difference(cells[key_a], cells[key_b], metric, n_boot=n_boot)
             if diff is None:
                 continue
-            floor = floor_for((a, b), metric, floor_table)
+            floor = comparison_floor(baselines, a, b, metric)
             diffs = stats.paired_differences(cells[key_a], cells[key_b], metric)
             minimum = stats.mde(diffs)
             fit = (
@@ -251,12 +215,8 @@ def comparison_rows(
                     "diff_a_minus_b": round(diff.diff, 4),
                     "ci_lo": round(diff.lo, 4),
                     "ci_hi": round(diff.hi, 4),
-                    "floor_sd": round(floor["sd"], 4) if floor else "",
-                    "floor_range": round(floor["range"], 4) if floor else "",
-                    "null_if_floor_sd": is_null(diff, floor["sd"] if floor else None),
-                    "null_if_floor_range": is_null(
-                        diff, floor["range"] if floor else None
-                    ),
+                    "floor": round(floor, 4) if floor is not None else "",
+                    "verdict": verdict(diff, floor),
                     "p_sign_flip": round(stats.sign_flip_test(diffs), 4),
                     "mde_80": round(minimum, 4) if minimum is not None else "",
                     "gee_log_odds": round(fit.log_odds, 4) if fit else "",
@@ -340,21 +300,17 @@ def interaction_rows(rows: list[dict[str, Any]], n_boot: int) -> list[dict[str, 
                 - (means[(True, "off")][p] - means[(False, "off")][p])
                 for p in pairs
             }
-            rng = random.Random(0)
-            draws = sorted(
-                sum(dd[k] for k in chosen) / len(chosen)
-                for chosen in (rng.choices(pairs, k=len(pairs)) for _ in range(n_boot))
-            )
-            values = list(dd.values())
+            ci = mean_with_ci(dd, n_boot)
+            assert ci is not None  # `pairs` is non-empty
             out.append(
                 {
                     **dict(zip(rest_fields, rest, strict=True)),
                     "metric": metric,
-                    "n_pairs": len(pairs),
-                    "interaction": round(sum(values) / len(values), 4),
-                    "ci_lo": round(draws[int(0.025 * (n_boot - 1))], 4),
-                    "ci_hi": round(draws[int(0.975 * (n_boot - 1))], 4),
-                    "p_sign_flip": round(stats.sign_flip_test(values), 4),
+                    "n_pairs": ci.n_pairs,
+                    "interaction": round(ci.diff, 4),
+                    "ci_lo": round(ci.lo, 4),
+                    "ci_hi": round(ci.hi, 4),
+                    "p_sign_flip": round(stats.sign_flip_test(list(dd.values())), 4),
                     "primary": True,
                 }
             )
@@ -460,7 +416,7 @@ def report_md(
     lines = [
         "# Sweep analysis",
         "",
-        "Procedure: `docs/design/09_analysis_plan.md` (draft until signed).",
+        "Procedure: `docs/design/09_analysis_plan.md`.",
         "Every rate below is a lower bound; see `reportability` for what each",
         "metric may be used for. Saturated cells (rate 0 or 1) are reported but",
         "excluded from comparative claims (doc 04 §14).",
@@ -665,7 +621,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     report.add_argument(
         "--n-boot",
         type=int,
-        default=1000,
+        default=N_BOOT,
         help="Bootstrap resamples (doc 09 §3: 1,000; doc 10 §5 proposes 10,000).",
     )
     report.add_argument(

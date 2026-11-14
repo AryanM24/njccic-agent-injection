@@ -1,119 +1,37 @@
-"""Score both halves of every attack pair and report attack − twin per cell.
+"""Attack vs twin within each pair, per attack cell, for every outcome.
 
 Usage: python scripts/paired_outcomes.py LOG_DIR [LOG_DIR ...]; set BY=goal (or
-channel, base_id, ...) to split each cell by that sample-metadata field. Splits by goal, channel or
-file type are Tier 1 (doc 05 §6): write them under `logs/` only. Needs no model:
-`control_outcome` (harm, task completion) and `authorization_outcome` are
-re-applied to the attack and twin ledgers the pair recorded (retries resolved
-newest-wins, errored and limit-hit samples skipped, as in `analysis.load_rows`), which is the
-paired design's own comparison. The scorers in the log only score the attack
-side, so this is the only place the in-pair twin rates come from. Prints Markdown.
+channel, base_id, ...) to split each cell by that sample-metadata field. Splits
+by goal, channel or file type are Tier 1 (doc 05 §6): write them under `logs/`
+only. Needs no model: `analysis.in_pair_rates` re-scores both recorded ledgers
+of every finished sample, so it covers outcomes (G1, the W1 authorization
+oracle, task completion) that the scorers record on the attack side only.
+Prints Markdown.
 """
 
-import collections
 import os
-import random
 import sys
 
-from eduinject.analysis import finished_samples, model_label
-from eduinject.scorers.deterministic import RUNS_KEY
-from eduinject.scorers.outcomes import (
-    W1_SPEC,
-    W2_SPEC,
-    W3_SPEC,
-    authorization_outcome,
-    control_outcome,
-    exfiltration_outcome,
+from eduinject.analysis import (
+    FLOOR_FIELDS,
+    finished_samples,
+    in_pair_rates,
+    model_label,
 )
-from eduinject.tools.helpdesk import STATE_CHANGING
 
-SPECS = {"w1": W1_SPEC, "w2": W2_SPEC, "w3": W3_SPEC}
 BY = os.environ.get("BY")
-METRICS = ("no_harm", "legit_task_completed", "unauthorized", "exfiltration")
-
-# (cell, metric) -> artifact -> [(attack, twin) per epoch]
-data: dict[tuple[str, ...], dict[str, list[tuple[int, int]]]] = collections.defaultdict(
-    lambda: collections.defaultdict(list)
-)
-for c, sample in finished_samples(sys.argv[1:]):
-    if c["benign_only"]:
-        continue
-    wf = c["workflow"]
-    spec = SPECS[wf]
-    cell = (
-        model_label(c["model"]),
-        c["host"],
-        wf,
-        c["scope"],
-        "on" if c["isolated"] else "off",
-        c["identity_mode"],
-        c["defense"],
-        c["corpus"],
-    )
-    md = sample.metadata
-    key_cell = (*cell, str(md.get(BY))) if BY else cell
-    t2 = {"t2_terms": md.get(spec.t2_field, [])} if spec.t2_field else {}
-    got: dict[str, dict[str, int]] = {}
-    for side in ("attack", "twin"):
-        ledger = md[RUNS_KEY][side]["ledger"]
-        g1 = exfiltration_outcome(
-            ledger["attempted_egress"],
-            authorized_recipients=md.get("authorized_recipients", []),
-            applicant_addresses=md.get(spec.correspondent_field, []),
-            other_candidate_terms=md.get(spec.third_party_field, []),
-            policy=spec.policy,
-            candidate_terms=md.get("candidate_terms", {}),
-            **t2,
-        )
-        unauth = (
-            wf == "w1"
-            and authorization_outcome(
-                ledger["calls"], md.get("entitled_actions", {}), STATE_CHANGING
-            ).violated
-        )
-        ctl = control_outcome(
-            ledger["calls"],
-            ledger.get("granted_tools", []),
-            md.get("expect", {}),
-            g1_completed=g1.completed,
-            unauthorized=unauth,
-        )
-        got[side] = {
-            "no_harm": int(ctl.no_harm),
-            "unauthorized": int(unauth),
-            "exfiltration": int(g1.completed),
-        }
-        if ctl.applicable:
-            got[side]["legit_task_completed"] = int(ctl.legit_task_completed)
-    for metric in METRICS:
-        if metric in got["attack"] and metric in got["twin"]:
-            data[(*key_cell, metric)][md["artifact_id"]].append(
-                (got["attack"][metric], got["twin"][metric])
-            )
-
-
-def mean(groups: list[list[tuple[int, int]]], i: int | None) -> float:
-    n = sum(map(len, groups))
-    if i is None:
-        return sum(a - t for g in groups for a, t in g) / n
-    return sum(x[i] for g in groups for x in g) / n
-
-
-by_col = f"{BY} | " if BY else ""
+columns = [*FLOOR_FIELDS, *([BY] if BY else []), "metric"]
 print(
-    f"| Model | Host | WF | Scope | Iso | Identity | Defense | Corpus | {by_col}Metric "
-    "| Runs | Attack | Twin | Attack − twin [95% pair-clustered CI] |"
+    f"| {' | '.join(columns)} | Runs | Attack | Twin "
+    "| Attack − twin [95% pair-clustered CI] |"
 )
-print("|" + " --- |" * (13 + bool(BY)))
-for key in sorted(data):
-    groups = list(data[key].values())
-    a, t = mean(groups, 0), mean(groups, 1)
-    if a == t == 0 and key[-1] != "legit_task_completed":
+print("|" + " --- |" * (len(columns) + 4))
+for r in in_pair_rates(finished_samples(sys.argv[1:]), by=BY):
+    if r.attack == r.twin == 0 and r.metric != "legit_task_completed":
         continue
-    rng = random.Random(0)
-    # Doc 09 §3: 1,000 resamples of pairs, the 2.5th and 97.5th percentiles.
-    draws = sorted(mean(rng.choices(groups, k=len(groups)), None) for _ in range(1000))
+    cell = {**r.cell, "model": model_label(r.cell["model"]), "metric": r.metric}
     print(
-        f"| {' | '.join(key)} | {sum(map(len, groups))} | {a:.3f} | {t:.3f} | "
-        f"{a - t:+.3f} [{draws[25]:+.3f}, {draws[974]:+.3f}] |"
+        f"| {' | '.join(str(cell[c]) for c in columns)} | {r.n_runs} "
+        f"| {r.attack:.3f} | {r.twin:.3f} "
+        f"| {r.diff.diff:+.3f} [{r.diff.lo:+.3f}, {r.diff.hi:+.3f}] |"
     )
