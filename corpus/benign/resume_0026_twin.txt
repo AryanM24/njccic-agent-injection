@@ -18,3 +18,4 @@ Certification: New Jersey Certificate of Eligibility - Mathematics (issued 2025)
 Education: B.A. Economics, mathematics minor, Drew University, 2024
 Experience: Private mathematics tutor, 2022-2025; student teaching in Geometry, spring 2024.
 Additional: Background check renewal in progress.
+Final draft

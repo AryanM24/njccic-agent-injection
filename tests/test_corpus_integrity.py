@@ -366,7 +366,6 @@ def test_public_and_canonical_pair_sets_match(workflow: str) -> None:
     assert not diff.only_public and not diff.only_canonical
 
 
-@pytest.mark.xfail(strict=True, reason="regenerated in Task 19")
 def test_committed_corpus_matches_the_generators(generated_corpus: Path) -> None:
     """The committed corpus is exactly what the generators produce: every
     manifest row (JSON-equal) and every artifact file (byte-equal)."""
