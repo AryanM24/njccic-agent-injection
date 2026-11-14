@@ -296,6 +296,29 @@ def test_row_without_correct_has_no_did_correct_thing(tmp_path: Path) -> None:
     assert not any("score:control_check.did_correct_thing" in row for row in rows)
 
 
+@pytest.mark.parametrize("script", ["exfil_recipients.py", "paired_outcomes.py"])
+def test_log_scripts_run_on_a_real_mock_log(tmp_path: Path, script: str) -> None:
+    import subprocess
+
+    eval(
+        eduinject_w1(scope="read_write", isolated=True),
+        model=get_model("mockllm/model", custom_outputs=w1_compromised),
+        log_dir=str(tmp_path / "logs"),
+        display="none",
+        limit=1,
+    )
+    path = Path(__file__).resolve().parents[1] / "scripts" / script
+    out = subprocess.run(
+        [sys.executable, str(path), str(tmp_path / "logs")],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "| --- |" in out
+    if script == "exfil_recipients.py":
+        assert "internal_staff" in out and "data_subject" in out
+
+
 def test_report_warns_when_a_cell_made_no_tool_calls() -> None:
     from analyze import report_md
 

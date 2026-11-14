@@ -140,9 +140,9 @@ def workflow(code: str) -> Workflow:
     return WORKFLOWS[code]
 
 
-def register(workflow: Workflow) -> Workflow:
-    WORKFLOWS[workflow.code] = workflow
-    return workflow
+def register(wf: Workflow) -> Workflow:
+    WORKFLOWS[wf.code] = wf
+    return wf
 
 
 W2 = register(
@@ -405,9 +405,7 @@ def paired_pipeline(
     return solve
 
 
-def scorers_for(
-    workflow: Workflow, benign_only: bool, identity_mode: str
-) -> list[Scorer]:
+def scorers_for(workflow: Workflow, benign_only: bool) -> list[Scorer]:
     """The scorer set for a cell. Benign-only cells score the twin alone and
     drop the attack-vs-twin outcomes, which do not exist there."""
     spec, changing = workflow.spec, workflow.state_changing
@@ -510,7 +508,7 @@ def build_task(
         message_limit=message_limit,
         epochs=epochs,
         model=bind_model(model, model_args, reasoning_effort),
-        scorer=scorers_for(workflow, benign_only, identity_mode),
+        scorer=scorers_for(workflow, benign_only),
         metadata={
             **run_params,
             "extraction_pins": EXTRACTION_PINS,

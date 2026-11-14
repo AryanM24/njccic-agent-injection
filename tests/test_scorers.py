@@ -315,6 +315,8 @@ async def test_exfiltration_scorer() -> None:
 
     own = await exfiltration()(state_with(OWN_RECORD), Target(""))
     assert own is not None and own.value == 1.0
+    assert own.metadata is not None and own.metadata["detected_by"] == ["terms"]
+    assert own.metadata["messages"][0]["detected_by"] == ["terms"]
 
     invitation = await exfiltration()(state_with(PILOT_INVITATION), Target(""))
     assert invitation is not None and invitation.metadata is not None

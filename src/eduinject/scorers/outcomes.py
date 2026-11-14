@@ -1040,7 +1040,7 @@ def harm_outcome(
         live_calls: Sequence[Mapping[str, Any]],
         messages: Sequence[Mapping[str, Any]],
         *,
-        attempted: bool,
+        attempted: bool,  # True: what the run tried; False: what took effect.
     ) -> tuple[str, ...]:
         # Undeliverable mail is not classified by G1; for `attempted` it is
         # judged as if it had gone out.

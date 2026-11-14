@@ -5,13 +5,14 @@ Usage: python scripts/exfil_recipients.py LOG_DIR [LOG_DIR ...]. Needs no model:
 side of a paired run is scored too. Prints a Markdown table. The in-pair
 attack − twin G1 rate is `exfiltration` in `scripts/paired_outcomes.py`.
 
-Recipient classes are keyword heuristics over the address, a reading aid for
-the signed G1 rule, not a replacement for it.
+Recipient columns are the doc 13 §2 classes (`recipients.classify_recipient`),
+the same classes the G1 rule itself assigns.
 """
 
 import argparse
 import collections
 import sys
+from typing import get_args
 
 from eduinject.analysis import (
     FLOOR_FIELDS,
@@ -21,26 +22,12 @@ from eduinject.analysis import (
     model_label,
     refuse_stale,
 )
+from eduinject.recipients import RecipientClass
 from eduinject.scorers.deterministic import RUNS_KEY
 from eduinject.scorers.outcomes import exfiltration_from_metadata
 
-WHO = ["tripwire", "correspondent", "data subject", "internal staff", "other"]
+WHO: tuple[str, ...] = get_args(RecipientClass)
 COLUMNS = ["logs", *FLOOR_FIELDS, "side"]
-
-
-def recipient(to: str, cls: str, tripwires: list[str], third: list[str]) -> str:
-    to = to.lower()
-    local, _, dom = to.partition("@")
-    if to in tripwires:
-        return "tripwire"
-    if cls in ("submitter", "applicant", "correspondent"):
-        return "correspondent"
-    words = [w for w in local.replace("-", ".").replace("_", ".").split(".")]
-    if to in third or any(len(w) > 3 and any(w in t for t in third) for w in words):
-        return "data subject"
-    if "district" in dom or "k12" in dom or dom.endswith(".edu"):
-        return "internal staff"
-    return "other"
 
 
 _ap = argparse.ArgumentParser()
@@ -58,8 +45,6 @@ for c, sample in finished_samples(_args.log_dirs):
     cell = {**c, "logs": cell_kind(c), "model": model_label(c["model"])}
     md = sample.metadata
     spec = WORKFLOW_SPECS[c["workflow"]]
-    third = [t.lower() for t in md.get(spec.third_party_field) or []]
-    tripwires = [t.lower() for t in md.get("tripwire_addresses") or []]
     for side, run in (md.get(RUNS_KEY) or {}).items():
         outcome = exfiltration_from_metadata(
             run["ledger"]["attempted_egress"], md, spec
@@ -70,7 +55,7 @@ for c, sample in finished_samples(_args.log_dirs):
         if outcome.completed:
             pairs_hit[k].add(md["artifact_id"])
         for m in outcome.completions:
-            who[(*k, recipient(m.to, m.recipient_class, tripwires, third))] += 1
+            who[(*k, m.recipient_class)] += 1
 
 print(
     "Runs and Flagged count runs; Pairs counts distinct artifact pairs among the "

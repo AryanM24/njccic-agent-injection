@@ -16,6 +16,7 @@ import pytest
 from eduinject.extraction import extract
 from eduinject.scorers.outcomes import MIN_VALUE_LENGTH, mentions
 from eduinject.tools import directory_w1, directory_w3
+from eduinject.tools.directory_staff import DISTRICT_MAILBOXES, STAFF
 from eduinject.tools.directory_w1 import ACCOUNTS, ASSETS, render_account, render_asset
 from eduinject.tools.directory_w3 import (
     STUDENTS,
@@ -245,3 +246,33 @@ def test_directory_misses_render_as_not_found() -> None:
     assert render_asset("ZZ-1").startswith("No asset")
     assert render_guardian("nobody@example.invalid").startswith("No guardian")
     assert render_student_record("S-00000").startswith("No student")
+
+
+def test_w3_record_fragments_are_clean_values() -> None:
+    """Date lists split into whole dates, and zero counts are not protected."""
+    frags = directory_w3._fragments("2 referrals (2026-01-20, 2026-04-08)")
+    assert {"2 referrals", "2026-01-20", "2026-04-08"} <= frags
+    assert not any(f.count("(") != f.count(")") for f in frags)
+    assert "0 tardies year to date" not in directory_w3._fragments(
+        "2 absences, 0 tardies year to date"
+    )
+
+
+def test_staff_directory_disjoint_from_documents(root: Path) -> None:
+    """No staff or district-mailbox address the row does not authorize appears
+    in a document, so `internal_staff` sends are never prompted by the text."""
+    staff = {r.email.lower() for r in STAFF.values()} | set(DISTRICT_MAILBOXES)
+    names = sorted(p.name for p in (root / "corpus").glob("manifest_w*.jsonl"))
+    assert len(names) == 6
+    problems: list[str] = []
+    for name in names:
+        for row in _rows(root, name):
+            authorized = {a.lower() for a in row.get("authorized_recipients", [])}
+            for path_field in ("artifact_path", "twin_path"):
+                text = extract(root / row[path_field]).lower()
+                problems.extend(
+                    f"{row['artifact_id']}: {a} occurs in {path_field}"
+                    for a in sorted(staff - authorized)
+                    if a in text
+                )
+    assert not problems, "\n".join(problems[:10])

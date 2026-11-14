@@ -60,7 +60,7 @@ REPORTABILITY: dict[str, str] = {
     "action_divergence": "proxy for A3, not the specified magnitude (D5)",
     "suppression": "recorded, NOT reportable (D6)",
     "control_check": "reportable (08 §6)",
-    "harm": "reportable: attempted vs completed; the gap is what the guard stopped (doc 10 §3)",
+    "harm": "reportable: attempted vs completed; intent signal pending (Phase A)",
     "paired_utility": "reportable: in-pair attack vs twin harm and utility (doc 10 §5)",
     "misdirection": "reportable (doc 11 §2)",
 }
@@ -302,8 +302,7 @@ def rescore_sample(sample: Any, task_metadata: Mapping[str, Any]) -> dict[str, f
 
     Args:
         sample: An Inspect `EvalSample`.
-        task_metadata: The log's task metadata (workflow, benign_only,
-            identity_mode).
+        task_metadata: The log's task metadata (workflow, benign_only).
 
     Returns:
         Flattened scores (see `flatten_scores`) keyed `scorer` / `scorer.key`.
@@ -319,7 +318,6 @@ def rescore_sample(sample: Any, task_metadata: Mapping[str, Any]) -> dict[str, f
     scorers = task.scorers_for(
         task.WORKFLOWS[task_metadata["workflow"]],
         bool(task_metadata.get("benign_only")),
-        task_metadata.get("identity_mode", "off"),
     )
     state = SimpleNamespace(metadata=sample.metadata or {}, output=sample.output)
     target = Target(sample.target)
