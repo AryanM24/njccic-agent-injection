@@ -40,6 +40,7 @@ runs is Tier 1, like the logs it is computed from. Nothing here contacts a model
 
 import argparse
 import csv
+import random
 import sys
 from collections.abc import Sequence
 from itertools import combinations
@@ -86,7 +87,15 @@ PRIMARY_CONTRASTS = ("isolation", "scope", "identity", "defense")
 correction runs over it within each model and workflow; every other row is
 exploratory and labelled so."""
 
-HARM_METRICS = ("exfiltration", "authorization", "scope_violation")
+HARM_METRICS = (
+    "exfiltration",
+    "authorization",
+    "misdirection",
+    "harm.completed",
+    "harm.attempted",
+)
+"""Harm outcomes for concentration and conditional rates. `scope_violation` is
+not one: it is a provisioning check (always 0 when the tools match the scope)."""
 CONDITIONS = ("propagation.analysis", "propagation.action")
 
 CODED = ("exfiltration", "scope_violation", "authorization", "action_divergence")
@@ -508,6 +517,8 @@ def cmd_sample_human(args: argparse.Namespace) -> int:
     if not chosen:
         print("no scored runs to sample", file=sys.stderr)
         return 1
+    # Sheet order would otherwise group cells and put enriched rows last.
+    random.Random(args.seed).shuffle(chosen)
     ids = (
         "log",
         "sample_id",

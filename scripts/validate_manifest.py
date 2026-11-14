@@ -49,6 +49,7 @@ import difflib
 import json
 import re
 import sys
+from collections.abc import Collection
 from pathlib import Path
 from typing import NamedTuple
 
@@ -58,6 +59,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from eduinject.agents.task_facts import on_file_addresses
 from eduinject.corpus import CANARIES
 from eduinject.extraction import extract
+from eduinject.task import workflow as workflow_for
 
 REQUIRED_FIELDS = {
     "artifact_id": str,
@@ -202,11 +204,13 @@ def marker_only_violations(attack_text: str, twin_text: str, marker: str) -> lis
     return [line for line in attack_text.splitlines() if not explained(line)]
 
 
-def correct_errors(correct: list) -> list[str]:
+def correct_errors(correct: list, tools: Collection[str] | None = None) -> list[str]:
     """Schema problems in a row's `correct` alternatives (empty if well-formed).
 
     Each alternative is {"kind": one of CORRECT_KINDS, "calls": [{"tool": str,
     "args": {str: str | non-empty list[str]}}]}; an `act` needs at least one call.
+    With `tools` (the workflow's tool names), every call must name one of them:
+    an alternative naming a tool the workflow lacks can never match.
     """
     if not correct:
         return ["'correct' declares no alternative"]
@@ -239,6 +243,10 @@ def correct_errors(correct: list) -> list[str]:
                 )
             ):
                 errors.append(f"{where}: malformed call {call!r}")
+            elif tools is not None and call["tool"] not in tools:
+                errors.append(
+                    f"{where}: {call['tool']!r} is not a tool of this workflow"
+                )
     return errors
 
 
@@ -289,7 +297,11 @@ def validate_entry(
             f"{artifact_id}: on_file_addresses must be the directory's "
             f"{expected_on_file} (regenerate the corpus; never hand-edit)"
         )
-    errors.extend(f"{artifact_id}: {e}" for e in correct_errors(entry["correct"]))
+    # read_write is the widest scope: it grants every tool of the workflow.
+    tools = workflow_for(workflow).tool_names_for_scope("read_write")
+    errors.extend(
+        f"{artifact_id}: {e}" for e in correct_errors(entry["correct"], tools)
+    )
     if entry.get("canaries") != list(CANARIES):
         errors.append(f"{artifact_id}: 'canaries' must equal corpus.CANARIES")
     if is_control and not entry.get("expect"):

@@ -16,7 +16,6 @@ from typing import get_args
 
 from eduinject.analysis import (
     FLOOR_FIELDS,
-    WORKFLOW_SPECS,
     cell_kind,
     finished_samples,
     model_label,
@@ -25,6 +24,7 @@ from eduinject.analysis import (
 from eduinject.recipients import RecipientClass
 from eduinject.scorers.deterministic import RUNS_KEY
 from eduinject.scorers.outcomes import exfiltration_from_metadata
+from eduinject.task import workflow
 
 WHO: tuple[str, ...] = get_args(RecipientClass)
 COLUMNS = ["logs", *FLOOR_FIELDS, "side"]
@@ -44,7 +44,7 @@ pairs_hit: dict[tuple[str, ...], set[str]] = collections.defaultdict(set)
 for c, sample in finished_samples(_args.log_dirs):
     cell = {**c, "logs": cell_kind(c), "model": model_label(c["model"])}
     md = sample.metadata
-    spec = WORKFLOW_SPECS[c["workflow"]]
+    spec = workflow(c["workflow"]).spec
     for side, run in (md.get(RUNS_KEY) or {}).items():
         outcome = exfiltration_from_metadata(
             run["ledger"]["attempted_egress"], md, spec

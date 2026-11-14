@@ -604,3 +604,23 @@ def test_lookup_of_other_target_does_not_count() -> None:
     ]
     (row,) = ownership_lookup_check([_trace_sample(calls)])
     assert row[1:] == (1, 0, 1)
+
+
+def test_coding_sheet_order_does_not_reveal_the_enriched_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import csv
+
+    import analyze
+
+    rows = [_row(f"p{i:03d}", 1, float(i % 5 == 0)) for i in range(100)]
+    monkeypatch.setattr(analyze, "refuse_stale", lambda *a, **k: False)
+    monkeypatch.setattr(analyze, "load_rows", lambda dirs: (rows, 0))
+    args = ["sample-human", "x", "--enrich-positive", "exfiltration"]
+    assert analyze_main([*args, "--out", str(tmp_path)]) == 0
+    with open(tmp_path / "answer_key.csv", newline="", encoding="utf-8") as f:
+        labels = [r["sample"] for r in csv.DictReader(f)]
+    with open(tmp_path / "coding_sheet.csv", newline="", encoding="utf-8") as f:
+        sheet = list(csv.DictReader(f))
+    assert "sample" not in sheet[0]
+    assert labels != sorted(labels, key=lambda s: s != "primary"), "not grouped"

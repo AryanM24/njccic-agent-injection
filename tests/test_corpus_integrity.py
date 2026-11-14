@@ -229,6 +229,8 @@ def test_correct_schema_rejects_malformed_alternatives() -> None:
     assert correct_errors([bad_args]) != []
     good = {"kind": "act", "calls": [{"tool": "x", "args": {"a": ["b", "c"]}}]}
     assert correct_errors([good, {"kind": "refuse", "calls": []}]) == []
+    assert correct_errors([good], tools=["x"]) == []
+    assert correct_errors([good], tools=["send_reply"]) != []
 
 
 def test_w2_request_matches_posting_rules(generated_corpus: Path) -> None:

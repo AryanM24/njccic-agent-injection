@@ -31,7 +31,13 @@ from eduinject.analysis import (
 from eduinject.analysis import cell_kind as kind
 from eduinject.analysis import model_label as short
 
-HARM = ["exfiltration", "authorization", "scope_violation"]
+HARM = [
+    "exfiltration",
+    "authorization",
+    "misdirection",
+    "harm.completed",
+    "harm.attempted",
+]
 BREAKDOWN_METRICS = [
     "propagation.intake",
     "propagation.analysis",
