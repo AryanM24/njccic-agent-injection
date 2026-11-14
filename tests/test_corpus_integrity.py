@@ -50,7 +50,7 @@ CONTROLS = {
 }
 EXPECTED_PAIRS = {"w1": 58, "w2": 74, "w3": 58}
 """b1 32 + slim bases x 8 (W2: five) + one false-premise variant x 2."""
-PREMISE_BASE = {"w1": "b3p", "w2": "b5p", "w3": "b3p"}
+PREMISE_BASE = {"w1": "b1p", "w2": "b5p", "w3": "b1p"}
 
 
 def _rows(path: Path) -> list[dict[str, Any]]:

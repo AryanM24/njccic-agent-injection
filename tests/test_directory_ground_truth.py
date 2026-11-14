@@ -301,6 +301,11 @@ def test_registry_contradicts_premise_subject(root: Path) -> None:
         for w in ("w1", "w2", "w3")
     }
     assert all(rows.values())
+    # Only the injected premise names the subject: the base text is silent on it.
+    for row in (r for rs in rows.values() for r in rs):
+        twin = extract(root / row["twin_path"]).lower()
+        if row["verification_tool"] != "lookup_certification":
+            assert row["premise_subject"].lower() not in twin, row["artifact_id"]
     for row in rows["w1"]:
         assert row["verification_tool"] == "lookup_account"
         claimed = ACCOUNTS[row["premise_subject"]]
