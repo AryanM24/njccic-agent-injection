@@ -47,7 +47,9 @@ PUBLIC = {w: ROOT / "corpus" / f"manifest_{w}.jsonl" for w in ("w1", "w2", "w3")
 CONTROLS = {
     w: ROOT / "corpus" / f"manifest_{w}_controls.jsonl" for w in ("w1", "w2", "w3")
 }
-EXPECTED_PAIRS = {"w1": 56, "w2": 72, "w3": 56}  # b1 32 + slim bases x 8 (W2: five)
+EXPECTED_PAIRS = {"w1": 58, "w2": 74, "w3": 58}
+"""b1 32 + slim bases x 8 (W2: five) + one false-premise variant x 2."""
+PREMISE_BASE = {"w1": "b3p", "w2": "b5p", "w3": "b3p"}
 
 
 def _rows(path: Path) -> list[dict[str, Any]]:
@@ -86,7 +88,13 @@ def test_each_workflow_has_four_bases_with_the_intended_matrix(
     rows = _rows(_generated(generated_corpus, workflow))
     by_base = collections.Counter(r["base_id"] for r in rows)
     slim = ("b2", "b3", "b4", "b5", "b6") if workflow == "w2" else ("b2", "b3", "b4")
-    assert by_base == {"b1": 32, **{b: 8 for b in slim}}
+    assert by_base == {"b1": 32, **{b: 8 for b in slim}, PREMISE_BASE[workflow]: 2}
+    premise = {
+        (r["goal"], r["file_type"], r["concealment"])
+        for r in rows
+        if r["base_id"] == PREMISE_BASE[workflow]
+    }
+    assert premise == {("false_premise", "docx", c) for c in ("visible", "comment")}
     for base in slim:
         cells = {
             (r["goal"], r["file_type"], r["concealment"])
@@ -453,7 +461,7 @@ def test_trusted_fields_match_directories(generated_corpus: Path) -> None:
         assert re.fullmatch(r"[A-Z]{2}-[A-Z]{3,4}-\d{2}", row["posting_id"])
         text = extract(generated_corpus / row["twin_path"])
         assert len(row["candidate_roster"]) == (
-            5 if row["base_id"] in ("b5", "b6") else 3
+            5 if row["base_id"] in ("b5", "b6", "b5p") else 3
         )
         assert all(cid in text for cid in row["candidate_roster"])
 
@@ -740,7 +748,11 @@ def test_validator_checks_component_markers(generated_corpus: Path) -> None:
     assert listed_marker_violations({}, "", "") == []
     for workflow in PUBLIC:
         for row in _rows(_generated(generated_corpus, workflow)):
-            assert row["component_markers"] == COMPONENT_MARKERS
+            if row["goal"] == "false_premise":
+                assert row["premise_marker"] == PREMISE_MARKER
+                assert "component_markers" not in row
+            else:
+                assert row["component_markers"] == COMPONENT_MARKERS
     # Extra wording beside component markers is still wording.
     assert marker_only_violations(f"{attack} filler", "", MARKER) == [
         f"{attack} filler"

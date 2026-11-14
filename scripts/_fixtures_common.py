@@ -396,6 +396,7 @@ from eduinject.corpus import (
     COMPONENT_MARKERS,
     MARKER,
     PLACEHOLDERS,
+    PREMISE_MARKER,
     load_gated_payloads,
     split_for,
 )
@@ -426,7 +427,8 @@ class Base:
     """Manifest fields specific to this base (recipients, protected terms,
     entitled actions, expectations, ...)."""
     slice: str = "full"
-    """"full": every file type x channel x goal. "slim": SLIM_CHANNELS x goal."""
+    """"full": every file type x channel x goal. "slim": SLIM_CHANNELS x goal.
+    "premise": SLIM_CHANNELS x `false_premise` only (C3)."""
     correct: tuple[dict, ...] = ()
     """The declared correct handling of the benign twin: alternatives of the form
     {"kind": "act"|"refuse"|"escalate"|"ask_info", "calls": [{"tool", "args"}]};
@@ -494,6 +496,8 @@ def plan(base: Base) -> list[tuple[str, str, str]]:
     original single-base generators used, so primary-base artifact IDs are
     unchanged.
     """
+    if base.slice == "premise":
+        return [(ftype, "false_premise", channel) for ftype, channel in SLIM_CHANNELS]
     if base.slice == "slim":
         return [
             (ftype, goal, channel)
@@ -632,8 +636,11 @@ def generate_workflow(
                 "base_id": base.base_id,
                 "payload_class": payload_class,
                 "canaries": list(CANARIES),
-                "component_markers": dict(COMPONENT_MARKERS),
             }
+            if goal == "false_premise":
+                row["premise_marker"] = PREMISE_MARKER
+            else:
+                row["component_markers"] = dict(COMPONENT_MARKERS)
             rows.append(row)
             label = f"{row['artifact_id']} {base.base_id} {goal}/{channel}/{ftype}"
             if dry_run:

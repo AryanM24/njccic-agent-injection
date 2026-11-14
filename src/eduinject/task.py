@@ -25,6 +25,7 @@ from inspect_ai.dataset import MemoryDataset, Sample
 from inspect_ai.model import GenerateConfig, Model, ModelOutput, get_model
 from inspect_ai.scorer import Scorer
 from inspect_ai.solver import Generate, Solver, TaskState, solver
+from inspect_ai.tool import Tool
 from inspect_ai.util import store_as
 
 from .agents import prompts
@@ -55,6 +56,7 @@ from .scorers import (
     harm,
     misdirection,
     paired_utility,
+    premise_adoption,
     propagation,
     rank_corruption,
     scope_violation,
@@ -93,6 +95,8 @@ OPTIONAL_METADATA: tuple[str, ...] = (
     "on_file_addresses",
     "component_markers",
     "premise_marker",
+    "premise_subject",
+    "verification_tool",
     "split",
     "requester_id",
     "sender_address",
@@ -137,9 +141,11 @@ class Workflow(NamedTuple):
     escalation_tools: tuple[str, ...] = ()
     """Tools that escalate to staff (W3), for `correct_outcome`; empty where a
     send to an authorized recipient is the escalation."""
-    verification_tools: tuple[str, ...] = ()
+    verification_tools: tuple[Callable[..., Tool], ...] = ()
     """Lookups `verification_tools=True` adds (W2); empty where the workflow
     already has them, which makes the parameter a `ValueError`."""
+    verification_surface: str | None = None
+    """`tool_surface` when the verification lookups are granted."""
 
 
 RELAY_MAX = 3
@@ -185,7 +191,8 @@ W2 = register(
         controls_manifest=DEFAULT_CONTROLS_MANIFEST,
         task_facts=facts_w2,
         verified_recipients=verified_w2,
-        verification_tools=("lookup_certification",),
+        verification_tools=ats.VERIFICATION_TOOLS,
+        verification_surface=ats.TOOL_SURFACE_VERIFY,
     )
 )
 
@@ -337,6 +344,26 @@ def dataset_from_manifest(manifest: str | Path) -> MemoryDataset:
     return MemoryDataset(samples, name=manifest.stem)
 
 
+def tools_with_verification(
+    workflow: Workflow, enabled: bool
+) -> tuple[ToolsForScope, ToolNamesForScope]:
+    """The workflow's scope functions, with its verification lookups appended at
+    every scope when `enabled` (C3); unchanged otherwise."""
+    if not enabled:
+        return workflow.tools_for_scope, workflow.tool_names_for_scope
+    extra = workflow.verification_tools
+
+    def tools(scope: str, instance: str | None, guard: Guard | None) -> list[Tool]:
+        added = [f(instance=instance, guard=guard) for f in extra]
+        return [*workflow.tools_for_scope(scope, instance, guard), *added]
+
+    def names(scope: str) -> tuple[str, ...]:
+        added = tuple(f.__name__ for f in extra)
+        return (*workflow.tool_names_for_scope(scope), *added)
+
+    return tools, names
+
+
 def guard_for(workflow: Workflow, metadata: Mapping[str, Any]) -> Guard:
     """The guard a sample's tools enforce under identity_mode="guard"."""
     readable = (
@@ -387,6 +414,9 @@ def paired_pipeline(
         A solver that records each run under `metadata["runs"]`.
     """
     spec = WORKFLOWS[workflow]
+    tools_for_scope, tool_names_for_scope = tools_with_verification(
+        spec, verification_tools
+    )
     labels = ("twin",) if benign_only else ("attack", "twin")
     spotlight = defense == "spotlight"
     clause = prompts.SPOTLIGHT_CLAUSE if spotlight else ""
@@ -412,8 +442,8 @@ def paired_pipeline(
                 scope=scope,
                 isolated=isolated,
                 instance=label,
-                tools_for_scope=spec.tools_for_scope,
-                tool_names_for_scope=spec.tool_names_for_scope,
+                tools_for_scope=tools_for_scope,
+                tool_names_for_scope=tool_names_for_scope,
                 intake_system=spec.intake_system + clause,
                 analysis_system=spec.analysis_system + later,
                 action_system=spec.action_system + later,
@@ -477,6 +507,8 @@ def scorers_for(
         ]
         if workflow.code == "w2":
             out.append(rank_corruption())
+        sinks = set(workflow.write_tools) - set(workflow.escalation_tools)
+        out.append(premise_adoption(sink_tools=sorted(sinks)))
     out.append(harm(spec=spec, state_changing=changing, run_label=label))
     return out
 
@@ -530,9 +562,8 @@ def build_task(
     for name, value, default in (
         ("handoff_mode", handoff_mode, "free_text"),
         ("gate", gate, False),
-        ("verification_tools", verification_tools, False),
     ):
-        task_no = {"handoff_mode": 10, "gate": 11, "verification_tools": 12}[name]
+        task_no = {"handoff_mode": 10, "gate": 11}[name]
         if value != default:
             raise NotImplementedError(f"{name}: Task {task_no}")
     manifest, benign_only = resolve_run_mode(
@@ -553,7 +584,11 @@ def build_task(
         "prompts_version": workflow.prompts_version,
         "corpus": corpus_label(manifest),
         "corpus_digest": corpus_digest(manifest),
-        "tool_surface": workflow.tool_surface,
+        "tool_surface": (
+            workflow.verification_surface
+            if verification_tools
+            else workflow.tool_surface
+        ),
         "model": model,
         "model_args": model_args,
         "reasoning_effort": reasoning_effort,

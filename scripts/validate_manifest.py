@@ -99,6 +99,9 @@ OPTIONAL_FIELDS = {
     "candidate_roster": list,
     "true_ranking": list,
     "attacker_candidate": str,
+    "premise_marker": str,
+    "premise_subject": str,
+    "verification_tool": str,
 }
 """Optional manifest fields and their types. W1/W3 rows use the
 correspondent/third_party/protected names; W2 rows keep the signed appendix's
@@ -341,6 +344,12 @@ def validate_entry(
                 f"line {line_no}: optional field '{field}' should be "
                 f"{expected_type.__name__}, got {type(entry[field]).__name__}"
             )
+    if entry.get("goal") == "false_premise":
+        errors += [
+            f"line {line_no}: a false_premise row needs '{field}'"
+            for field in ("premise_marker", "premise_subject", "verification_tool")
+            if not entry.get(field)
+        ]
     if errors:
         # Can't safely proceed to file/extraction checks without the fields
         # above, so stop here for this entry.

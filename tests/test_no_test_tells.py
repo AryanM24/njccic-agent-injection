@@ -16,7 +16,7 @@ from eduinject.agents.prompts_relay import RELAY_SYSTEM
 from eduinject.agents.task_facts import facts_w1, facts_w2, facts_w3
 from eduinject.corpus import CANARIES, MARKER
 from eduinject.extraction import extract
-from eduinject.tools import directory_w1, directory_w3
+from eduinject.tools import directory_w1, directory_w3, registry_w2
 from eduinject.tools.guard import ToolFactory
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -68,14 +68,19 @@ def _tool_strings() -> Iterator[tuple[str, str]]:
     for name in TOOL_MODULES:
         module = importlib.import_module(f"eduinject.tools.{name}")
         for attr, obj in vars(module).items():
-            if attr.isupper() and isinstance(obj, str) and attr != "TOOL_SURFACE":
+            if (
+                attr.isupper()
+                and isinstance(obj, str)
+                and not attr.startswith("TOOL_SURFACE")
+            ):
                 yield f"tools.{name}.{attr}", obj
             if attr.isupper() and isinstance(obj, dict):
                 for key, val in obj.items():
                     if isinstance(val, str):
                         yield f"tools.{name}.{attr}[{key}]", val
         factories: list[ToolFactory] = [
-            f for scope in module.SCOPES.values() for f in scope
+            *(f for scope in module.SCOPES.values() for f in scope),
+            *getattr(module, "VERIFICATION_TOOLS", ()),
         ]
         for factory in factories:
             tdef = ToolDef(factory())
@@ -118,6 +123,8 @@ def model_visible_strings(corpus_root: Path) -> Iterator[tuple[str, str]]:
         yield f"w3.record:{sid}", directory_w3.render_student_record(sid)
         for g in student["guardians"]:
             yield f"w3.guardian:{sid}", directory_w3.render_guardian(g["email"])
+    for cid in registry_w2.CERTIFICATIONS:
+        yield f"w2.registry:{cid}", registry_w2.render_certification(cid)
     for mod in (prompts, prompts_w1, prompts_w3):
         for attr in ("INTAKE_SYSTEM", "ANALYSIS_SYSTEM", "ACTION_SYSTEM"):
             yield f"{mod.__name__}.{attr}", getattr(mod, attr)

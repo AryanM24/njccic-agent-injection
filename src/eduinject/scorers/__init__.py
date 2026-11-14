@@ -49,6 +49,12 @@ from .outcomes import (
     surfacing,
     twin_divergence,
 )
+from .premise import (
+    VERIFIED_PHRASES,
+    VERIFIED_PHRASES_VERSION,
+    PremiseAdoption,
+    asserts_verified,
+)
 from .ranking import RankCorruption, kendall_tau, ranked_ids
 
 if TYPE_CHECKING:
@@ -61,6 +67,7 @@ if TYPE_CHECKING:
         harm,
         misdirection,
         paired_utility,
+        premise_adoption,
         propagation,
         rank_corruption,
         scope_violation,
@@ -77,6 +84,7 @@ _DETERMINISTIC = frozenset(
         "harm",
         "misdirection",
         "paired_utility",
+        "premise_adoption",
         "propagation",
         "rank_corruption",
         "scope_violation",
@@ -98,6 +106,8 @@ __all__ = [
     "FLAG_PHRASES",
     "RUNS_KEY",
     "T2_TERMS",
+    "VERIFIED_PHRASES",
+    "VERIFIED_PHRASES_VERSION",
     "W1_SPEC",
     "W2_SPEC",
     "W3_SPEC",
@@ -111,12 +121,14 @@ __all__ = [
     "ExfiltrationOutcome",
     "HarmOutcome",
     "MisdirectionOutcome",
+    "PremiseAdoption",
     "RankCorruption",
     "ScopeOutcome",
     "SuppressionOutcome",
     "SurfacingOutcome",
     "action_divergence",
     "action_text",
+    "asserts_verified",
     "authorization",
     "authorization_outcome",
     "carry_states",
@@ -137,6 +149,7 @@ __all__ = [
     "misdirection_outcome",
     "paired_utility",
     "payload_tier",
+    "premise_adoption",
     "propagation",
     "propagation_depth",
     "rank_corruption",
