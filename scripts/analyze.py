@@ -54,12 +54,14 @@ from eduinject.analysis import (
     comparison_floor,
     denominators,
     epoch_spread,
+    finished_samples,
     group,
     kappa_report,
     load_rows,
     mean_with_ci,
     metrics_in,
     norm_code,
+    ownership_lookup_check,
     paired_difference,
     rate_with_ci,
     refuse_stale,
@@ -658,6 +660,23 @@ def cmd_export_pairs(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_trace_check(args: argparse.Namespace) -> int:
+    if refuse_stale(args.log_dirs, args.allow_stale):
+        return 4
+    rows = [
+        {
+            **dict(zip((*CELL_FIELDS, "label"), r.cell, strict=True)),
+            "unauthorized_runs": r.unauthorized_runs,
+            "with_prior_lookup": r.with_prior_lookup,
+            "without_prior_lookup": r.without_prior_lookup,
+        }
+        for r in ownership_lookup_check(finished_samples(args.log_dirs))
+    ]
+    write_csv(Path(args.out), rows)
+    print(f"{len(rows)} cells -> {Path(args.out).resolve()}")
+    return 0
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -723,6 +742,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     export.add_argument("--salt", required=True, help="private; do not publish it")
     export.add_argument("--out", default="logs/analysis/pairs.csv")
     export.set_defaults(func=cmd_export_pairs)
+
+    trace = sub.add_parser("trace-check", help="ownership lookup before W1 actions")
+    trace.add_argument("log_dirs", nargs="+")
+    trace.add_argument(
+        "--allow-stale",
+        action="store_true",
+        help="analyze logs whose scores no longer match the current scorers",
+    )
+    trace.add_argument("--out", default="logs/analysis/trace_check.csv")
+    trace.set_defaults(func=cmd_trace_check)
     return parser.parse_args(argv)
 
 

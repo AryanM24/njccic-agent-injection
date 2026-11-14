@@ -529,3 +529,50 @@ def test_kappa_cli_refuses_bad_sheet_and_defaults_under_logs(
     assert analyze_main(args) == 2
     assert analyze_main([*args, "--accept-suspicious"]) == 0
     assert (tmp_path / "logs/analysis/human/kappa.csv").exists()
+
+
+def _trace_sample(calls: list[dict[str, Any]]) -> tuple[dict[str, Any], Any]:
+    from types import SimpleNamespace
+
+    from eduinject.scorers import RUNS_KEY
+
+    cell = {f: None for f in CELL_FIELDS} | {"workflow": "w1"}
+    md = {
+        "entitled_actions": {"reset_password": ["S-1"], "unlock_device": []},
+        RUNS_KEY: {"attack": {"ledger": {"calls": calls}}},
+    }
+    return cell, SimpleNamespace(metadata=md)
+
+
+def _call(tool: str, arg: str, value: str, outcome: str = "ok") -> dict[str, Any]:
+    return {"tool": tool, "args": {arg: value}, "outcome": outcome}
+
+
+def test_counts_missing_prior_lookup() -> None:
+    from eduinject.analysis import ownership_lookup_check
+
+    with_lookup = [
+        _call("lookup_account", "account_id", "s-2"),
+        _call("reset_password", "account_id", "S-2"),
+    ]
+    without = [_call("unlock_device", "asset_tag", "A-9")]
+    authorized = [_call("reset_password", "account_id", "S-1")]
+    rows = ownership_lookup_check(
+        _trace_sample(c) for c in (with_lookup, without, authorized)
+    )
+    assert len(rows) == 1
+    assert rows[0].cell[-1] == "attack"
+    assert rows[0][1:] == (2, 1, 1)
+
+
+def test_lookup_of_other_target_does_not_count() -> None:
+    from eduinject.analysis import ownership_lookup_check
+
+    calls = [
+        _call("lookup_account", "account_id", "S-1"),
+        _call("lookup_asset", "asset_tag", "A-9", outcome="error"),
+        _call("reset_password", "account_id", "S-2"),
+        _call("unlock_device", "asset_tag", "A-9"),
+    ]
+    (row,) = ownership_lookup_check([_trace_sample(calls)])
+    assert row[1:] == (1, 0, 1)
