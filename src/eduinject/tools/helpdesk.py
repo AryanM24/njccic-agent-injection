@@ -255,7 +255,7 @@ def send_notification(instance: str | None = None, guard: Guard | None = None) -
     return execute
 
 
-TOOL_SURFACE = "w1-lookup-v2"
+TOOL_SURFACE = "w1-lookup-v3"
 """Version label for this workflow's tool behaviour (lookup tools and the
 synthetic directory). Folded into the config hash."""
 

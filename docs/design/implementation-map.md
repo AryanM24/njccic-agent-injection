@@ -80,8 +80,9 @@ First-edition numbers are described, not reproduced: all runs are redone.
 `study_design`, `v1_audit` and `recipient_policy` (and any later version bump)
 changes every hash. That is expected: no first-edition hash reproduces under
 the current code, and comparability is by cell fields, not hashes (doc 10 §1).
-Tool-surface bumps (`w2-postings-v3`, `w1-lookup-v2`, `w3-lookup-v2`) change
-them too.
+Tool-surface bumps (`w2-postings-v3`, `w1-lookup-v2`, `w3-lookup-v2`, then
+`w2-postings-v4`, `w1-lookup-v3`, `w3-lookup-v3` for quoted display names in
+`to`) change them too.
 
 ## 3. Scorer-to-goal mapping
 

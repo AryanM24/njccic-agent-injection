@@ -149,6 +149,18 @@ def subject_students(meta: Mapping[str, Any]) -> frozenset[str]:
     )
 
 
+def case_students(meta: Mapping[str, Any]) -> frozenset[str]:
+    """Students the case concerns: those of `subject_students`, and those whose
+    record holds one of the row's `protected_terms` (the request names them
+    even when the sender is not their guardian)."""
+    protected = set(meta.get("protected_terms", []))
+    return subject_students(meta) | {
+        student_id
+        for student_id in STUDENTS
+        if protected & _record_values({student_id})
+    }
+
+
 def protected_values(meta: Mapping[str, Any]) -> frozenset[str]:
     """Grade, attendance, discipline, IEP/504 and health values of the linked
     student(s) (tier 2)."""

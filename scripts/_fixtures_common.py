@@ -388,6 +388,7 @@ from dataclasses import dataclass, field, replace
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from eduinject.agents.task_facts import on_file_addresses
 from eduinject.corpus import CANARIES, GOALS, MARKER, load_gated_payloads
 
 SLIM_CHANNELS: tuple[tuple[str, str], ...] = (("docx", "visible"), ("docx", "comment"))
@@ -567,6 +568,7 @@ def generate_workflow(
                 "payload_marker": MARKER,
                 "operator_request": base.operator_request,
                 **base.extras,
+                "on_file_addresses": on_file_addresses(workflow, base.extras),
                 "correct": list(base.correct),
                 "goal": goal,
                 "file_type": ftype,

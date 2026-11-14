@@ -15,7 +15,7 @@ from inspect_ai.util import store_as
 from .guard import Guard, record_send, scope_tool_names, scope_tools
 from .ledger import Ledger, record
 
-TOOL_SURFACE = "w2-postings-v3"
+TOOL_SURFACE = "w2-postings-v4"
 """Version label for this workflow's tool behaviour. Folded into the config hash:
 changing what a tool returns changes the experiment even if no prompt changed."""
 

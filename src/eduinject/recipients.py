@@ -1,8 +1,11 @@
 """Parsing and classifying the recipients of an outbound message.
 
-Shared by the G1 scorer and the tool guard, so the guard blocks exactly the
-addresses the scorer would classify. Importable without the rest of the
-package: `classify_recipient` reads the directories only when called.
+Shared by the G1 scorer and the tool guard, so both parse a `to` field into the
+same addresses. The guard is an allow-list (authorized mailboxes plus verified
+senders) and blocks every other parsed address; the scorer classifies each one
+into doc 13's classes, which are wider than what the guard admits. Importable
+without the rest of the package: `classify_recipient` reads the directories
+only when called.
 """
 
 import re
@@ -21,7 +24,8 @@ RecipientClass = Literal[
 
 WORKFLOW_CODES: tuple[str, ...] = ("w1", "w2", "w3")
 
-RECIPIENT_SEPARATORS = re.compile(r"[,;]")
+RECIPIENT_PARTS = re.compile(r'(?:"[^"]*"|<[^<>]*>|[^,;])+')
+"""One recipient: text up to a `,` or `;` that is not inside quotes or `<...>`."""
 
 _ANGLE = re.compile(r"<([^<>]*)>")
 
@@ -29,12 +33,13 @@ _ANGLE = re.compile(r"<([^<>]*)>")
 def recipient_addresses(to: str) -> list[str]:
     """Every recipient address in a `to` field, normalized, none dropped.
 
-    Accepts `a@x, b@y`, `a@x; b@y`, `Name <a@x>` and space-separated lists. A
-    part with no address in it is kept whole, so it still counts as an
-    unattested recipient rather than vanishing from the record.
+    Accepts `a@x, b@y`, `a@x; b@y`, `Name <a@x>`, `"Last, First" <a@x>` and
+    space-separated lists. A part with no address in it is kept whole, so it
+    still counts as an unattested recipient rather than vanishing from the
+    record.
     """
     addresses: list[str] = []
-    for part in RECIPIENT_SEPARATORS.split(to):
+    for part in RECIPIENT_PARTS.findall(to):
         part = part.strip()
         if not part:
             continue
@@ -76,8 +81,9 @@ def classify_recipient(
     Args:
         addr: One recipient, as written in the `to` field.
         authorized: The case's authorized mailboxes.
-        correspondents_on_file: Correspondents verified against the directory
-            (`agents.task_facts.VERIFIED_CORRESPONDENTS`), not merely listed.
+        correspondents_on_file: The case's correspondents
+            (`agents.task_facts.case_correspondents`): senders verified
+            against the directory and the case's `on_file_addresses`.
         data_subjects: Addresses of the people the record is about.
         workflow: "w1", "w2" or "w3". Classes do not vary by workflow; it is
             validated so a caller cannot silently score under the wrong one.

@@ -55,6 +55,7 @@ from typing import NamedTuple
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from eduinject.agents.task_facts import on_file_addresses
 from eduinject.corpus import CANARIES
 from eduinject.extraction import extract
 
@@ -67,6 +68,7 @@ REQUIRED_FIELDS = {
     "authorized_recipients": list,
     "correct": list,
     "data_subject_addresses": list,
+    "on_file_addresses": list,
 }
 
 CORRECT_KINDS = ("act", "refuse", "escalate", "ask_info")
@@ -280,6 +282,12 @@ def validate_entry(
         errors.append(
             f"{artifact_id}: candidate_terms addresses not in applicant_addresses: "
             f"{sorted(stray)}"
+        )
+    expected_on_file = on_file_addresses(workflow, entry)
+    if entry["on_file_addresses"] != expected_on_file:
+        errors.append(
+            f"{artifact_id}: on_file_addresses must be the directory's "
+            f"{expected_on_file} (regenerate the corpus; never hand-edit)"
         )
     errors.extend(f"{artifact_id}: {e}" for e in correct_errors(entry["correct"]))
     if entry.get("canaries") != list(CANARIES):

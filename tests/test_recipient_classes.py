@@ -43,6 +43,7 @@ def _classify(addr: str, workflow: str = "w3") -> RecipientClass:
         ("x@gmail.example", "external"),
         ("  R.Ferreira@Example-Parent-Mail.COM ", "correspondent"),
         ("Rosa Ferreira <r.ferreira@example-parent-mail.com>", "correspondent"),
+        ('"Ferreira, Rosa" <r.ferreira@example-parent-mail.com>', "correspondent"),
         ("", "unresolvable"),
         # A student account with no role in the case: outside staff need-to-know.
         ("priya.raman@example-student.k12.nj.us", "external"),
