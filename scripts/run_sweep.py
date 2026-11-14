@@ -15,11 +15,14 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, get_args
+from typing import Any, NamedTuple, get_args
 
 from dotenv import find_dotenv, load_dotenv
 from inspect_ai import eval_set
 
+from eduinject.agents.task_facts import IDENTITY_MODES
+from eduinject.config import draft_documents
+from eduinject.defense import DEFENSES
 from eduinject.task import DEFAULT_MANIFEST as W2_MANIFEST
 from eduinject.task import ReasoningEffort, eduinject_w2
 from eduinject.task_w1 import DEFAULT_MANIFEST as W1_MANIFEST
@@ -40,6 +43,54 @@ WORKFLOWS = {
 }
 
 
+class Preset(NamedTuple):
+    """A model with its pinned host and list price (USD per 1M tokens)."""
+
+    model: str
+    provider: dict[str, Any]
+    price_in: float
+    price_out: float
+
+
+def _pin(*hosts: str, **extra: Any) -> dict[str, Any]:
+    return {"order": list(hosts), "allow_fallbacks": False, **extra}
+
+
+PRESETS: dict[str, Preset] = {
+    # First edition (doc 06 §2). Luna is also a second-edition model (doc 10 §6).
+    "luna": Preset("openrouter/openai/gpt-6-luna", _pin("OpenAI"), 0.10, 0.50),
+    "deepseek-v4": Preset(
+        "openrouter/deepseek/deepseek-v4-flash-0731", _pin("DeepInfra"), 0.06, 0.18
+    ),
+    # Second edition (doc 10 §6). Prices are OpenRouter's list prices for the
+    # pinned host, read from openrouter.ai/api/v1 on 2026-10-25; re-check them
+    # before a run, since a dry run's estimate is only as good as these.
+    "gemini-3.8-flash": Preset(
+        "openrouter/google/gemini-3.8-flash", _pin("Google AI Studio"), 0.75, 3.75
+    ),
+    "deepseek-v4.1": Preset(
+        "openrouter/deepseek/deepseek-v4.1-flash-1017",
+        _pin("DeepInfra", quantizations=["fp8"]),
+        0.098,
+        0.294,
+    ),
+}
+"""Named models for `--preset`. A dated snapshot is used wherever one exists, so
+the same slug cannot silently serve a newer model mid-study."""
+
+TOKENS_PER_PAIR = (23_000, 9_500)
+"""(input, output) tokens for one attack+twin sample, from the first edition's
+pilot (RUNNING.md step 4). A twin-only sample is about half. Frontier models
+with thinking on may use more output: the pilot run checks this."""
+
+
+def estimate_usd(samples: int, twin_only: bool, preset: Preset) -> float:
+    """Rough cost of `samples` runs at the preset's prices."""
+    scale = 0.5 if twin_only else 1.0
+    tin, tout = (n * scale * samples / 1e6 for n in TOKENS_PER_PAIR)
+    return tin * preset.price_in + tout * preset.price_out
+
+
 def parse_model_arg(text: str) -> tuple[str, Any]:
     """Parse one `-M key=value`; the value is JSON if it parses, else a string."""
     key, sep, raw = text.partition("=")
@@ -55,8 +106,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--model",
-        default=os.environ.get("INSPECT_EVAL_MODEL"),
-        help="Model to evaluate (defaults to $INSPECT_EVAL_MODEL).",
+        default=None,
+        help="Model to evaluate (defaults to the preset's, else $INSPECT_EVAL_MODEL).",
+    )
+    parser.add_argument(
+        "--preset",
+        choices=sorted(PRESETS),
+        default=None,
+        help="Named model with its host pin and price (see PRESETS). Explicit "
+        "--model / -M override it.",
     )
     parser.add_argument(
         "-M",
@@ -99,6 +157,28 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Isolation conditions to sweep ('both' includes the negative control).",
     )
     parser.add_argument(
+        "--identity",
+        nargs="+",
+        default=["off"],
+        choices=list(IDENTITY_MODES),
+        help="identity_mode cells to sweep: off (v1), facts (verified task facts "
+        "for the action stage), guard (facts enforced by the tools). doc 10 §2-3.",
+    )
+    parser.add_argument(
+        "--defense",
+        nargs="+",
+        default=["none"],
+        choices=list(DEFENSES),
+        help="Prompt-level defense cells to sweep (spotlight = datamarking, "
+        "doc 10 §4).",
+    )
+    parser.add_argument(
+        "--allow-draft-docs",
+        action="store_true",
+        help="Run even though a governing design document is still a draft. Such "
+        "runs are NOT pre-registered; use only for pilots, and say so.",
+    )
+    parser.add_argument(
         "--manifest",
         default=None,
         help="Path to the corpus manifest (defaults to the chosen workflow's).",
@@ -138,7 +218,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Build every cell and print its run count and config_hash, then "
         "stop before contacting the model.",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    preset = PRESETS.get(args.preset) if args.preset else None
+    if preset:
+        args.model = args.model or preset.model
+        if not any(key == "provider" for key, _ in args.model_args):
+            args.model_args = [("provider", preset.provider), *args.model_args]
+        # Every reported run is pinned at low effort (doc 06 §2, doc 10 §6).
+        args.reasoning_effort = args.reasoning_effort or "low"
+    args.model = args.model or os.environ.get("INSPECT_EVAL_MODEL")
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -175,9 +264,13 @@ def main(argv: list[str] | None = None) -> int:
             model=args.model,
             model_args=dict(args.model_args) or None,
             reasoning_effort=args.reasoning_effort,
+            identity_mode=identity,
+            defense=defense,
         )
         for scope in args.scopes
         for isolated in isolation
+        for identity in args.identity
+        for defense in args.defense
     ]
 
     print(
@@ -197,13 +290,30 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"  scope={meta['scope']:<10} "
             f"isolated={meta['isolated']!s:<5} "
+            f"identity={meta['identity_mode']:<5} "
+            f"defense={meta['defense']:<9} "
             f"runs={runs:<6} "
             f"config_hash={meta['config_hash']}"
         )
-    unit = "twin runs" if args.benign_only or args.controls else "pairs"
+    twin_only = args.benign_only or args.controls
+    unit = "twin runs" if twin_only else "pairs"
     print(f"total: {total} {unit}")
+    if args.preset:
+        usd = estimate_usd(total, twin_only, PRESETS[args.preset])
+        print(f"estimated cost: ${usd:,.2f} (+~20% retries; list prices, see PRESETS)")
+    drafts = draft_documents()
+    if drafts:
+        print(f"governing documents still in draft: {', '.join(drafts)}")
     if args.dry_run:
         return 0
+    paid = not str(args.model).startswith("mockllm/")
+    if drafts and paid and not args.allow_draft_docs:
+        print(
+            "refusing a paid run while governing documents are drafts: sign and "
+            "push them first (doc 10 §8), or pass --allow-draft-docs for a pilot",
+            file=sys.stderr,
+        )
+        return 3
 
     success, logs = eval_set(
         tasks,

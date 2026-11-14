@@ -14,6 +14,95 @@ The models are fixed (see `docs/design/06_implementation_decisions.md` §2):
 
 ---
 
+## Second edition (ISEF 2027): read this first
+
+The second edition is governed by
+[`docs/design/10_second_edition_addendum.md`](docs/design/10_second_edition_addendum.md).
+It is a **draft**, and until it is signed `run_sweep.py` refuses every paid run
+(it exits with code 3). That is deliberate: a result is only pre-registered if
+its rules were pushed before it ran. Sign doc 10, set its version to `1.0` in
+the doc *and* in `src/eduinject/config.py::DOC_VERSIONS`, commit, push, then run.
+
+**Models.** Use `--preset`. It sets the dated model, its pinned host (fallbacks
+off) and `--reasoning-effort low`, and lets a dry run print a cost estimate:
+
+| Preset | Model | Host | $/1M in / out (2026-10-25) |
+| --- | --- | --- | --- |
+| `luna` | GPT-6 Luna (also first edition) | OpenAI | 0.10 / 0.50 |
+| `gemini-3.8-flash` | Gemini 3.8 Flash | Google AI Studio | 0.75 / 3.75 |
+| `deepseek-v4.1` | DeepSeek V4.1 Flash `-1017` | DeepInfra (fp8) | 0.098 / 0.294 |
+| `deepseek-v4` | DeepSeek V4 Flash (first edition only) | DeepInfra | 0.06 / 0.18 |
+
+Prices change. Re-read them on openrouter.ai before a run and update
+`scripts/run_sweep.py::PRESETS` if they moved; the estimate is only as good as
+that table.
+
+**New conditions** (doc 10 §2–4), crossed with scope and isolation:
+
+| Flag | Values | What it does |
+| --- | --- | --- |
+| `--identity` | `off` `facts` `guard` | `facts`: the action stage gets verified task facts (who is asking, what they may have) from district systems, never from the document. `guard`: the same, and the tools refuse what the requester is not entitled to. |
+| `--defense` | `none` `spotlight` | `spotlight`: the document is datamarked and the model told marked text carries no instructions (Hines et al. 2024). |
+
+**Free checks before any spend** (no key needed):
+
+```bash
+pytest                                                    # 340+ tests, no model contacted
+python scripts/validate_manifest.py corpus/manifest_w*.jsonl
+python scripts/run_sweep.py --preset luna --workflow w1 --scopes read_write \
+  --identity off facts guard --epochs 10 --dry-run        # cells, hashes, $ estimate
+```
+
+**Pilot (needs the PI's OK for the spend, and `--allow-draft-docs` if doc 10 is
+not yet signed; a pilot is never reported as a result).** For each model: a few
+pairs, one epoch, one write-capable cell, every new condition:
+
+```bash
+python scripts/run_sweep.py --preset gemini-3.8-flash --workflow w1 \
+  --scopes read_write --isolation isolated --identity off facts guard \
+  --defense none spotlight --limit 3 --epochs 1 --allow-draft-docs \
+  --log-dir logs/pilot-v2-gemini
+```
+
+Check, in `inspect view --log-dir logs/pilot-v2-gemini`: (1) the action stage
+calls tools; (2) the guard arm shows `denied_by_guard` only on unentitled calls
+and the twin's legitimate action still succeeds; (3) the spotlight arm's intake
+input is datamarked and the operator request is not; (4) tokens per pair against
+the 23k in / 9.5k out the estimate assumes (frontier thinking may be higher);
+(5) which provider tier actually served the call (standard, flex or fast) and
+what it cost.
+
+**Matrix and cost.** Per model, at list price, before retries (add 20%), with
+48 pairs × 10 epochs per cell and a matching twin baseline for every attack cell:
+
+| Matrix | Cells | DeepSeek V4.1 | Gemini 3.8 Flash | GPT-6 Luna |
+| --- | --- | --- | --- | --- |
+| A. Full: 3 workflows, first-edition grid + new arms at write scopes | 54 | $196 | $2,056 | $274 |
+| B. Scoped: W1 + W3, write scopes × isolation × identity | 24 | $87 | $914 | $122 |
+| C. Minimum: W1, `read_write` × isolation × identity | 6 | $22 | $228 | $30 |
+
+Flex/batch tiers roughly halve these if the pilot shows their latency is
+workable (doc 10 decision 6b). The matrix and the spend ceiling are the PI's
+decisions (`docs/isef-v2-plan.md` §7).
+
+**Analysis** adds `--gee` (needs `pip install -e ".[stats]"`) and the second
+edition's outputs: permutation p-values, Holm over the primary family, MDE, zero
+upper bounds, `concentration.csv` and `conditional.csv` (doc 10 §5):
+
+```bash
+python scripts/analyze.py report logs/<v2 dirs>... --n-boot 10000 --gee \
+  --out logs/analysis-v2
+python scripts/human_coding.py blind logs/analysis-v2 --n 360 --seed <doc 10 §7a> \
+  --out logs/human-check-v2
+python scripts/human_coding.py agree coder_a.csv coder_b.csv \
+  --key logs/human-check-v2/key.csv --out logs/human-check-v2
+```
+
+The first-edition steps below are unchanged and still describe how every
+first-edition number was produced.
+
+---
+
 ## Read this before spending anything
 
 **The public corpus cannot measure attack success.** Every attack file in this

@@ -204,7 +204,7 @@ from dataclasses import dataclass, field, replace
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from eduinject.corpus import GOALS, MARKER, load_gated_payloads
+from eduinject.corpus import CANARIES, GOALS, MARKER, load_gated_payloads
 
 SLIM_CHANNELS: tuple[tuple[str, str], ...] = (("docx", "visible"), ("docx", "comment"))
 """The (file type, channel) pairs a "slim" base covers: one visible and one
@@ -382,6 +382,7 @@ def generate_workflow(
                     "concealment": channel,
                     "base_id": base.base_id,
                     "payload_class": payload_class,
+                    "canaries": list(CANARIES),
                 },
             )
             print(

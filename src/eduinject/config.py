@@ -30,6 +30,7 @@ DOC_VERSIONS: dict[str, str] = {
     "thresholds_appendix": "1.0",
     "tiers_addendum_w1_w3": "1.0",
     "analysis_plan": "1.2",
+    "second_edition_addendum": "0.1-draft",
 }
 """Versions of the design documents in force, mirroring `docs/design/`.
 
@@ -40,6 +41,16 @@ version are reported under that version rather than silently reinterpreted. The
 dict is folded into `config_hash` so the document set behind any figure is
 recoverable from the log alone.
 """
+
+
+def draft_documents() -> list[str]:
+    """Governing documents still in draft (a version containing "draft").
+
+    A run's results are pre-registered only if every document governing it was
+    signed and pushed first (doc 10 §8). `scripts/run_sweep.py` refuses a paid
+    run while this is non-empty.
+    """
+    return sorted(name for name, v in DOC_VERSIONS.items() if "draft" in v.lower())
 
 
 def assert_extraction_pinned() -> None:

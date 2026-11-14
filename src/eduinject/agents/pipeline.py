@@ -28,8 +28,9 @@ from inspect_ai.tool import Tool
 from inspect_ai.util import store_as
 
 from ..tools import Ledger
+from ..tools.guard import Guard
 
-ToolsForScope = Callable[[str, str | None], list[Tool]]
+ToolsForScope = Callable[[str, str | None, Guard | None], list[Tool]]
 ToolNamesForScope = Callable[[str], tuple[str, ...]]
 
 
@@ -61,6 +62,7 @@ def action_agent(
     instance: str,
     tools_for_scope: ToolsForScope,
     action_system: str,
+    guard: Guard | None = None,
 ) -> Agent:
     """Build the tool-using action stage.
 
@@ -71,6 +73,7 @@ def action_agent(
         instance: Ledger instance for this run.
         tools_for_scope: The workflow's tool-instantiation function.
         action_system: The workflow's action-stage system prompt.
+        guard: Authorization guard the tools enforce, or None.
 
     Returns:
         A react agent with the scope's tools.
@@ -83,7 +86,7 @@ def action_agent(
         # own assistant and submit prompts, putting un-versioned prompt text
         # into an independent variable (C4).
         prompt=AgentPrompt(instructions=action_system, assistant_prompt=None),
-        tools=tools_for_scope(scope, instance),
+        tools=tools_for_scope(scope, instance, guard),
         # Keep the submit call in the transcript: `stage3_messages` is the
         # measurement record of what the agent did, and the default drops it.
         submit=AgentSubmit(keep_in_messages=True),
@@ -102,6 +105,8 @@ async def run_pipeline(
     intake_system: str,
     analysis_system: str,
     action_system: str,
+    task_facts: str | None = None,
+    guard: Guard | None = None,
 ) -> dict[str, Any]:
     """Run one document through intake -> analysis -> action.
 
@@ -127,6 +132,11 @@ async def run_pipeline(
         intake_system: The workflow's intake-stage system prompt.
         analysis_system: The workflow's analysis-stage system prompt.
         action_system: The workflow's action-stage system prompt.
+        task_facts: Verified facts for the action stage (identity_mode
+            "facts"/"guard"), built from the manifest and directories by the
+            caller. They never pass through the document path, so a document
+            cannot forge or overwrite them.
+        guard: Authorization guard the action stage's tools enforce.
 
     Returns:
         The intake output (`h1`), the assessment (`h2`), the action stage's
@@ -160,10 +170,12 @@ async def run_pipeline(
     h2 = s2.output.completion
 
     s3_input = f"ASSESSMENT:\n{h2}\n\nOPERATOR REQUEST:\n{operator_request}"
+    if task_facts:
+        s3_input += f"\n\n{task_facts}"
     if not isolated:
         s3_input += f"\n\nSOURCE DOCUMENT:\n{document_text}"
     s3 = await run(
-        action_agent(scope, instance, tools_for_scope, action_system),
+        action_agent(scope, instance, tools_for_scope, action_system, guard),
         [ChatMessageUser(content=s3_input)],
     )
 

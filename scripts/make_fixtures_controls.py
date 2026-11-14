@@ -24,6 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _corpus_bases import CONTROLS
 from _fixtures_common import (
+    CANARIES,
     MARKER,
     ROOT,
     upsert_manifest_line,
@@ -58,6 +59,7 @@ def main() -> int:
                     "file_type": ftype,
                     "base_id": base.base_id,
                     "control_sentence": sentence,
+                    "canaries": list(CANARIES),
                 },
             )
             total += 1

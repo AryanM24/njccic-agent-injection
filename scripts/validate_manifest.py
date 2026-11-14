@@ -38,6 +38,7 @@ rather than "something's wrong, try again."
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -58,6 +59,7 @@ REQUIRED_FIELDS = {
 OPTIONAL_FIELDS = {
     "applicant_addresses": list,
     "other_candidate_terms": list,
+    "candidate_terms": dict,
     "correspondent_addresses": list,
     "third_party_terms": list,
     "protected_terms": list,
@@ -75,6 +77,24 @@ OPTIONAL_FIELDS = {
 correspondent/third_party/protected names; W2 rows keep the signed appendix's
 applicant_addresses / other_candidate_terms."""
 
+SCORER_FIELDS: dict[str, tuple[str, ...]] = {
+    "w1": (
+        "correspondent_addresses",
+        "third_party_terms",
+        "protected_terms",
+        "entitled_actions",
+    ),
+    "w2": ("applicant_addresses", "other_candidate_terms"),
+    "w3": ("correspondent_addresses", "third_party_terms", "protected_terms"),
+}
+"""Fields a workflow's scorers read, by artifact-id prefix. Missing ones do not
+fail loudly at scoring time: no `protected_terms` makes T2 impossible (G1 reads
+0) and no `entitled_actions` makes every action unauthorized (audit #5)."""
+
+CHANNEL_TAG = re.compile(r"^\[[^\]]+\]$")
+"""What a marker line may leave behind once the marker is removed: nothing, or
+the extraction channel's tag (`[comment]`, `[metadata /Subject]`, ...)."""
+
 SUPPORTED_SUFFIXES = {".pdf", ".docx", ".txt", ".md"}
 
 RATIO_MIN = 0.85
@@ -91,13 +111,17 @@ def marker_only_violations(attack_text: str, twin_text: str, marker: str) -> lis
     whose `[alt-text name]` line is the one tolerated non-marker difference.
     """
     twin_lines = set(twin_text.splitlines())
-    return [
-        line
-        for line in attack_text.splitlines()
-        if line not in twin_lines
-        and marker not in line
-        and not line.startswith("[alt-text name]")
-    ]
+
+    def explained(line: str) -> bool:
+        if line in twin_lines or line.startswith("[alt-text name]"):
+            return True
+        if marker not in line:
+            return False
+        # Extra wording beside the marker is still wording (audit #3).
+        rest = line.replace(marker, "").strip()
+        return not rest or rest in twin_lines or bool(CHANNEL_TAG.match(rest))
+
+    return [line for line in attack_text.splitlines() if not explained(line)]
 
 
 def validate_entry(
@@ -129,6 +153,18 @@ def validate_entry(
 
     artifact_id = entry["artifact_id"]
     is_control = entry.get("kind") == "control"
+    workflow = artifact_id.split("_")[0].rstrip("c")
+    for field in SCORER_FIELDS.get(workflow, ()):
+        if field not in entry:
+            errors.append(f"{artifact_id}: missing '{field}', which its scorers read")
+    stray = set(entry.get("candidate_terms", {})) - set(
+        entry.get("applicant_addresses", [])
+    )
+    if stray:
+        errors.append(
+            f"{artifact_id}: candidate_terms addresses not in applicant_addresses: "
+            f"{sorted(stray)}"
+        )
     if is_control and not entry.get("expect"):
         errors.append(f"{artifact_id}: control rows must carry an 'expect' block")
 
@@ -194,7 +230,9 @@ def validate_entry(
     # payload would silently corrupt every difference-based outcome, so
     # bound how far apart the pair may be — mirrors
     # tests/test_extraction.py::test_attack_and_twin.
-    if attack_text is not None and twin_text is not None:
+    if attack_text == "":
+        errors.append(f"{artifact_id}: attack extraction is empty")
+    elif attack_text is not None and twin_text is not None:
         ratio = len(twin_text) / len(attack_text)
         if not (RATIO_MIN < ratio < RATIO_MAX):
             errors.append(
@@ -202,8 +240,9 @@ def validate_entry(
                 f"range ({RATIO_MIN} < ratio < {RATIO_MAX})"
             )
 
+    # Everything but the gated canonical corpus must be marker-only.
     if (
-        entry.get("payload_class") == "placeholder"
+        entry.get("payload_class") != "canonical"
         and attack_text is not None
         and twin_text is not None
     ):

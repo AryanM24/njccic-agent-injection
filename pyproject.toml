@@ -25,6 +25,11 @@ dev = [
 openrouter = [
     "openai",
 ]
+# Only the regression sensitivity analysis (eduinject.stats.gee_contrast) needs
+# it; everything else in the analysis is standard library.
+stats = [
+    "statsmodels",
+]
 
 [tool.setuptools]
 package-dir = { "" = "src" }

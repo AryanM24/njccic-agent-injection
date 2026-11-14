@@ -10,6 +10,7 @@ from inspect_ai import eval
 from inspect_ai.model import get_model
 
 from eduinject.analysis import (
+    CELL_FIELDS,
     cohen_kappa,
     dedupe,
     denominators,
@@ -51,6 +52,19 @@ def _row(pair: str, epoch: int, value: float | None, **cell: Any) -> dict[str, A
     if value is not None:
         row["score:exfiltration"] = value
     return row
+
+
+def test_within_pair_difference_compares_two_scores_of_the_same_runs() -> None:
+    from eduinject.analysis import within_pair_difference
+
+    rows = [
+        {"status": "scored", "artifact_id": p, "score:a": a, "score:b": b}
+        for p, a, b in (("p1", 1.0, 0.0), ("p1", 1.0, 1.0), ("p2", 0.0, 0.0))
+    ]
+    rows.append({"status": "scored", "artifact_id": "p3", "score:a": 1.0})
+    diff = within_pair_difference(rows, "a", "b", n_boot=200)
+    # p1: 1 - 0.5 = 0.5; p2: 0; p3 has no `b` and is left out.
+    assert diff is not None and diff.n_pairs == 2 and diff.diff == pytest.approx(0.25)
 
 
 def test_flatten_scores_keeps_numbers_and_drops_the_rest() -> None:
@@ -162,6 +176,27 @@ def test_report_over_real_mock_logs(tmp_path: Path) -> None:
     assert "Denominators" in report
     assert "Every scored run made at least one tool call." in report
 
+    # Second-edition outputs (doc 10 §5).
+    with (out / "in_pair.csv").open() as f:
+        harm = {r["isolated"]: r for r in csv.DictReader(f) if r["outcome"] == "harm"}
+    # The compromised mock harms on every attack run and never on its twin.
+    assert {r["attack_minus_twin"] for r in harm.values()} == {"1.0"}
+    with (out / "comparisons.csv").open() as f:
+        primary = [r for r in csv.DictReader(f) if r["primary"] == "True"]
+    assert primary and all(r["p_holm"] != "" for r in primary)
+    assert all(r["p_sign_flip"] != "" for r in primary)
+
+    pairs = tmp_path / "pairs.csv"
+    assert (
+        analyze_main(["export-pairs", log_dir, "--salt", "s3cret", "--out", str(pairs)])
+        == 0
+    )
+    with pairs.open() as f:
+        exported = list(csv.DictReader(f))
+    header = set(exported[0])
+    assert not header & {"goal", "channel", "file_type", "artifact_id", "log"}
+    assert not any(r["pair"].startswith("w1_") for r in exported)
+
 
 def test_tool_use_check_flags_runs_that_never_called_a_tool() -> None:
     from eduinject.analysis import tool_use_check
@@ -242,3 +277,191 @@ def test_kappa_scores_a_metric_only_where_it_applies(
     out = capsys.readouterr().out
     assert "code:authorization A-auto: kappa = 1.000 (n=2" in out
     assert "skipped" not in out
+
+
+# --------------------------------------------------------------------------
+# Second-edition statistics (eduinject.stats)
+# --------------------------------------------------------------------------
+
+
+def _rows(values: dict[str, list[float]], metric: str = "m") -> list[dict[str, Any]]:
+    return [
+        {"status": "scored", "artifact_id": pair, "epoch": i, f"score:{metric}": v}
+        for pair, vs in values.items()
+        for i, v in enumerate(vs, 1)
+    ]
+
+
+def test_sign_flip_is_exact_on_small_samples() -> None:
+    from eduinject.stats import sign_flip_test
+
+    # Three pairs all +1: only the all-+ and all-- patterns are as extreme.
+    assert sign_flip_test([1.0, 1.0, 1.0]) == 2 / 8
+    assert sign_flip_test([0.0, 0.0]) == 1.0
+    # Zero differences are dropped, not counted as evidence either way.
+    assert sign_flip_test([1.0, 1.0, 1.0, 0.0]) == 2 / 8
+    # Monte Carlo above 16 pairs: never exactly 0 (review #6).
+    assert 0 < sign_flip_test([1.0] * 20, n_perm=999) <= 1 / 1000 * 2
+
+
+def test_holm_steps_down_and_stays_monotone() -> None:
+    from eduinject.stats import holm
+
+    adjusted = holm({"a": 0.01, "b": 0.04, "c": 0.03})
+    assert adjusted == pytest.approx({"a": 0.03, "c": 0.06, "b": 0.06})
+
+
+def test_zero_upper_bound_is_about_three_over_n() -> None:
+    from eduinject.stats import zero_upper_bound
+
+    assert zero_upper_bound(48) == pytest.approx(3 / 48, rel=0.05)
+    with pytest.raises(ValueError):
+        zero_upper_bound(0)
+
+
+def test_mde_shrinks_with_more_pairs() -> None:
+    from eduinject.stats import mde
+
+    small, large = mde([0.0, 0.2, -0.1, 0.1] * 3), mde([0.0, 0.2, -0.1, 0.1] * 12)
+    assert small is not None and large is not None and large < small
+    assert mde([0.1]) is None
+
+
+def test_pair_concentration_shows_a_single_artifact() -> None:
+    from eduinject.stats import pair_concentration
+
+    c = pair_concentration(_rows({"p1": [1, 1, 1, 0], "p2": [0, 0], "p3": [1, 0]}), "m")
+    assert (c.positive_runs, c.pairs, c.pairs_with_any) == (4, 3, 2)
+    assert c.top_pair_share == 0.75
+
+
+def test_conditional_rate_counts_only_runs_where_the_condition_fired() -> None:
+    from eduinject.stats import conditional_rate
+
+    rows = [
+        {"status": "scored", "artifact_id": "p", "score:prop": 1.0, "score:harm": 1.0},
+        {"status": "scored", "artifact_id": "p", "score:prop": 1.0, "score:harm": 0.0},
+        {"status": "scored", "artifact_id": "q", "score:prop": 0.0, "score:harm": 1.0},
+        {"status": "limit", "artifact_id": "q", "score:prop": 1.0, "score:harm": 1.0},
+    ]
+    assert conditional_rate(rows, "harm", "prop") == (2, 0.5)
+    assert conditional_rate(rows, "harm", "prop", when=False) == (1, 1.0)
+
+
+def test_gee_recovers_the_direction_of_a_planted_effect() -> None:
+    pytest.importorskip("statsmodels")
+    from eduinject.stats import gee_contrast
+
+    a = _rows({f"p{i}": [1, 1, 1, 0] if i % 2 else [1, 1, 0, 0] for i in range(20)})
+    b = _rows({f"p{i}": [0, 0, 1, 0] if i % 2 else [0, 0, 0, 0] for i in range(20)})
+    result = gee_contrast(a, b, "m")
+    assert result is not None and result.log_odds > 0 and result.p < 0.01
+    assert gee_contrast(_rows({"p": [0, 0]}), _rows({"p": [0, 0]}), "m") is None
+    # One event against none is separation: no estimate, rather than p≈0.
+    one = _rows({f"p{i}": [1 if i == 0 else 0] * 4 for i in range(20)})
+    none = _rows({f"p{i}": [0] * 4 for i in range(20)})
+    assert gee_contrast(one, none, "m") is None
+
+
+# --------------------------------------------------------------------------
+# Second-edition human validation (scripts/human_coding.py blind / agree)
+# --------------------------------------------------------------------------
+
+
+def _coding_rows() -> list[dict[str, str]]:
+    import itertools
+
+    rows = []
+    for cell, i in itertools.product(("read_only", "read_write"), range(40)):
+        rows.append(
+            {
+                **{f: "" for f in CELL_FIELDS},
+                "scope": cell,
+                "benign_only": "False",
+                "controls": "False",
+                "status": "scored",
+                "log": "x",
+                "sample_id": str(i),
+                "epoch": "1",
+                "score:exfiltration": "1.0" if i < 4 else "0.0",
+            }
+        )
+    return rows
+
+
+def test_blind_sample_balances_scorer_positives_and_negatives() -> None:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    from human_coding import blind_sample
+
+    chosen = blind_sample(_coding_rows(), n=20, seed=3)
+    assert len(chosen) == 20
+    flagged = [r for r in chosen if r["score:exfiltration"] == "1.0"]
+    # 10 per cell, half positive where available: all 4 positives of each cell.
+    assert len(flagged) == 8
+    assert chosen == blind_sample(_coding_rows(), n=20, seed=3), "seeded"
+
+
+def test_agree_refuses_the_dev1_pattern() -> None:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    from human_coding import returned_sheet_problems
+
+    key = {f"R{i}": {"code:exfiltration": "1.0" if i < 6 else "0.0"} for i in range(30)}
+    zeros = {
+        r: {
+            "code:exfiltration": "0",
+            "code:authorization": "n/a",
+            "code:scope_violation": "0",
+        }
+        for r in key
+    }
+    problems = returned_sheet_problems(zeros, key)
+    assert any("DEV-1" in p for p in problems)
+    honest = {
+        r: {**v, "code:exfiltration": key[r]["code:exfiltration"]}
+        for r, v in zeros.items()
+    }
+    honest["R0"]["code:exfiltration"] = "0"  # an honest disagreement is fine
+    assert returned_sheet_problems(honest, key) == []
+    blank = {r: {**v, "code:scope_violation": ""} for r, v in honest.items()}
+    assert any("blank" in p for p in returned_sheet_problems(blank, key))
+    # All n/a is the DEV-1 pattern too, and 1 vs 1.0 is still a copy (review #8).
+    all_na = {r: {**v, "code:exfiltration": "n/a"} for r, v in zeros.items()}
+    assert any("DEV-1" in p for p in returned_sheet_problems(all_na, key))
+    floats = {
+        r: {k: ("1.0" if x == "1" else x) for k, x in v.items()}
+        for r, v in honest.items()
+    }
+    copied = returned_sheet_problems(honest, key, floats)
+    assert any("identical" in p for p in copied)
+
+
+def test_h2_interaction_isolates_what_restoring_facts_changes() -> None:
+    from analyze import interaction_rows
+
+    def cell(isolated: bool, identity: str, harm: float) -> list[dict[str, Any]]:
+        base: dict[str, Any] = {f: "" for f in CELL_FIELDS}
+        base.update(
+            benign_only=False, controls=False, isolated=isolated, identity_mode=identity
+        )
+        return [
+            {
+                **base,
+                "status": "scored",
+                "artifact_id": f"p{i}",
+                "score:authorization": harm,
+            }
+            for i in range(12)
+        ]
+
+    # Isolation cuts harm by 0.5 with facts, and not at all without them.
+    rows = (
+        cell(True, "facts", 0.0)
+        + cell(False, "facts", 0.5)
+        + cell(True, "off", 0.5)
+        + cell(False, "off", 0.5)
+    )
+    (row,) = [
+        r for r in interaction_rows(rows, n_boot=200) if r["metric"] == "authorization"
+    ]
+    assert row["interaction"] == -0.5 and row["n_pairs"] == 12
+    assert row["p_sign_flip"] < 0.001 and "p_holm" in row

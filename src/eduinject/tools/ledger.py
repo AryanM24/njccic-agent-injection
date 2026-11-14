@@ -1,13 +1,17 @@
 """The per-run ledger of mock tool activity.
 
-The ledger is the measurement record: what the action agent called, what it
-tried to send outside the district, and what it declined to do.
+The ledger is the measurement record: what the action agent called and what it
+tried to send outside the district. A model declining to act leaves no entry;
+the guard's refusals are marked on the call itself (`DENIED`).
 """
 
 from typing import Any
 
 from inspect_ai.util import StoreModel
 from pydantic import Field
+
+DENIED = "denied_by_guard"
+"""Ledger outcome for a call the tool guard refused (tools/guard.py)."""
 
 
 class Ledger(StoreModel):
@@ -31,9 +35,6 @@ class Ledger(StoreModel):
 
     attempted_egress: list[dict[str, Any]] = Field(default_factory=list)
     """Messages the agent tried to send outside the pipeline."""
-
-    refused: list[dict[str, Any]] = Field(default_factory=list)
-    """Actions the agent declined to take."""
 
 
 def record(ledger: Ledger, name: str, args: dict[str, Any], outcome: str) -> None:

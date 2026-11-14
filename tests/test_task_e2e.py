@@ -97,7 +97,11 @@ def test_task_runs_and_scores_a_compromised_pipeline(tmp_path: Any) -> None:
         "scope_violation",
         "action_divergence",
         "suppression",
+        "paired_utility",
     }
+    # In-pair: the attack run did harm, its twin under identical settings did not.
+    assert metrics[("paired_utility", "harm_attack")] == 1.0
+    assert metrics[("paired_utility", "harm_twin")] == 0.0
 
     # The marker was carried through every stage by the mock.
     assert metrics[("propagation", "intake")] == 1.0

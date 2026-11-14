@@ -9,9 +9,10 @@ The unit is the *pair* (`artifact_id`), never the run: the ten epochs of one
 pair are not independent evidence, so every interval resamples whole pairs.
 """
 
+import math
 import random
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from statistics import mean, pstdev
 from typing import Any, NamedTuple
 
@@ -27,9 +28,12 @@ CELL_FIELDS: tuple[str, ...] = (
     "controls",
     "scope",
     "isolated",
+    "identity_mode",
+    "defense",
 )
 """Fields that identify one experimental condition. Rows that differ in any of
-these are never pooled."""
+these are never pooled. First-edition logs predate `identity_mode` and
+`defense` and read as "off" and "none", which is what they ran."""
 
 REPORTABILITY: dict[str, str] = {
     "propagation": "M1 (verbatim) only; depth provisional (D1, D2)",
@@ -39,8 +43,28 @@ REPORTABILITY: dict[str, str] = {
     "action_divergence": "proxy for A3, not the specified magnitude (D5)",
     "suppression": "recorded, NOT reportable (D6)",
     "control_check": "reportable (08 §6)",
+    "guarded_outcome": "design check: zero by construction where guarded (doc 10 §3)",
+    "paired_utility": "reportable: in-pair attack vs twin harm and utility (doc 10 §5)",
 }
 """What each scorer's numbers may be used for, keyed by scorer name."""
+
+
+MODEL_LABELS = (
+    ("gpt-6-luna", "Luna"),
+    ("deepseek-v4-flash", "DeepSeek"),
+    ("deepseek-v4.1-flash", "DeepSeek V4.1"),
+    ("gemini-3.8-flash", "Gemini 3.8 Flash"),
+)
+"""Model-slug fragment -> table label. The longest matching fragment wins, so
+`deepseek-v4.1-flash` is not labelled as the first-edition DeepSeek."""
+
+
+def model_label(model: str) -> str:
+    """Short table label for a model slug (longest matching fragment wins)."""
+    for fragment, label in sorted(MODEL_LABELS, key=lambda m: -len(m[0])):
+        if fragment in model:
+            return label
+    return model.rsplit("/", 1)[-1]
 
 
 class RateCI(NamedTuple):
@@ -80,18 +104,43 @@ def provider_host(model_args: dict[str, Any] | None) -> str:
 def flatten_scores(scores: dict[str, Any]) -> dict[str, float]:
     """Flatten score values to `scorer` / `scorer.key` -> float.
 
-    Non-numeric or missing values are dropped rather than coerced, so an
-    inapplicable score never counts as a zero.
+    Non-numeric, missing and NaN ("not scored": a run that hit a limit) values
+    are dropped rather than coerced, so an inapplicable score never counts as a
+    zero.
     """
+
+    def number(x: Any) -> bool:
+        return (
+            isinstance(x, int | float) and not isinstance(x, bool) and not math.isnan(x)
+        )
+
     flat: dict[str, float] = {}
     for name, value in scores.items():
         if isinstance(value, dict):
             for key, inner in value.items():
-                if isinstance(inner, int | float) and not isinstance(inner, bool):
+                if number(inner):
                     flat[f"{name}.{key}"] = float(inner)
-        elif isinstance(value, int | float) and not isinstance(value, bool):
+        elif number(value):
             flat[name] = float(value)
     return flat
+
+
+def cell_from_log(log: Any) -> dict[str, Any]:
+    """The `CELL_FIELDS` of a log, read from its task metadata."""
+    meta = log.eval.metadata or {}
+    return {
+        "model": meta.get("model") or str(log.eval.model),
+        "host": provider_host(meta.get("model_args")),
+        "reasoning_effort": meta.get("reasoning_effort"),
+        "workflow": meta.get("workflow"),
+        "corpus": meta.get("corpus"),
+        "benign_only": bool(meta.get("benign_only")),
+        "controls": bool(meta.get("controls")),
+        "scope": meta.get("scope"),
+        "isolated": bool(meta.get("isolated")),
+        "identity_mode": meta.get("identity_mode", "off"),
+        "defense": meta.get("defense", "none"),
+    }
 
 
 def rows_from_log(log: Any) -> list[dict[str, Any]]:
@@ -103,17 +152,7 @@ def rows_from_log(log: Any) -> list[dict[str, Any]]:
     counted (doc 04 §13.5); they simply carry no scores.
     """
     meta = log.eval.metadata or {}
-    cell = {
-        "model": meta.get("model") or str(log.eval.model),
-        "host": provider_host(meta.get("model_args")),
-        "reasoning_effort": meta.get("reasoning_effort"),
-        "workflow": meta.get("workflow"),
-        "corpus": meta.get("corpus"),
-        "benign_only": bool(meta.get("benign_only")),
-        "controls": bool(meta.get("controls")),
-        "scope": meta.get("scope"),
-        "isolated": bool(meta.get("isolated")),
-    }
+    cell = cell_from_log(log)
     rows: list[dict[str, Any]] = []
     for sample in log.samples or []:
         smeta = sample.metadata or {}
@@ -177,6 +216,52 @@ def load_rows(log_dirs: Sequence[str]) -> tuple[list[dict[str, Any]], int]:
             if str(log.eval.task).split("/")[-1].startswith("eduinject"):
                 rows.extend(rows_from_log(log))
     return dedupe(rows)
+
+
+def finished_samples(
+    log_dirs: Sequence[str],
+) -> Iterator[tuple[dict[str, Any], Any]]:
+    """(cell, sample) for every finished eduinject sample, retries resolved.
+
+    The same rule as `load_rows`: one sample per (config_hash, sample id,
+    epoch), from the newest log. Samples that errored or hit a limit are
+    skipped (they are counted by `denominators`, not scored). A first pass
+    reads only sample summaries, so the full logs are read one at a time.
+    """
+    from inspect_ai.log import (
+        list_eval_logs,
+        read_eval_log,
+        read_eval_log_sample_summaries,
+    )
+
+    winner: dict[tuple[Any, ...], tuple[str, Any]] = {}
+    # Keyed by location, so a log reachable from two of `log_dirs` counts once.
+    infos = list(
+        {
+            info.name: info
+            for log_dir in log_dirs
+            for info in list_eval_logs(log_dir, recursive=True)
+            if info.task.split("/")[-1].startswith("eduinject")
+        }.values()
+    )
+    headers = {info.name: read_eval_log(info, header_only=True) for info in infos}
+    for info in infos:
+        header = headers[info.name]
+        config = (header.eval.metadata or {}).get("config_hash")
+        for summary in read_eval_log_sample_summaries(info):
+            key = (config, summary.id, summary.epoch)
+            created = str(header.eval.created)
+            if key not in winner or created > winner[key][1]:
+                winner[key] = (info.name, created)
+    for info in infos:
+        log = read_eval_log(info)
+        config = (log.eval.metadata or {}).get("config_hash")
+        cell = cell_from_log(log)
+        for sample in log.samples or []:
+            if winner.get((config, sample.id, sample.epoch), ("",))[0] != info.name:
+                continue
+            if sample.error is None and sample.limit is None:
+                yield cell, sample
 
 
 def dedupe(rows: Iterable[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
@@ -334,6 +419,46 @@ def paired_difference(
 
     lo, hi = _bootstrap(shared, avg, n_boot, seed)
     return Difference(len(shared), avg(shared), lo, hi)
+
+
+def within_pair_differences(
+    rows: Sequence[dict[str, Any]], metric_a: str, metric_b: str
+) -> dict[Any, float]:
+    """Per pair: mean of `metric_a` minus mean of `metric_b` over the same runs.
+
+    For two scores recorded on one sample, such as `paired_utility.harm_attack`
+    and `.harm_twin`: the attack and twin runs of one pair, under one setting.
+    Only runs that carry both scores count.
+    """
+    both = [
+        r
+        for r in rows
+        if r["status"] == "scored"
+        and r.get(f"score:{metric_a}") is not None
+        and r.get(f"score:{metric_b}") is not None
+    ]
+    a, b = _by_pair(both, metric_a), _by_pair(both, metric_b)
+    return {k: mean(a[k]) - mean(b[k]) for k in sorted(a, key=str)}
+
+
+def within_pair_difference(
+    rows: Sequence[dict[str, Any]],
+    metric_a: str,
+    metric_b: str,
+    n_boot: int = 2000,
+    seed: int = 0,
+) -> Difference | None:
+    """Mean within-pair `metric_a` − `metric_b`, with a pair-resampled 95% CI."""
+    per_pair = within_pair_differences(rows, metric_a, metric_b)
+    if not per_pair:
+        return None
+    keys = list(per_pair)
+
+    def avg(chosen: list[Any]) -> float:
+        return sum(per_pair[k] for k in chosen) / len(chosen)
+
+    lo, hi = _bootstrap(keys, avg, n_boot, seed)
+    return Difference(len(keys), avg(keys), lo, hi)
 
 
 def saturated(ci: RateCI) -> bool:

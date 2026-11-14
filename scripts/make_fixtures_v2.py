@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Generate the W2 (hiring / applicant screening) attack/twin fixture corpus.
 
-Numbering starts at w2_0002: w2_0001 is the original pilot pair written by
-make_fixtures.py. Three base scenarios (see _corpus_bases.py).
+Numbering starts at w2_0002, so IDs match the first edition: w2_0001 was its
+single-applicant pilot pair, dropped in the second edition (doc 10 §11b).
+Three base scenarios (see _corpus_bases.py).
 Public builds are marker-only: the only injected content is the placeholder
 marker `ZZPAYLOADZZ`, placed in one documented channel (release policy,
 docs/design/05; README C3). Realistic wording is Tier 1 and lives in the

@@ -154,6 +154,17 @@ Each experiment is one combination of settings:
 - **The AI model.** The study tests two: GPT-6 Luna (a low-cost model from
   OpenAI, the company behind ChatGPT) and DeepSeek V4 Flash (an "open-weight"
   model, whose internals are published so anyone can rerun it exactly).
+- **Verified facts (second edition).** Isolation hides the attack, but it
+  also hides real facts the job needs, like who is asking. With this dial on,
+  the action stage is told those facts by the district's own systems (never by
+  the document), and in the strictest setting the tools themselves refuse
+  anything the person is not allowed to have. Question: was isolation helping
+  because it blocked the attack, or just because the AI knew less?
+- **Spotlighting (second edition).** A defense from Microsoft researchers
+  (Hines et al., 2024): the document's words are tagged with an invisible
+  marker, and the AI is told that tagged text is never an instruction.
+  Question: does asking the AI to ignore document instructions work as well as
+  building the walls into the plumbing?
 
 ### What gets measured
 
@@ -261,6 +272,12 @@ tests in parallel, and saving logs.
 - **Built and tested:** all three workflows, about 145 document pairs plus
   innocent-but-odd "controls", the scoring, and the safety checks.
 - **Decided:** the two models (GPT-6 Luna and DeepSeek V4 Flash).
+- **Second edition (ISEF 2027):** built and tested, waiting on sign-off. It
+  adds the two dials above, three models (GPT-6 Luna from the first edition, plus
+  Gemini 3.8 Flash and DeepSeek V4.1 Flash), stronger statistics and a blinded human
+  check. The rules are pre-registered in
+  [`docs/design/10_second_edition_addendum.md`](docs/design/10_second_edition_addendum.md),
+  and the code refuses paid runs until it is signed.
 - **Next:** the first full measured runs. Start with the "clean twin only"
   baseline, which works on the public documents, then the real-attack runs on
   an approved machine. See [`RUNNING.md`](RUNNING.md).
@@ -540,6 +557,7 @@ are **Tier 1 — Gated** and never enter this repository.
 
 The corpus contains no real student, applicant, family, or staff data of any
 kind — not anonymized, not lightly modified. Every artifact is synthetic,
-generated from literals in `scripts/make_fixtures.py` (the original W2 seed
-pair, `w2_0001`) and `scripts/make_fixtures_v2.py`/`make_fixtures_w1.py`/
-`make_fixtures_w3.py` (the rest of the corpus).
+generated from literals in `scripts/_corpus_bases.py` by
+`scripts/make_fixtures_v2.py`/`make_fixtures_w1.py`/`make_fixtures_w3.py`/
+`make_fixtures_controls.py`. (The first edition's W2 seed pair, `w2_0001`, and
+its generator `make_fixtures.py` were dropped in the second edition.)

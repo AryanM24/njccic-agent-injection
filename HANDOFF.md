@@ -1,5 +1,13 @@
 # Handoff
 
+> **Second edition (2026-10-25):** the v2 code is built and tested on the local
+> `isef-v2` branch, uncommitted. What is done and what waits on a decision:
+> [`docs/isef-v2-plan.md`](docs/isef-v2-plan.md) §0.5. The rules it runs under:
+> [`docs/design/10_second_edition_addendum.md`](docs/design/10_second_edition_addendum.md)
+> (draft; paid runs are refused until it is signed). How to run it:
+> [`RUNNING.md`](RUNNING.md), "Second edition". The rest of this page describes
+> the first edition.
+
 State of the project as of **2026-10-20**, and everything still remaining.
 For *how* to do each run, see [`RUNNING.md`](RUNNING.md). For what the project
 is, see the plain-English guide at the top of [`README.md`](README.md).
