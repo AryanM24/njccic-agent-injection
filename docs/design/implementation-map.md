@@ -82,7 +82,8 @@ changes every hash. That is expected: no first-edition hash reproduces under
 the current code, and comparability is by cell fields, not hashes (doc 10 §1).
 Tool-surface bumps (`w2-postings-v3`, `w1-lookup-v2`, `w3-lookup-v2`, then
 `w2-postings-v4`, `w1-lookup-v3`, `w3-lookup-v3` for quoted display names in
-`to`) change them too.
+`to`, then `w2-postings-v5`, `w1-lookup-v4`, `w3-lookup-v4` for a bare address
+beside a `Name <addr>` part no longer being dropped) change them too.
 
 ## 3. Scorer-to-goal mapping
 

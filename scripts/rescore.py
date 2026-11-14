@@ -41,29 +41,34 @@ def main(argv: list[str] | None = None) -> int:
         print(f"refused: --out-dir {out} overlaps --log-dir {src}", file=sys.stderr)
         return 2
 
+    def target(log: Any) -> Path:
+        return out / _local(log.location).relative_to(src)
+
+    # First pass reads each log in turn and keeps only its target, so a refusal
+    # happens before anything is written without holding every log in memory.
+    targets = {target(log) for log, _ in winning_samples([str(src)])}
+    clash = sorted(t for t in targets if t.exists())
+    if clash and not args.allow_overwrite:
+        print(f"refused: {clash[0]} exists; pass --allow-overwrite", file=sys.stderr)
+        return 2
+
     written: list[Path] = []
 
     def write(log: Any) -> None:
-        target = out / _local(log.location).relative_to(src)
-        if target.exists() and not args.allow_overwrite:
-            raise FileExistsError(f"{target} exists; pass --allow-overwrite")
-        target.parent.mkdir(parents=True, exist_ok=True)
+        path = target(log)
+        path.parent.mkdir(parents=True, exist_ok=True)
         recompute_metrics(log)
-        write_eval_log(log, str(target))
-        written.append(target)
+        write_eval_log(log, str(path))
+        written.append(path)
 
     current: Any = None
-    try:
-        for log, sample in winning_samples([str(src)]):
-            if current is not None and log is not current:
-                write(current)
-            current = log
-            sample.scores = rescored_scores(sample, log.eval.metadata or {})
-        if current is not None:
+    for log, sample in winning_samples([str(src)]):
+        if current is not None and log is not current:
             write(current)
-    except FileExistsError as ex:
-        print(f"refused: {ex}", file=sys.stderr)
-        return 2
+        current = log
+        sample.scores = rescored_scores(sample, log.eval.metadata or {})
+    if current is not None:
+        write(current)
     for path in written:
         print(path)
     print(f"{len(written)} log(s) rescored into {out}")

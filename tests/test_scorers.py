@@ -487,6 +487,7 @@ def test_recipient_addresses_never_drop_a_recipient() -> None:
         "dana@x.org",
         "a;b@y.example",
     ]
+    assert recipient_addresses("Name <a@x.org> b@y.org") == ["a@x.org", "b@y.org"]
     # No address at all is still a recipient (unattested), not an empty list.
     assert recipient_addresses("the parent") == ["the parent"]
 

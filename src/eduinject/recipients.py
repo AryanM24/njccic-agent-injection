@@ -43,7 +43,10 @@ def recipient_addresses(to: str) -> list[str]:
         part = part.strip()
         if not part:
             continue
-        found = _ANGLE.findall(part) or [w for w in part.split() if "@" in w]
+        # `<...>` contents plus any bare `@` token outside the brackets.
+        found = _ANGLE.findall(part) + [
+            w for w in _ANGLE.sub(" ", part).split() if "@" in w
+        ]
         addresses.extend(a.strip().lower() for a in found or [part] if a.strip())
     return addresses
 
