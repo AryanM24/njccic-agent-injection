@@ -10,7 +10,7 @@ import pytest
 from inspect_ai import eval
 from inspect_ai.model import get_model
 
-from eduinject.features import feature_row, feature_rows, role_of
+from eduinject.features import _sequence, feature_row, feature_rows, role_of
 from eduinject.records import CallView, RunRecord, records_from_logs
 from eduinject.task import eduinject_w2
 from tests.helpers import MOCK
@@ -71,13 +71,23 @@ def test_action_columns_are_outcome() -> None:
         "out:harm_attempted",
     ):
         assert role_of(column) == "outcome"
-    for column in ("model", "relay_stages", "goal", "split", "status", "label"):
+    for column in (
+        "model",
+        "relay_stages",
+        "goal",
+        "split",
+        "label",
+        "doc_available",
+        "handoff_parse_error",
+    ):
         assert role_of(column) == "pre_outcome"
+    # `unfinished` can come from an action-stage limit.
+    assert role_of("status") == "outcome"
     with pytest.raises(KeyError):
         role_of("flag:action:name")
 
 
-def _record(*calls: tuple[str, str], run: dict[str, Any] | None = None) -> RunRecord:
+def _record(*calls: tuple[str, str], **fields: Any) -> RunRecord:
     return RunRecord(
         label="attack",
         sample_id="s",
@@ -94,30 +104,48 @@ def _record(*calls: tuple[str, str], run: dict[str, Any] | None = None) -> RunRe
         ),
         status="unfinished",
         meta={},
-        run=run or {},
-    )
+    )._replace(**fields)
 
 
 def test_tokens_come_from_stage_usage() -> None:
     usage = {"input_tokens": 5, "output_tokens": 2}
-    stage = {"name": "intake", "input": "", "output": "x", "usage": usage}
-    row = feature_row(_record(run={"pipeline": {"stages": [stage]}}), None)
+    record = _record(stages=(("intake", "", "x"),), usage_by_stage={"intake": usage})
+    row = feature_row(record, None)
     assert (row["tokens_in:intake"], row["tokens_out:intake"]) == (5, 2)
 
 
 def test_verified_before_write() -> None:
     lookup, send = "get_posting_requirements", "send_email"
-    ok = feature_row(_record((lookup, "ok"), (send, "ok")), None)
+
+    def seq(*calls: tuple[str, str]) -> dict[str, Any]:
+        return _sequence(_record(*calls), [send])
+
+    ok = seq((lookup, "ok"), (send, "ok"))
     assert ok["verified_before_write"] == 1.0
     assert ok["lookups_before_first_write"] == 1
-    failed = feature_row(_record((lookup, "error"), (send, "ok")), None)
+    failed = seq((lookup, "error"), (send, "ok"))
     assert failed["verified_before_write"] == 0.0
-    late = feature_row(_record((send, "ok"), (lookup, "ok")), None)
+    late = seq((send, "ok"), (lookup, "ok"))
     assert late["verified_before_write"] == 0.0
     assert late["lookups_before_first_write"] == 0
-    assert math.isnan(
-        feature_row(_record((lookup, "ok")), None)["verified_before_write"]
-    )
+    assert math.isnan(seq((lookup, "ok"))["verified_before_write"])
+
+
+def test_sequence_is_nan_unless_ok() -> None:
+    row = feature_row(_record(("send_email", "ok")), None)
+    for column in (
+        "calls",
+        "lookups_before_first_write",
+        "verified_before_write",
+        "submitted",
+    ):
+        assert math.isnan(row[column])
+    assert row["doc_available"] == 0.0 and row["handoff_parse_error"] == 0.0
+
+
+def test_two_runs_with_one_label_refuse_to_pair() -> None:
+    with pytest.raises(ValueError, match="two attack runs"):
+        feature_rows([_record(), _record()])
 
 
 def test_twin_row_has_twin_outcomes(rows: dict[str, dict[str, Any]]) -> None:
@@ -130,14 +158,71 @@ def test_twin_row_has_twin_outcomes(rows: dict[str, dict[str, Any]]) -> None:
     assert math.isnan(twin["out:substituted"])
 
 
-def test_build_features_writes_csv_and_roles(log_dir: Path) -> None:
+def test_build_features_writes_csv_and_roles(
+    log_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import build_features
 
+    monkeypatch.setattr(build_features, "LOGS", log_dir)
     out = log_dir / "features" / "t.csv"
     assert build_features.main(["--log-dir", str(log_dir), "--out", str(out)]) == 0
     header = out.read_text(encoding="utf-8").splitlines()[0].split(",")
     roles = json.loads(out.with_suffix(".roles.json").read_text(encoding="utf-8"))
-    assert roles["features_version"] == "1.0"
+    assert roles["features_version"] == "1.1"
     assert list(roles["roles"]) == header
-    bad = log_dir.parent / "elsewhere.csv"
-    assert build_features.main(["--log-dir", str(log_dir), "--out", str(bad)]) == 2
+    for bad in (log_dir.parent / "elsewhere.csv", log_dir.parent / "x/logs/t.csv"):
+        assert build_features.main(["--log-dir", str(log_dir), "--out", str(bad)]) == 2
+
+
+def _score(value: Any, key: str | None = None) -> float:
+    return float(value if key is None else value[key])
+
+
+@pytest.mark.parametrize("workflow", ["w1", "w2", "w3"])
+def test_feature_outcomes_match_logged_scores(workflow: str, tmp_path: Path) -> None:
+    """The feature table recomputes `out:*` with the scorers' own functions."""
+    from eduinject.task_w1 import eduinject_w1
+    from eduinject.task_w3 import eduinject_w3
+    from tests.helpers import w1_compromised, w3_compromised
+
+    task, policy = {
+        "w1": (eduinject_w1, w1_compromised),
+        "w2": (eduinject_w2, compromised_policy),
+        "w3": (eduinject_w3, w3_compromised),
+    }[workflow]
+    (log,) = eval(
+        task(scope="read_write", isolated=True),
+        model=get_model(MOCK, custom_outputs=policy),
+        log_dir=str(tmp_path / "logs"),
+        display="none",
+        limit=1,
+    )
+    assert log.status == "success", log.error
+    assert log.samples
+    scores = {k: v.value for k, v in (log.samples[0].scores or {}).items()}
+    rows = {
+        r["label"]: r for r in feature_rows(records_from_logs([str(tmp_path / "logs")]))
+    }
+    attack, twin = rows["attack"], rows["twin"]
+    expected = {
+        "out:exfiltration": _score(scores["exfiltration"]),
+        "out:scope_violation": _score(scores["scope_violation"]),
+        "out:misdirection": _score(scores["misdirection"]),
+        "out:harm_attempted": _score(scores["harm"], "attempted"),
+        "out:harm_completed": _score(scores["harm"], "completed"),
+        "out:substituted": _score(scores["argument_provenance"]),
+        "out:did_correct_thing": _score(scores["paired_utility"], "utility_attack"),
+        "out:premise_relied": _score(scores["premise_adoption"], "relied_attack"),
+    }
+    if workflow == "w1":
+        expected["out:authorization"] = _score(scores["authorization"])
+    if "rank_corruption" in scores:
+        expected["out:rank_shift"] = _score(scores["rank_corruption"], "shift")
+    for column, value in expected.items():
+        assert attack[column] == pytest.approx(value, nan_ok=True), column
+    twin_expected = {
+        "out:did_correct_thing": _score(scores["paired_utility"], "utility_twin"),
+        "out:premise_relied": _score(scores["premise_adoption"], "relied_twin"),
+    }
+    for column, value in twin_expected.items():
+        assert twin[column] == pytest.approx(value, nan_ok=True), column

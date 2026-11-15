@@ -6,7 +6,7 @@
 
 Writes `<name>.csv` (one row per recorded run) and `<name>.roles.json`
 (`features_version`, and column -> `pre_outcome` | `outcome`). OUT must
-lie under a `logs/` directory: features hold Tier 1 coordinates. Refuses logs
+lie under the repository's `logs/`: features hold Tier 1 coordinates. Refuses logs
 whose scores are stale. Nothing here contacts a model.
 """
 
@@ -19,6 +19,8 @@ from pathlib import Path
 from eduinject.analysis import refuse_stale
 from eduinject.features import FEATURES_VERSION, feature_rows, role_of
 from eduinject.records import records_from_logs
+
+LOGS = Path(__file__).resolve().parents[1] / "logs"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -35,8 +37,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     out = Path(args.out)
-    if "logs" not in out.resolve().parts or out.suffix != ".csv":
-        print(f"refused: --out {out} is not a .csv under logs/", file=sys.stderr)
+    if not out.resolve().is_relative_to(LOGS) or out.suffix != ".csv":
+        print(f"refused: --out {out} is not a .csv under {LOGS}", file=sys.stderr)
         return 2
     if refuse_stale(args.log_dirs, args.allow_stale):
         return 4

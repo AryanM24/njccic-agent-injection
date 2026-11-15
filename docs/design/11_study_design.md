@@ -400,7 +400,11 @@ One record per run (attack or twin) of a finished sample:
   such entry (for example one Inspect rejected before the tool ran) has
   outcome `not_executed`, never a neighbour's result.
 - `RunRecord(label, sample_id, artifact_id, epoch, cell, coords,
-  operator_request, document_text, stages, calls, status, meta)`. `label` is
+  operator_request, document_text, stages, calls, status, meta,
+  usage_by_stage, ledger_calls, attempted_egress, granted_tools, submitted)`.
+  The last five carry what the scorers read and the view would otherwise drop:
+  per-stage token `usage`, the ledger's calls as recorded, attempted egress,
+  granted tools, and whether the action stage called `submit`. `label` is
   `attack` or `twin`; `cell` is the `analysis.CELL_FIELDS` mapping; `coords`
   holds `base_id`, `goal`, `file_type`, `channel`, `split`; `stages` is the
   ordered `(name, input, output)` triples (§4.1); `status` is one of `ok`,
@@ -565,7 +569,7 @@ values are listed, and rules are never edited to remove a disagreement.
 
 ### 3.4 Feature table (A4, `features.py`)
 
-`FEATURES_VERSION = "1.0"`. `feature_row(record, pair)` gives one row per run;
+`FEATURES_VERSION = "1.1"`. `feature_row(record, pair)` gives one row per run;
 `role_of(column)` returns `pre_outcome` or `outcome` and raises `KeyError` on
 an unknown column. `scripts/build_features.py --log-dir DIR... --out
 logs/features/<name>.csv [--split dev|confirm]` also writes
@@ -573,7 +577,8 @@ logs/features/<name>.csv [--split dev|confirm]` also writes
 
 | Columns | Role |
 | --- | --- |
-| `CELL_FIELDS`, `label`, `artifact_id`, `epoch`, `base_id`, `goal`, `file_type`, `channel`, `split`, `status` | `pre_outcome` |
+| `CELL_FIELDS`, `label`, `artifact_id`, `epoch`, `base_id`, `goal`, `file_type`, `channel`, `split`, `doc_available`, `handoff_parse_error` | `pre_outcome` |
+| `status` (`unfinished` can come from an action-stage limit) | `outcome` |
 | per stage before `action`: `carry:<stage>`, `flag:<stage>`, `carry:<stage>:<component>`, `tokens_in:<stage>`, `tokens_out:<stage>` | `pre_outcome` |
 | the same columns for the `action` stage | `outcome` |
 | `prov:<class>` counts | `outcome` |
@@ -600,11 +605,16 @@ Definitions, as built:
   `out:substituted` sit on the attack row only (NaN on the twin).
   `out:authorization` is NaN outside W1; `out:rank_shift` NaN without
   `true_ranking`; `out:premise_relied` NaN without `premise_marker`.
-- Provenance and monitor columns need the document: NaN / empty unless the
-  run's status is `ok`. Outcomes are NaN unless the status is `ok`, and on both
+- Tool-sequence, provenance and monitor columns need the action stage and the
+  document: NaN / empty unless the run's status is `ok`. Outcomes are NaN unless the status is `ok`, and on both
   runs when either stopped at a typed hand-off parse error (§4.2).
-- `RunRecord.run` (§3.1) holds the recorded run itself, for what the typed view
-  drops (stage usage, attempted egress, granted tools).
+- `out:*` and the scorers share the public `outcomes.on_file`, `rank_of` and
+  `premise_ranks`; a test checks `out:*` against the logged scores (W1–W3).
+- `artifact_id` is `pre_outcome` only as a group key (A7's `GroupKFold`); it
+  is never a predictor.
+- `feature_rows` pairs the runs of a sample epoch by label and raises
+  `ValueError` on two runs with one label. `build_features.py --out` must
+  resolve under the repository's `logs/`.
 
 ### 3.5 Statistics (A5, `stats.py`)
 
