@@ -422,10 +422,13 @@ def gee_tables(rows: list[dict[str, Any]], n_boot: int) -> GeeTables:
 
     The exchangeable GEE is primary, independence + bias-reduced and the pair
     random-intercept model sit beside it, and Holm runs over the primary
-    fit's terms. Each GEE term keeps the floor rule as a column: the paired
-    raw difference between the level and its reference, the largest
-    `noise_floor` of the family's cells, and `verdict`. A family without a
-    fit (separation, too few events, no statsmodels) gets one row saying so.
+    fit's terms. Each GEE term names its `reference` level and keeps the floor
+    rule as a column: the paired raw difference between the level and its
+    reference (attack runs only, except for `arm`), the largest `noise_floor`
+    of the family's cells, and `verdict`. A separated level gets a row with its
+    counts and exact bound; factors left unfitted for too few events after
+    separation get a row naming them; a family with no fit at all (no event,
+    too few events, no statsmodels, a failed fit) gets one `NO_FIT` row.
     """
     _, attack, twin = IN_PAIR[0]
     outcome = attack.removesuffix("_attack")
@@ -477,6 +480,18 @@ def gee_tables(rows: list[dict[str, Any]], n_boot: int) -> GeeTables:
                 }
                 for s in fit.separated
             )
+            if fit.unfitted:
+                table.append(
+                    {
+                        **fixed,
+                        "n_pairs": fit.n_groups,
+                        "cov": cov,
+                        "status": PENDING,
+                        "note": "not fitted after separation: fewer than "
+                        f"{stats.MIN_GEE_EVENTS} events or non-events remain; "
+                        f"factors {', '.join(fit.unfitted)}",
+                    }
+                )
             for term, t in fit.terms.items():
                 factor = term.split("=", 1)[0]
                 # Besides `arm` itself, compare attack runs: the factor's effect
@@ -494,6 +509,7 @@ def gee_tables(rows: list[dict[str, Any]], n_boot: int) -> GeeTables:
                     {
                         **fixed,
                         "term": term,
+                        "reference": f"{factor}={fit.references[factor]}",
                         "n_pairs": fit.n_groups,
                         "cov": cov,
                         "status": PENDING,

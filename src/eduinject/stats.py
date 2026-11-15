@@ -260,14 +260,20 @@ class SeparatedLevel(NamedTuple):
 class GeeFit(NamedTuple):
     """A pair-clustered logistic GEE; `terms` are named `factor=level`.
 
-    `terms` is empty when separation left nothing to fit; `separated` lists
-    the levels that were left out.
+    `references` names each fitted factor's reference level, which is the
+    next level in order when the usual one was separated. `separated` lists
+    the levels left out; the terms are estimated on the rows that remain.
+    `unfitted` names the factors that still vary but were not fitted because
+    fewer than `MIN_GEE_EVENTS` events or non-events remained; `terms` is
+    then empty.
     """
 
     terms: dict[str, GeeTerm]
     n_groups: int
     cov: GeeCov
+    references: dict[str, Any]
     separated: tuple[SeparatedLevel, ...] = ()
+    unfitted: tuple[str, ...] = ()
 
 
 class MixedFit(NamedTuple):
@@ -328,6 +334,8 @@ class _Design(NamedTuple):
     names: list[str]
     groups: list[str]
     separated: tuple[SeparatedLevel, ...]
+    references: dict[str, Any]
+    unfitted: tuple[str, ...]
 
 
 def _separate(
@@ -380,26 +388,49 @@ def _design(
 ) -> _Design | None:
     """Treatment-coded main effects (no interactions), after separation.
 
-    None with fewer than `MIN_GEE_EVENTS` events or non-events overall. A
-    level with only events or only non-events would send its estimate to
+    A level with only events or only non-events would send its estimate to
     infinity (the first-edition recompute gave p≈0 for a single event), so it
     is dropped and reported in `separated`, and the remaining levels are fitted
-    on the remaining rows. A factor left with one level carries no term.
+    on the remaining rows. Separation runs before the event count, so a sparse
+    contrast is still reported as separated. Then, with fewer than
+    `MIN_GEE_EVENTS` events or non-events left, nothing is fitted and the
+    factors that still vary are `unfitted`. None when there is no event or no
+    non-event at all, or no separated level and too few events. A factor left
+    with one level carries no term.
     """
     data = list(_scored(rows, outcome))
     y = [float(r[f"score:{outcome}"]) for r in data]
-    if sum(y) < MIN_GEE_EVENTS or len(y) - sum(y) < MIN_GEE_EVENTS:
+    if sum(y) in (0, len(y)):
         return None
     data, y, separated = _separate(data, y, factors, group)
+    enough = sum(y) >= MIN_GEE_EVENTS and len(y) - sum(y) >= MIN_GEE_EVENTS
+    if not (enough or separated):
+        return None
     columns: list[list[float]] = []
     names: list[str] = []
-    if sum(y) >= MIN_GEE_EVENTS and len(y) - sum(y) >= MIN_GEE_EVENTS:
-        for factor in factors:
-            values = [r.get(factor) for r in data]
-            for level in factor_levels(factor, values)[1:]:
-                columns.append([float(v == level) for v in values])
-                names.append(f"{factor}={level}")
-    return _Design(y, columns, names, [str(r[group]) for r in data], tuple(separated))
+    references: dict[str, Any] = {}
+    unfitted: list[str] = []
+    for factor in factors:
+        values = [r.get(factor) for r in data]
+        levels = factor_levels(factor, values)
+        if len(levels) < 2:
+            continue
+        if not enough:
+            unfitted.append(factor)
+            continue
+        references[factor] = levels[0]
+        for level in levels[1:]:
+            columns.append([float(v == level) for v in values])
+            names.append(f"{factor}={level}")
+    return _Design(
+        y,
+        columns,
+        names,
+        [str(r[group]) for r in data],
+        tuple(separated),
+        references,
+        tuple(unfitted),
+    )
 
 
 def gee_fit(
@@ -438,7 +469,7 @@ def gee_fit(
         return None
     n_groups = len(set(design.groups))
     if not design.names:
-        return GeeFit({}, n_groups, cov, design.separated)
+        return GeeFit({}, n_groups, cov, {}, design.separated, design.unfitted)
     exog = np.column_stack([np.ones(len(design.y)), *map(np.asarray, design.columns)])
     exchangeable = cov == "exchangeable"
     model = sm.GEE(
@@ -473,6 +504,7 @@ def gee_fit(
         n_groups=n_groups,
         cov=cov,
         separated=design.separated,
+        references=design.references,
     )
 
 

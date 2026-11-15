@@ -80,6 +80,34 @@ def test_gee_separated_level_is_dropped_and_the_rest_fitted() -> None:
     (sep,) = fit.separated
     assert sep.term == "gate=True" and sep.events == 0 and sep.n_runs == 100
     assert sep.bound == pytest.approx(stats.zero_upper_bound(sep.n_pairs))
+    assert fit.references == {"arm": "twin"} and fit.unfitted == ()
+
+
+def test_gee_separated_reference_moves_the_baseline_and_too_few_is_named() -> None:
+    pytest.importorskip("statsmodels")
+    rows = stats.long_rows(_pairs(), HARM)
+    for i, r in enumerate(rows):
+        r["relay_stages"] = i % 3
+        if r["relay_stages"] == 0:
+            r["score:paired_utility.harm"] = 0.0
+    fit = stats.gee_fit(rows, "paired_utility.harm", ["arm", "relay_stages"])
+    assert fit is not None and fit.separated[0].term == "relay_stages=0"
+    assert fit.references == {"arm": "twin", "relay_stages": 1}
+    assert set(fit.terms) == {"arm=attack", "relay_stages=2"}
+    # After dropping arm=twin only 3 events remain: named, not fitted.
+    few = [
+        {
+            **r,
+            "score:paired_utility.harm_twin": 0.0,
+            "score:paired_utility.harm_attack": float(i < 3),
+            "gate": i % 2 == 0,
+        }
+        for i, r in enumerate(_pairs())
+    ]
+    thin = stats.gee_fit(
+        stats.long_rows(few, HARM), "paired_utility.harm", ["arm", "gate"]
+    )
+    assert thin is not None and thin.terms == {} and thin.unfitted == ("gate",)
     mixed = stats.mixed_fit(rows, "paired_utility.harm", ["arm", "gate"])
     assert mixed is not None and set(mixed.terms) == {"arm=attack"}
 
@@ -94,6 +122,14 @@ def test_gee_twin_all_zero_reports_the_arm_through_separation() -> None:
     (sep,) = fit.separated
     assert (sep.term, sep.events, sep.n_runs) == ("arm=twin", 0, 200)
     assert (sep.other_events, sep.other_runs) == (160, 200)
+    # Sparse: twin 0/200 against attack 3/200 is still a separated row.
+    sparse = [
+        {**r, "score:paired_utility.harm_attack": float(i < 3)}
+        for i, r in enumerate(twin_zero)
+    ]
+    thin = stats.gee_fit(stats.long_rows(sparse, HARM), "paired_utility.harm", ["arm"])
+    assert thin is not None and thin.terms == {}
+    assert thin.separated[0].other_events == 3
     assert (
         stats.gee_contrast(
             [
@@ -270,6 +306,7 @@ def test_report_writes_gee_tables(
     assert all("pending PI sign-off" in r["status"] and r["verdict"] for r in fitted)
     (sep,) = [r for r in gee if r["term"] == "gate=True"]
     assert sep["note"].startswith("separated: 0/120") and not sep["log_odds"]
+    assert {r["reference"] for r in fitted} == {"arm=twin", "isolated=False"}
     assert read("gee_independence.csv")[0]["cov"] == "independence_bias_reduced"
     assert read("mixed.csv")[0]["term"] == "arm=attack"
     assert read("holm.csv")[0]["p_holm"] != ""

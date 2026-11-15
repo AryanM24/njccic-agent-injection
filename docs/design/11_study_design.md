@@ -603,15 +603,28 @@ Carry columns use §2.2's carry states; component columns use §5.1.
   independence; this disagreement is open until the PI signs.
 - **Separation.** A factor level whose runs are all events or all
   non-events would send its estimate to infinity. It is dropped (its rows
-  leave the fit, repeated until no level is separated), the remaining levels
-  are fitted on the remaining rows, and the level is reported as a
+  leave the fit, repeated until no level is separated) and reported as a
   `SeparatedLevel`: its events / runs, the rest of the factor's events / runs,
   and the exact one-sided 95% bound over its pairs (`zero_upper_bound`; an
   upper bound at 0 events, 1 − bound at all events). In the tables it is a
-  row with a `separated: ...` note and no estimate. So `gate=True` with no
-  harm still leaves `arm` estimated, and an all-zero twin arm reports the
-  attack-vs-twin contrast as its separated row (twin 0/n against attack k/m),
-  never as "no fit". When nothing is left to fit, `terms` is empty.
+  row with a `separated: ...` note and no estimate. Consequences:
+  - The remaining terms are estimated on the **reduced population**: with
+    `gate=True` dropped, the `arm` term is the attack effect among
+    `gate=False` runs only, not over the whole family.
+  - A dropped reference level moves the baseline to the next level in
+    `factor_levels` order (e.g. `relay_stages` 1 when 0 is separated).
+    `GeeFit.references` and each table row's `reference` column name the
+    reference actually used.
+  - The Holm family shrinks: a separated level has no p-value, so `holm.csv`
+    adjusts over fewer terms than the declared family.
+  - Separation is applied **before** the `MIN_GEE_EVENTS` check, so a sparse
+    contrast (twin 0/200 against attack 3/200) still reports the twin as a
+    separated row. If fewer than `MIN_GEE_EVENTS` events or non-events remain
+    after dropping, nothing is fitted (`terms` empty) and a row names the
+    factors not fitted (`GeeFit.unfitted`).
+  - "No fit" (one `NO_FIT` row) remains only for a family with no event or
+    no non-event at all, too few events and no separated level, no
+    statsmodels, or a failed fit.
 - **Mixed model (sensitivity).** `mixed_fit(rows, outcome, factors,
   group="artifact_id") -> MixedFit | None`: `BinomialBayesMixedGLM` with a
   pair random intercept, fitted by `fit_vb`, on the same design after
