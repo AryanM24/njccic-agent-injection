@@ -500,7 +500,7 @@ def _by_pair(rows: Iterable[dict[str, Any]], metric: str) -> dict[Any, list[floa
     return dict(pairs)
 
 
-def _percentiles(
+def percentiles(
     values: list[float], lo: float = 2.5, hi: float = 97.5
 ) -> tuple[float, float]:
     ordered = sorted(values)
@@ -517,7 +517,7 @@ def _bootstrap(
 ) -> tuple[float, float]:
     rng = random.Random(seed)
     draws = [statistic(rng.choices(keys, k=len(keys))) for _ in range(n_boot)]
-    return _percentiles(draws)
+    return percentiles(draws)
 
 
 def rate_with_ci(

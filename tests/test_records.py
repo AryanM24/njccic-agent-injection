@@ -216,3 +216,18 @@ def test_text_before_holds_assistant_text_up_to_the_call() -> None:
         "Looking up S-1.\n",
         "Looking up S-1.\nNow resetting S-1.\n",
     ]
+
+
+def test_typed_run_fields() -> None:
+    run = _simple_run()
+    run["pipeline"]["stages"][0]["usage"] = {"input_tokens": 3, "output_tokens": 1}
+    run["ledger"] |= {
+        "attempted_egress": [{"to": "x@y.example", "body": "b"}],
+        "granted_tools": ["lookup_account"],
+    }
+    (r,) = records_from_sample(_sample({"attack": run}), CELL)
+    assert r.usage_by_stage == {"intake": {"input_tokens": 3, "output_tokens": 1}}
+    assert r.ledger_calls == tuple(run["ledger"]["calls"])
+    assert r.attempted_egress == ({"to": "x@y.example", "body": "b"},)
+    assert r.granted_tools == ("lookup_account",)
+    assert r.submitted is False

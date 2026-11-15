@@ -128,6 +128,59 @@ python scripts/audit_traces.py --log-dir logs/<dir> --out logs/audit/<name>/ \
   --runs both --split confirm            # violations.csv, runs.csv, cell_rules.csv, disagreements.csv
 ```
 
+**Feature table** (A4). One row per run, every column marked `pre_outcome` or
+`outcome` (doc 11 §3.4). Output must be a `.csv` under `logs/`; it refuses stale
+logs (`--allow-stale` overrides):
+
+```bash
+python scripts/build_features.py --log-dir logs/<dir> --out logs/features/<name>.csv \
+  --split dev                            # <name>.csv and <name>.roles.json
+```
+
+**Stage propagation and half-life** (A6). From a feature table, per
+experimental cell (half-lives pool relay depths only) with pair-bootstrap 95%
+intervals (doc 11 §3.6). `--out` must lie under the repository's `logs/`:
+
+```bash
+python scripts/behavior_models.py chain --features logs/features/<name>.csv \
+  --out logs/behavior/                   # chain.csv, decomposition.csv
+python scripts/behavior_models.py halflife --features logs/features/<name>.csv \
+  --out logs/behavior/                   # halflife.csv: marker, content:<component>, warning
+```
+
+**Behaviour predictors and model profiles** (A7). From `pre_outcome` columns
+only (any outcome column is refused), L1 logistic and depth-4 tree predictors
+of harmful completion, carry to the action stage and the five most violated
+rules, cross-validated by pair (`GroupKFold` on `artifact_id`) and
+leave-one-base-out, against config-only and prevalence baselines (doc 11 §3.7).
+Needs the `analysis` extra; `--n-boot` sets the coefficient resamples:
+
+```bash
+python scripts/behavior_models.py predict --features logs/features/<name>.csv \
+  --out logs/behavior/                   # predictors.csv, calibration.csv, coefficients.csv,
+                                         # drop_column.csv, trees.txt
+python scripts/behavior_models.py profiles --features logs/features/<name>.csv \
+  --out logs/behavior/                   # profile_<model>.md: templated sentences only
+```
+
+**Risk and the security–utility frontier** (A8). Per experimental cell,
+severity-weighted risk from within-pair attack − twin differences, with a
+pair-bootstrap 95% interval and every ΔP_h and weight beside it; Kendall τ of
+the cell ranking under Dirichlet weight perturbation; twin utility and the
+Pareto-optimal cells (doc 11 §3.8). Composites are comparable only within a
+workflow (each workflow defines different harms), so the frontier and the
+sensitivity ranking are per workflow. The weights in
+`configs/severity_weights.json` are version `0.1-draft`, unsigned placeholders:
+no risk figure is final until the PI signs them. Refuses a feature table built
+at another `FEATURES_VERSION` (exit 4; rebuild it):
+
+```bash
+python scripts/risk_report.py --features logs/features/<name>.csv \
+  --weights configs/severity_weights.json \
+  --out logs/risk/                       # risk.csv, sensitivity.csv, frontier.csv
+# --n-boot, --n-draws (default 1000) and --kappa (default 50) are optional
+```
+
 ---
 
 ## Second edition (ISEF 2027)

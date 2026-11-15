@@ -9,6 +9,7 @@ no model.
 
 import json
 from collections.abc import Iterator, Mapping, Sequence
+from types import MappingProxyType
 from typing import Any, Literal, NamedTuple, cast
 
 from eduinject.analysis import finished_samples
@@ -56,6 +57,15 @@ class RunRecord(NamedTuple):
     status: Status
     meta: Mapping[str, Any]
     """Sample metadata without the recorded runs."""
+    usage_by_stage: Mapping[str, Mapping[str, Any]] = MappingProxyType({})
+    """Each stage's recorded token `usage`, by stage name (absent when none)."""
+    ledger_calls: tuple[Mapping[str, Any], ...] = ()
+    """The ledger's calls as recorded (the scorers' input; `calls` is the
+    message-side view)."""
+    attempted_egress: tuple[Mapping[str, Any], ...] = ()
+    granted_tools: tuple[str, ...] = ()
+    submitted: bool = False
+    """The action stage called `submit`."""
 
 
 def message_text(content: Any) -> str:
@@ -144,6 +154,7 @@ def records_from_sample(sample: Any, cell: Mapping[str, Any]) -> list[RunRecord]
         if not run:
             continue
         pipeline = run.get("pipeline") or {}
+        ledger = run.get("ledger") or {}
         doc = run.get("document_text")
         status: Status = (
             "unfinished"
@@ -172,10 +183,23 @@ def records_from_sample(sample: Any, cell: Mapping[str, Any]) -> list[RunRecord]
                 ),
                 calls=_calls(
                     pipeline.get("stage3_messages") or [],
-                    (run.get("ledger") or {}).get("calls") or [],
+                    ledger.get("calls") or [],
                 ),
                 status=status,
                 meta=smeta,
+                usage_by_stage={
+                    s["name"]: s["usage"]
+                    for s in pipeline.get("stages") or []
+                    if s.get("usage")
+                },
+                ledger_calls=tuple(ledger.get("calls") or []),
+                attempted_egress=tuple(ledger.get("attempted_egress") or []),
+                granted_tools=tuple(ledger.get("granted_tools") or []),
+                submitted=any(
+                    tc.get("function") == "submit"
+                    for m in pipeline.get("stage3_messages") or []
+                    for tc in m.get("tool_calls") or []
+                ),
             )
         )
     return records
