@@ -181,6 +181,16 @@ python scripts/risk_report.py --features logs/features/<name>.csv \
 # --n-boot, --n-draws (default 1000) and --kappa (default 50) are optional
 ```
 
+Figures (E1) from those CSVs, plus the feature table and `audit_traces.py`
+output; needs the `analysis` extra. Inputs and `--out` must be under `logs/`;
+a figure whose CSV is absent is skipped with a note. `--by` adds a rank-shift
+slice by goal, channel or file type, named RESTRICTED: never commit it.
+
+```bash
+python scripts/make_figures.py --in logs/features logs/behavior logs/risk \
+  logs/audit/<name> --out logs/figures/ [--by goal]
+```
+
 ---
 
 ## Second edition (ISEF 2027)

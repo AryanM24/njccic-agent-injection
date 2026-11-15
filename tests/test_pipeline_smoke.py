@@ -27,6 +27,7 @@ def test_every_phase_a_script_runs_on_a_mock_log(
 ) -> None:
     import behavior_models
     import build_features
+    import make_figures
     import risk_report
 
     logs = tmp_path / "logs"
@@ -113,6 +114,8 @@ def test_every_phase_a_script_runs_on_a_mock_log(
     for split in ([], ["--split", "dev"], ["--split", "confirm"]):
         assert "| --- |" in script("paired_outcomes.py", r, *split)
         assert "| --- |" in script("exfil_recipients.py", r, *split)
+    monkeypatch.setattr(make_figures, "LOGS", logs)
+    assert make_figures.main(["--in", str(logs), "--out", str(logs / "figures")]) == 0
     script("estimate_cost.py", "--log-dir", r, "--model-preset", "luna")
     script(
         "run_sweep.py",
@@ -136,6 +139,8 @@ def test_every_phase_a_script_runs_on_a_mock_log(
         "risk/risk.csv",
         "risk/frontier.csv",
         "analysis/rates.csv",
+        "figures/risk_heatmap.png",
+        "figures/violations_by_origin_stage.png",
     ):
         assert (logs / expected).is_file(), expected
     assert list((logs / "behavior").glob("profile_*.md"))
