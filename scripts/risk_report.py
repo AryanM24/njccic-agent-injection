@@ -20,7 +20,6 @@ contacts a model.
 
 import argparse
 import csv
-import json
 import math
 import statistics
 import sys
@@ -30,7 +29,7 @@ from typing import Any
 
 from eduinject.analysis import CELL_FIELDS, N_BOOT
 from eduinject.behavior.propagation_model import group_rows
-from eduinject.features import FEATURES_VERSION
+from eduinject.features import stale_features
 from eduinject.risk import cell_risk, load_weights, pareto_front, weight_sensitivity
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -67,18 +66,8 @@ def main(argv: list[str] | None = None) -> int:
     if not out.is_relative_to(LOGS):
         print(f"refused: --out {args.out} is not under {LOGS}", file=sys.stderr)
         return 2
-    roles = Path(args.features).with_suffix(".roles.json")
-    version = (
-        json.loads(roles.read_text(encoding="utf-8")).get("features_version")
-        if roles.exists()
-        else None
-    )
-    if version != FEATURES_VERSION:
-        print(
-            f"refused: {args.features} was built at features_version {version}, "
-            f"not {FEATURES_VERSION}; rebuild it with build_features.py",
-            file=sys.stderr,
-        )
+    if stale := stale_features(args.features):
+        print(f"refused: {stale}", file=sys.stderr)
         return 4
     weights = load_weights(args.weights)
     with open(args.features, newline="", encoding="utf-8") as f:

@@ -16,8 +16,9 @@ depth-4 tree predictors from `pre_outcome` columns only, for harmful
 completion, carry to the action stage and the five most violated rules:
 `predictors.csv`, `calibration.csv`, `coefficients.csv`, `drop_column.csv`,
 `trees.txt`. `profiles` writes `profile_<model>.md` per model, templated
-sentences only. OUT must lie under the repository's `logs/`. Nothing here
-contacts a model.
+sentences only. OUT must lie under the repository's `logs/` (exit 2), and a
+feature table whose `<name>.roles.json` is missing or names another
+`FEATURES_VERSION` is refused as stale (exit 4). Nothing here contacts a model.
 """
 
 import argparse
@@ -48,6 +49,7 @@ from eduinject.behavior.propagation_model import (
     paths_from_features,
     survival,
 )
+from eduinject.features import stale_features
 
 LOGS = Path(__file__).resolve().parents[1] / "logs"
 _COMPONENT = re.compile(r"carry:analysis:(?P<c>[^:]+)")
@@ -196,6 +198,9 @@ def main(argv: list[str] | None = None) -> int:
     if not out.is_relative_to(LOGS):
         print(f"refused: --out {args.out} is not under {LOGS}", file=sys.stderr)
         return 2
+    if stale := stale_features(args.features):
+        print(f"refused: {stale}", file=sys.stderr)
+        return 4
     with open(args.features, newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     out.mkdir(parents=True, exist_ok=True)

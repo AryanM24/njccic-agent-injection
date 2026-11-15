@@ -33,6 +33,7 @@ from sklearn.tree import (  # type: ignore[import-untyped]
 
 from ..analysis import CELL_FIELDS, N_BOOT, percentiles
 from ..features import role_of
+from ..monitor.rules import RULES
 from ..scorers.outcomes import CarryState
 from .propagation_model import (
     GROUP_FIELDS,
@@ -81,14 +82,27 @@ def _missing(value: Any) -> bool:
     return isinstance(value, float | str) and str(value).strip().lower() == "nan"
 
 
+RULE_WORKFLOW: dict[str, str] = {
+    rule.id: wf for wf, rules in RULES.items() for rule in rules
+}
+"""Monitor rule id -> the workflow whose catalog defines it."""
+
+
 def _rules(row: Mapping[str, Any]) -> list[str]:
     return [r for r in str(row.get("monitor:rules") or "").split(";") if r]
 
 
 def _y(row: Mapping[str, Any], target: str) -> float:
-    """The target's value on a run, NaN where undefined."""
+    """The target's value on a run, NaN where undefined. A rule target is
+    defined only on runs of the rule's own workflow: another workflow's run
+    could never violate it, so it is not a negative."""
     if target.startswith("rule:"):
-        return float(target.removeprefix("rule:") in _rules(row))
+        rule = target.removeprefix("rule:")
+        if rule not in RULE_WORKFLOW:
+            raise ValueError(f"{target}: not a monitor rule id")
+        if row.get("workflow") != RULE_WORKFLOW[rule]:
+            return math.nan
+        return float(rule in _rules(row))
     if target.startswith("carry:"):
         value = row.get(target)
         if value in ("", None):
@@ -428,9 +442,10 @@ class HalfLife(NamedTuple):
 
 
 class RuleRate(NamedTuple):
-    """How often `rule` is violated, and where it originated in the runs whose
-    first violation it was (`origin_k` of `origin_m`)."""
+    """How often `rule` is violated in one cell's runs, and where it originated
+    in the runs whose first violation it was (`origin_k` of `origin_m`)."""
 
+    cell: str
     rule: str
     rate: float
     lo: float
@@ -500,9 +515,9 @@ def profile_stats(
     seed: int = 0,
 ) -> ProfileStats:
     """`ProfileStats` for one model's feature rows. Carry rates are per A6 cell
-    (`GROUP_FIELDS`) and half-lives per `HALFLIFE_FIELDS`, never pooled across
-    conditions; rules and predictors pool the model's rows (the predictors see
-    the cell fields as inputs)."""
+    (`GROUP_FIELDS`), rule rates per cell over the rule's own workflow's runs,
+    and half-lives per `HALFLIFE_FIELDS`, never pooled across conditions;
+    predictors pool the model's rows (they see the cell fields as inputs)."""
     attacks = _scored(rows, "out:harm_completed")
     carry, half_lives = [], []
     for cell, cell_rows in _cells(attacks, GROUP_FIELDS).items():
@@ -523,15 +538,19 @@ def profile_stats(
     rules = []
     for target in top_rule_targets(rows, n_rules):
         rule = target.removeprefix("rule:")
-        rate, lo, hi = _rate(attacks, _violated(rule), n_boot, seed)
-        origins = Counter(
-            str(r.get("monitor:origin_stage") or "unknown")
-            for r in attacks
-            if r.get("monitor:first") == rule
-        )
-        stage, k = origins.most_common(1)[0] if origins else ("", 0)
-        m = sum(origins.values())
-        rules.append(RuleRate(rule, rate, lo, hi, len(attacks), stage, k, m))
+        own = _scored(attacks, target)
+        for cell, cell_rows in _cells(own, GROUP_FIELDS).items():
+            rate, lo, hi = _rate(cell_rows, _violated(rule), n_boot, seed)
+            origins = Counter(
+                str(r.get("monitor:origin_stage") or "unknown")
+                for r in cell_rows
+                if r.get("monitor:first") == rule
+            )
+            stage, k = origins.most_common(1)[0] if origins else ("", 0)
+            m = sum(origins.values())
+            rules.append(
+                RuleRate(cell, rule, rate, lo, hi, len(cell_rows), stage, k, m)
+            )
     predictors = []
     for target in (*TARGETS, *top_rule_targets(rows, n_rules)):
         expl = explain(rows, target, n_boot, seed)
@@ -550,8 +569,8 @@ TEMPLATES = {
     "heading": "## {heading}",
     "carry": "- {cell}: carry at {stage} {rate} (95% CI {lo} to {hi}; n = {n} attack runs).",
     "half_life": "- {cell}: {family} half-life {value} stages (95% CI {lo} to {hi} from {kept} bootstrap draws; n = {n} runs at risk).",
-    "rule": "- Rule {rule} violated in {rate} of attack runs (95% CI {lo} to {hi}; n = {n}); first violation originating at {stage} in {k} of {m}.",
-    "rule_never_first": "- Rule {rule} violated in {rate} of attack runs (95% CI {lo} to {hi}; n = {n}); never the first violation.",
+    "rule": "- {cell}: rule {rule} violated in {rate} of attack runs (95% CI {lo} to {hi}; n = {n}); first violation originating at {stage} in {k} of {m}.",
+    "rule_never_first": "- {cell}: rule {rule} violated in {rate} of attack runs (95% CI {lo} to {hi}; n = {n}); never the first violation.",
     "predictor": "- {target}: {feature} {direction} the odds (standardized coefficient {coef}, 95% CI {lo} to {hi}).",
     "none": "- No estimate.",
 }
@@ -603,6 +622,7 @@ def write_profile(model_label: str, stats: ProfileStats, path: Path) -> None:
         ],
         [
             t["rule" if r.origin_m else "rule_never_first"].format(
+                cell=r.cell,
                 rule=r.rule,
                 rate=_fmt(r.rate),
                 lo=_fmt(r.lo),

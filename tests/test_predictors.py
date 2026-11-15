@@ -1,6 +1,7 @@
 """A7: behaviour predictors and model profiles (doc 11 §3.7)."""
 
 import csv
+import json
 import math
 import random
 import sys
@@ -21,7 +22,7 @@ from eduinject.behavior.predictors import (
     top_rule_targets,
     write_profile,
 )
-from eduinject.features import role_of
+from eduinject.features import FEATURES_VERSION, role_of
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
@@ -55,8 +56,10 @@ def _rows(n: int = 200, seed: int = 0) -> list[dict[str, Any]]:
                 "carry:action": S if carried and rng.random() < 0.7 else A,
                 "flag:action": 0.0,
                 "calls": 2,
-                "monitor:rules": "R1;R2" if harm else ("R3" if carried else ""),
-                "monitor:first": "R1" if harm else ("R3" if carried else ""),
+                "monitor:rules": "W2-R01;W2-R02"
+                if harm
+                else ("W2-R03" if carried else ""),
+                "monitor:first": "W2-R01" if harm else ("W2-R03" if carried else ""),
                 "monitor:origin_stage": "analysis" if carried else "action",
                 "out:harm_completed": float(harm),
                 "out:exfiltration": float(harm),
@@ -117,7 +120,7 @@ def test_single_class_fold_auroc_nan() -> None:
 
 
 def test_explain_and_rule_targets() -> None:
-    assert top_rule_targets(_rows(), n=2) == ["rule:R1", "rule:R2"]
+    assert top_rule_targets(_rows(), n=2) == ["rule:W2-R01", "rule:W2-R02"]
     expl = explain(_rows(), "out:harm_completed", n_boot=30)
     top = max(expl.std_coefs, key=lambda c: abs(c.coef))
     assert top.feature.startswith("carry:analysis") and top.lo <= top.coef <= top.hi
@@ -135,7 +138,7 @@ def test_profile_has_no_free_text(tmp_path: Path) -> None:
     for line in lines:
         assert any(p.fullmatch(line) for p in LINE_PATTERNS), line
     text = path.read_text(encoding="utf-8")
-    assert "carry at analysis" in text and "Rule R1" in text
+    assert "carry at analysis" in text and "rule W2-R01" in text
     assert "carry:analysis" in text and "95% CI" in text
 
 
@@ -150,6 +153,9 @@ def test_behavior_models_predict_and_profiles(
         w = csv.DictWriter(f, fieldnames=list(rows[0]))
         w.writeheader()
         w.writerows(rows)
+    features.with_suffix(".roles.json").write_text(
+        json.dumps({"features_version": FEATURES_VERSION})
+    )
     monkeypatch.setattr(behavior_models, "LOGS", tmp_path / "logs")
     out = tmp_path / "logs" / "behavior"
     args = ["--features", str(features), "--n-boot", "10", "--out", str(out)]
@@ -192,3 +198,27 @@ def test_not_features_name_their_reason() -> None:
         design_matrix(_rows(), "out:harm_completed", columns=["epoch"])
     with pytest.raises(ValueError, match=r"artifact_id \(CV group key\)"):
         design_matrix(_rows(), "out:harm_completed", columns=["artifact_id"])
+
+
+def test_rule_target_only_on_its_workflow_and_rates_per_cell() -> None:
+    """I4: a W1 run cannot violate a W2 rule, so it is not a negative; rule
+    rates are reported per cell, never pooled."""
+    from eduinject.behavior.predictors import _scored
+
+    rows = _rows(80)
+    w1 = [
+        r | {"workflow": "w1", "monitor:rules": "", "monitor:first": ""} for r in rows
+    ]
+    assert _scored(rows + w1, "rule:W2-R01") == _scored(rows, "rule:W2-R01")
+    with pytest.raises(ValueError, match="not a monitor rule"):
+        _scored(rows, "rule:R1")
+    two = [
+        r | {"isolated": "False" if (i // 2) % 2 else "True"}
+        for i, r in enumerate(rows)
+    ]
+    stats = profile_stats([r for r in two if r["model"] == "m0"], n_boot=5)
+    cells = {(r.rule, r.cell) for r in stats.rules}
+    assert ("W2-R01", "isolated=False") in cells and (
+        "W2-R01",
+        "isolated=True",
+    ) in cells

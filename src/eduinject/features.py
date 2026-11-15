@@ -12,6 +12,7 @@ import json
 import math
 import re
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Any, Literal, get_args
 
 from .analysis import CELL_FIELDS
@@ -37,6 +38,27 @@ from .task import workflow
 FEATURES_VERSION = "1.2"
 
 Role = Literal["pre_outcome", "outcome"]
+
+
+def stale_features(path: str | Path) -> str | None:
+    """Why the feature table at `path` is stale, or None if current.
+
+    Stale when its `<name>.roles.json` is missing or names another
+    `FEATURES_VERSION`; the analysis scripts refuse such a table (exit 4).
+    """
+    roles = Path(path).with_suffix(".roles.json")
+    version = (
+        json.loads(roles.read_text(encoding="utf-8")).get("features_version")
+        if roles.exists()
+        else None
+    )
+    if version == FEATURES_VERSION:
+        return None
+    return (
+        f"{path} was built at features_version {version}, not "
+        f"{FEATURES_VERSION}; rebuild it with build_features.py"
+    )
+
 
 COORDS = ("base_id", "goal", "file_type", "channel", "split")
 OUTCOMES = (

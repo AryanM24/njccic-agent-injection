@@ -796,8 +796,10 @@ Definitions, as built:
   (`propagation_model.scored_attacks`: `label = attack`, `status = ok`,
   `out:harm_completed` defined). A carry target with a value that is not a
   carry state raises `ValueError`. `carry:action` is any non-`absent` state; `rule:<id>` is the
-  id in `monitor:rules`; the top five rules are ranked by attack runs
-  violating them (ties by id).
+  id in `monitor:rules`, defined only on runs of the workflow whose catalog
+  holds the rule (`predictors.RULE_WORKFLOW`; another workflow's run is
+  undefined, not a negative; an id outside the catalogs raises `ValueError`);
+  the top five rules are ranked by attack runs violating them (ties by id).
 - Inputs default to every `pre_outcome` column less `artifact_id`, `base_id`
   (the CV groups), `label` (constant over attack runs) and `epoch`. A column
   is numeric when every non-missing value parses as a number, where empty,
@@ -820,8 +822,10 @@ Definitions, as built:
   half-life line) does the same for half-life CIs.
 - Profiles: carry per stage per A6 cell (`CELL_FIELDS`), half-lives per
   `CELL_FIELDS` less `relay_stages`, each labelled by the fields that vary for
-  that model; rules pool the model's attack runs, with the modal
-  `monitor:origin_stage` among runs whose first violation the rule was;
+  that model; rule rates per A6 cell (`CELL_FIELDS`, like carry rates) over
+  the rule's own workflow's attack runs, each with the modal
+  `monitor:origin_stage` among that cell's runs whose first violation the rule
+  was;
   predictors are the three largest non-zero coefficients per target. Every
   line matches one of `predictors.TEMPLATES`. Predictors can name `goal=`,
   `channel=` or `file_type=` levels, so every profile's first line is

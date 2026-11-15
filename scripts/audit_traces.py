@@ -4,8 +4,8 @@
     audit_traces.py --log-dir DIR [DIR ...] --out logs/audit/<name>/
                     --runs attack|twin|both [--split dev|confirm]
 
-Writes, under OUT (which must lie under a `logs/` directory: traces are
-Tier 1):
+Writes, under OUT (which must lie under the repository's `logs/`, exit 2:
+traces are Tier 1):
 
     violations.csv    one row per rule violation (step, tool, args, reason,
                       origin stage)
@@ -46,6 +46,7 @@ from eduinject.scorers.outcomes import (
 )
 from eduinject.task import workflow
 
+LOGS = Path(__file__).resolve().parents[1] / "logs"
 KEY_FIELDS = ("label", "sample_id", "artifact_id", "epoch", "split")
 SCORERS = ("authorization", "exfiltration", "scope_violation")
 
@@ -95,8 +96,8 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     out = Path(args.out)
-    if "logs" not in out.resolve().parts:
-        print(f"refused: --out {out} is not under a logs/ directory", file=sys.stderr)
+    if not out.resolve().is_relative_to(LOGS):
+        print(f"refused: --out {out} is not under {LOGS}", file=sys.stderr)
         return 2
     if refuse_stale(args.log_dirs, args.allow_stale):
         return 4

@@ -170,7 +170,7 @@ python scripts/exfil_recipients.py logs/<dir>... --split confirm
 
 **Trace monitor** (A3). Audits every action-stage call of finished runs against
 the doc 11 §3.3 rule catalogs and compares with the scorers. Output must go under
-`logs/` (traces are Tier 1); it refuses stale logs like `analyze.py`:
+the repository's `logs/` (traces are Tier 1; exit 2); it refuses stale logs like `analyze.py`:
 
 ```bash
 python scripts/audit_traces.py --log-dir logs/<dir> --out logs/audit/<name>/ \
@@ -188,7 +188,9 @@ python scripts/build_features.py --log-dir logs/<dir> --out logs/features/<name>
 
 **Stage propagation and half-life** (A6). From a feature table, per
 experimental cell (half-lives pool relay depths only) with pair-bootstrap 95%
-intervals (doc 11 §3.6). `--out` must lie under the repository's `logs/`:
+intervals (doc 11 §3.6). `--out` must lie under the repository's `logs/`,
+and every subcommand refuses a feature table built at another
+`FEATURES_VERSION` or missing its `.roles.json` (exit 4; rebuild it):
 
 ```bash
 python scripts/behavior_models.py chain --features logs/features/<name>.csv \
@@ -200,7 +202,8 @@ python scripts/behavior_models.py halflife --features logs/features/<name>.csv \
 **Behaviour predictors and model profiles** (A7). From `pre_outcome` columns
 only (any outcome column is refused), L1 logistic and depth-4 tree predictors
 of harmful completion, carry to the action stage and the five most violated
-rules, cross-validated by pair (`GroupKFold` on `artifact_id`) and
+rules (a rule is a target only on runs of its own workflow; profiles give
+rule rates per cell, like carry rates), cross-validated by pair (`GroupKFold` on `artifact_id`) and
 leave-one-base-out, against config-only and prevalence baselines (doc 11 §3.7).
 Needs the `analysis` extra; `--n-boot` sets the coefficient resamples:
 

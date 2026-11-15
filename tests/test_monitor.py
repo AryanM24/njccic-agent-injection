@@ -273,12 +273,14 @@ def test_first_violation_is_lowest_step() -> None:
     assert monitor(CASES["W1-R01"][1], RULES["w1"]).first_violation is None
 
 
-def _load_audit() -> Any:
+def _load_audit(logs: Path) -> Any:
+    """The audit script, with its repository `logs/` pointed at `logs`."""
     spec = importlib.util.spec_from_file_location("audit_traces_script", AUDIT)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     sys.modules["audit_traces_script"] = module
     spec.loader.exec_module(module)
+    module.LOGS = logs  # type: ignore[attr-defined]
     return module
 
 
@@ -336,7 +338,7 @@ def test_runtime_sources_equal_record_sources(w1_logs: Path) -> None:
 
 def test_audit_traces_writes_four_files(tmp_path: Path, w1_logs: Path) -> None:
     logs = w1_logs
-    audit = _load_audit()
+    audit = _load_audit(tmp_path / "logs")
     out = tmp_path / "logs" / "audit" / "t"
     assert (
         audit.main(["--log-dir", str(logs), "--out", str(out), "--runs", "both"]) == 0
@@ -360,13 +362,13 @@ def test_audit_traces_writes_four_files(tmp_path: Path, w1_logs: Path) -> None:
         d["label"] == "attack" and d["scorer"] == "scope_violation"
         for d in rows("disagreements.csv")
     )
-    # Output outside logs/ is refused.
-    assert (
-        audit.main(
-            ["--log-dir", str(logs), "--out", str(tmp_path / "x"), "--runs", "twin"]
+    # Output outside the repository's logs/ is refused, even under another
+    # directory named logs.
+    for bad in (tmp_path / "x", tmp_path / "x" / "logs" / "a"):
+        assert (
+            audit.main(["--log-dir", str(logs), "--out", str(bad), "--runs", "twin"])
+            == 2
         )
-        == 2
-    )
 
 
 def test_audit_excludes_records_that_are_not_ok(tmp_path: Path) -> None:
@@ -387,7 +389,7 @@ def test_audit_excludes_records_that_are_not_ok(tmp_path: Path) -> None:
         metadata={**META["w1"], RUNS_KEY: {"attack": run, "twin": run}},
     )
     cell = {"workflow": "w1", "identity_mode": "off"}
-    audit = _load_audit()
+    audit = _load_audit(tmp_path / "logs")
     audit.finished_samples = lambda dirs: iter([(cell, sample)])
     audit.refuse_stale = lambda dirs, allow: False
     out = tmp_path / "logs" / "audit" / "x"

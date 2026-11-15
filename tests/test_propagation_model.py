@@ -1,6 +1,7 @@
 """A6: stage-propagation chain, path decomposition and half-life (doc 11 §3.6)."""
 
 import csv
+import json
 import math
 import random
 import sys
@@ -21,6 +22,7 @@ from eduinject.behavior.propagation_model import (
     survival,
     survival_by_depth,
 )
+from eduinject.features import FEATURES_VERSION
 from eduinject.scorers.outcomes import CarryState
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -153,6 +155,12 @@ def test_behavior_models_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         )
         == 2
     )
+    roles = features.with_suffix(".roles.json")
+    argv = ["chain", "--features", str(features), "--out", str(out)]
+    assert behavior_models.main(argv) == 4  # no roles file: stale
+    roles.write_text(json.dumps({"features_version": "1.1"}))
+    assert behavior_models.main(argv) == 4
+    roles.write_text(json.dumps({"features_version": FEATURES_VERSION}))
     for cmd in ("chain", "halflife"):
         assert (
             behavior_models.main([cmd, "--features", str(features), "--out", str(out)])

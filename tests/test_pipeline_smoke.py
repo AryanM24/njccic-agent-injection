@@ -25,6 +25,7 @@ def _tree(root: Path) -> set[Path]:
 def test_every_phase_a_script_runs_on_a_mock_log(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    import audit_traces
     import behavior_models
     import build_features
     import make_figures
@@ -54,21 +55,14 @@ def test_every_phase_a_script_runs_on_a_mock_log(
         assert proc.returncode == 0, f"{name} {args}: {proc.stderr[-2000:]}"
         return proc.stdout
 
-    # These three pin OUT to the repository's logs/; point that at this test's.
-    for module in (build_features, behavior_models, risk_report):
+    # These pin OUT to the repository's logs/; point that at this test's.
+    for module in (audit_traces, build_features, behavior_models, risk_report):
         monkeypatch.setattr(module, "LOGS", logs)
 
     r = str(runs)
     script("verify_scores.py", r)
-    script(
-        "audit_traces.py",
-        "--log-dir",
-        r,
-        "--out",
-        str(logs / "audit"),
-        "--runs",
-        "both",
-    )
+    argv = ["--log-dir", r, "--out", str(logs / "audit"), "--runs", "both"]
+    assert audit_traces.main(argv) == 0
     features = logs / "features" / "smoke.csv"
     assert build_features.main(["--log-dir", r, "--out", str(features)]) == 0
     with features.open(encoding="utf-8") as f:
