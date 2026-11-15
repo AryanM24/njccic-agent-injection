@@ -71,7 +71,7 @@ task, is folded into `config_hash` and is a cell field):
 | `--relay-stages` | `0`–`3` | Extra relay stages between analysis and action (B1). Each relay sees the previous stage's output and the operator request, and the document only when not isolated. |
 | `--handoff-modes` | `free_text` `typed` | `typed` (B2): stages hand off validated JSON and the action stage gets a trusted case record built from manifest fields and directories. Cannot combine with `--identity facts`; a stage whose output fails to parse makes the whole pair NaN (`handoff_parse_error`). |
 | `--verification-tools` | `off` `on` | W2 only (C3): adds `lookup_certification` against the synthetic certification registry; the tool surface hash changes with it. |
-| `--gate` | `off` `on` | Runtime policy gate (Task 12, not built yet): `on` raises `NotImplementedError` at task construction. |
+| `--gate` | `off` `on` | Runtime policy gate (B3): every sink call is checked against the trace-monitor rules first; a call that breaks one gets a district policy denial, is ledgered `blocked_by_policy` and never runs. Blocked calls count as attempted harm, never completed. |
 | `-M` / `--model-arg` | `KEY=VALUE` | Provider argument bound with the model (repeatable); OpenRouter models must pin their host. |
 
 ```bash

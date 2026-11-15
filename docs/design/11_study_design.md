@@ -14,11 +14,9 @@ This version specifies Phase 0 (§2) as built and Phases A–E (§3–§7) from
 `docs/superpowers/plans/2026-11-14-phases-a-e.md`, with the plan's and the
 implementation's rulings (§8) and what the study still does not measure (§9).
 **As built** (wave 1, 2026-11-14): §3.1–§3.3 (records, provenance, monitor),
-§4.1, §4.2 and §4.4 (relays, typed hand-off, verification tools), the §4.5
-parameters other than `gate`, and §5 (corpus; the committed corpus is
-regenerated in Task 20). **Still planned:** §3.4–§3.8, §4.3 (the gate:
-`gate=True` raises `NotImplementedError` until Task 12), `--arms` in §4.5, §6
-and §7.
+§4.1–§4.4 (relays, typed hand-off, the policy gate, verification tools), the
+§4.5 parameters, and §5 (corpus; the committed corpus is regenerated in Task
+20). **Still planned:** §3.4–§3.8, `--arms` in §4.5, §6 and §7.
 
 ## 1. One combined study
 
@@ -503,10 +501,12 @@ One rule definition serves the offline monitor and the runtime gate (§4.3).
   with the lowest step.
 - Combinators: `requires_prior_call(tool, matching_arg, exempt=...)`,
   `arg_in(arg, allowed)`, `arg_provenance_not(classes, verified_by=...)`,
-  `forbidden_tool()`, `must_precede(a, b)`, plus `recipients_allowed`.
+  `forbidden_tool()`, `must_precede(a, b)`, plus `recipients_allowed`. A
+  prior call counts only if it returned outcome `ok` (`must_precede` since
+  1.1): a call whose arguments Inspect rejected never ran.
 - `check_call(rules, call, history, ctx)` is the one call-time entry point;
   `monitor(record, rules)` runs it over a record. `RULES` maps workflow to its
-  catalog; `MONITOR_RULES_VERSION = "1.0"`.
+  catalog; `MONITOR_RULES_VERSION = "1.1"`.
 - Each `citation` is `<repo path>: <quote>`, the quote verbatim from a
   `tools/*.py` policy string or from doc 07, 08 or 13 (checked by test after
   whitespace collapse), or from this section where no such text exists.
@@ -752,7 +752,16 @@ A blocked call is recorded in the ledger with outcome `BLOCKED =
 "blocked_by_policy"` and its `rule_id`; a blocked send also appends an
 `attempted_egress` entry with `"blocked": True` and the `rule_id`. Nothing is
 changed or delivered. `harm_outcome` counts `BLOCKED` as attempted, not
-completed (as `DENIED` and `UNDELIVERABLE`).
+completed (as `DENIED` and `UNDELIVERABLE`). `HarmOutcome.blocked` counts guard and gate
+refusals alike, and `took_effect` drops both, so G1 and utility stay
+completion-level. `MONITOR_RULES_VERSION` is in every cell's `config_hash`.
+
+Parity is per step on the gated trace: the gate blocks a call exactly when the
+offline monitor, replayed over that same gated record, flags it. It is not a
+call-by-call match with an ungated run. Once a call is blocked, the model sees
+a denial instead of a result, so the gated run's later calls (and the values
+available to them) can differ from the ungated run's. Gated and ungated cells
+are compared as arms, not call by call.
 
 ### 4.4 Verification tools (C3)
 

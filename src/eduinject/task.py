@@ -52,6 +52,7 @@ from .config import (
 )
 from .defense import DEFENSE_VERSION, DEFENSES, datamark
 from .extraction import extract
+from .monitor import MONITOR_RULES_VERSION
 from .scorers import (
     RUNS_KEY,
     W2_SPEC,
@@ -463,6 +464,10 @@ def paired_pipeline(
                 relay_system=RELAY_SYSTEM[workflow] + later,
                 handoff_mode=handoff_mode,
                 trusted_block=trusted,
+                gate=gate,
+                gate_meta={k: v for k, v in meta.items() if k != RUNS_KEY},
+                workflow=workflow,
+                identity_mode=identity_mode,
             )
             # Written per run, so a run that hits a limit later still leaves
             # the finished one on the record.
@@ -575,8 +580,6 @@ def build_task(
         raise ValueError(
             f"verification_tools: {workflow.code} has no verification tools to add"
         )
-    if gate:
-        raise NotImplementedError("gate: Task 12")
     manifest, benign_only = resolve_run_mode(
         manifest, workflow.manifest, workflow.controls_manifest, controls, benign_only
     )
@@ -613,6 +616,7 @@ def build_task(
         "handoff_version": HANDOFF_VERSION,
         "handoff_prompts_version": HANDOFF_PROMPTS_VERSION,
         "gate": gate,
+        "monitor_rules_version": MONITOR_RULES_VERSION,
         "verification_tools": verification_tools,
         # The react loop and its submit plumbing come from Inspect itself.
         "inspect_ai": version("inspect-ai"),

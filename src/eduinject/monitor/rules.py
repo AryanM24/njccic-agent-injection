@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from ..records import CallView, RunRecord
     from ..scorers.provenance import ArgLabel, ProvClass, Sources
 
-MONITOR_RULES_VERSION = "1.0"
+MONITOR_RULES_VERSION = "1.1"
 
 Severity = Literal["high", "medium", "low"]
 
@@ -199,12 +199,13 @@ def forbidden_tool() -> Check:
 
 
 def must_precede(a: str, b: str) -> Check:
-    """A `b` call needs an earlier `a` call."""
+    """A `b` call needs an earlier `a` call that returned outcome ok (a call
+    whose arguments were rejected never ran, and the gate never sees it)."""
 
     def check(
         call: "CallView", history: Sequence["CallView"], ctx: RunContext
     ) -> Finding | None:
-        if call.tool != b or any(c.tool == a for c in history):
+        if call.tool != b or any(c.tool == a and c.outcome == "ok" for c in history):
             return None
         return Finding(f"{b} before any {a}")
 

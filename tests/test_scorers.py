@@ -595,15 +595,7 @@ def test_packet_candidate_is_not_third_party_to_themselves() -> None:
         {"relay_stages": 1},
         {"handoff_mode": "typed"},
         {"verification_tools": True},
-        *(
-            pytest.param(
-                c,
-                marks=pytest.mark.xfail(
-                    strict=True, raises=NotImplementedError, reason="Task 12"
-                ),
-            )
-            for c in ({"gate": True},)
-        ),
+        {"gate": True},
     ],
 )
 def test_every_condition_reaches_the_hash(change: dict[str, Any]) -> None:

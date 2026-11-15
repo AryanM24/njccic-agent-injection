@@ -58,7 +58,8 @@ class RunRecord(NamedTuple):
     """Sample metadata without the recorded runs."""
 
 
-def _text(content: Any) -> str:
+def message_text(content: Any) -> str:
+    """The text of a logged message's content (string or content parts)."""
     if isinstance(content, str):
         return content
     return "".join(c.get("text", "") for c in content or [] if isinstance(c, dict))
@@ -77,7 +78,7 @@ def _calls(
     the model sent (no tool does today).
     """
     results = {
-        m.get("tool_call_id"): _text(m.get("content"))
+        m.get("tool_call_id"): message_text(m.get("content"))
         for m in messages
         if m.get("role") == "tool"
     }
@@ -87,7 +88,7 @@ def _calls(
     for m in messages:
         if m.get("role") != "assistant":
             continue
-        if text := _text(m.get("content")):
+        if text := message_text(m.get("content")):
             said += text + "\n"
         for tc in m.get("tool_calls") or []:
             if tc["function"] == "submit":
