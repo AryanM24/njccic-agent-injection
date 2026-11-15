@@ -25,7 +25,11 @@ are kept out of the repository entirely — see `.gitignore` and
 | `07_thresholds_appendix.md` | — | v1.0 (signed, W2 G1 tiers only) | The W2 G1 sensitivity tiers and recipient entitlement. |
 | `08_w1_w3_g1_tiers_addendum.md` | — | v1.0 (signed 2026-10-11) | W1/W3 G1 tiers, the W1 authorization oracle, G5 signals and how controls are evaluated. |
 | `09_analysis_plan.md` | — | v1.2 (v1.0 signed 2026-10-18; v1.1 closes 7a, 2026-10-19; v1.2 drops human validation, 2026-10-20, awaiting PI initials) | How results are computed and reported: unit, denominators, intervals, the null rule, comparisons, human validation. |
-| `implementation-map.md` | — | — | Which document constraint is enforced by which code, and where they currently diverge. |
+| `10_second_edition_addendum.md` | — | **v0.1 draft** (2026-10-25; absorbed into doc 11, `guarded_outcome` / `legit_task_completed` superseded; presets moved to `configs/models.json`) | Second edition: verified task facts and the tool guard, spotlighting, the statistics upgrade, the v2 model set, reinstated blinded human validation, and corrections to first-edition code. |
+| `11_study_design.md` | — | **v0.3 draft** (2026-11-14) | The one combined study (first edition + second edition + upgrades), as built: absorbs doc 10, records amendments to signed docs (incl. the doc 04 twin definition), defines Phase 0 (correct actions, carry state, recipient classes, misdirection, directory values, attempted/completed harm, channel-matched twins, the noise floor, score verification) and Phases A–E (records, argument provenance, the trace monitor and runtime gate, features, statistics, propagation and half-life, predictors, risk; relays, typed hand-off, verification tools, sweep arms; component markers, five-candidate packets, false premise, splits; the models registry and cost; figures). §8 the design rulings; §9 what remains unmeasured. |
+| `12_v1_audit.md` | — | **v0.2 draft** (2026-11-14) | The audit of everything the first edition used (A-01…A-86), each row's fix, test and final status after Phases A–E (`fixed`, `partially fixed`, `won't fix (reason)` or `needs a decision from me`; A-86: won't fix, PI decision 2026-11-14). |
+| `13_recipient_policy_addendum.md` | — | **v0.1 draft** (2026-11-14) | Recipient classes (data subject, internal staff, unresolvable) and the G1 leak rule; amends 07 §2–3 and 08 §2, §4; policy disclosure counted apart from G1. |
+| `implementation-map.md` | — | — | Which document constraint is enforced by which code (a row per Phase A–E constraint), and every divergence with its first-edition and this-study state. |
 | `human_coding/CODEBOOK.md` | — | v1.1 (2026-10-20, after the practice round; frozen for the real sheet) | Plain-language rules the two human coders follow for the doc 09 §6 check. Unnumbered and not in `DOC_VERSIONS`: it restates docs 07–08 and must not change what is measured. |
 
 The versions above are mirrored in `eduinject.config.DOC_VERSIONS` and folded
@@ -79,15 +83,15 @@ figure. These are the only places in the set where a normative definition
 exists solely inside a graphic — worth converting to tables at the next version
 increment.
 
-**Unset numbers.** The thresholds appendix required by Doc 4 §16 is not yet
-written. It must supply per-workflow three-tier sensitivity scales (G1),
-materiality thresholds (G2/A3 and G5), and stability thresholds (G5 omission
-scoring). Doc 4 states flatly that a pre-registration deferring its numbers is
-not a pre-registration, so this blocks signature.
+**Unset numbers.** The thresholds appendix (`07`, W2 G1 tiers) and the W1/W3
+addendum (`08`) are signed. The G2/A3 and G5 materiality and stability
+thresholds are still unset, so no figure against them is reportable
+(`implementation-map.md` §4). The risk severity weights
+(`configs/severity_weights.json`, doc 11 §3.8) are unsigned placeholders.
 
-**Unsigned attestations.** Doc 4 §16 (pre-registration) and Doc 5 §14 (policy
-adoption) both have empty signature tables. Doc 5 §1 states the policy must be
-adopted before corpus construction begins.
+**Unsigned documents.** The pre-registration (doc 04 §16) and the release
+policy adoption (doc 05 §14) are signed. Docs 10–13 are drafts; while any is,
+`scripts/run_sweep.py` refuses a paid run.
 
 **ATLAS identifiers (verified).** Re-verified against ATLAS v2026.09 on
 2026-10-19 (`grounding_archive/atlas_verification_2026-10-19.md`); Doc 3 v1.1

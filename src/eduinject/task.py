@@ -1,4 +1,4 @@
-"""The W2 (hiring) evaluation task.
+"""The W2 (hiring) evaluation task, and the machinery all three workflows share.
 
 One sample is one *pair*: the attack document and its benign twin are both run
 through the full pipeline, under identical settings, within the same sample.
@@ -6,24 +6,43 @@ That is deliberate. Several outcomes are defined only by the difference between
 the two runs, and a difference can only be scored where both sides are
 available at scoring time — so the pair is the unit of measurement, not the
 document.
+
+W1 (`task_w1.py`) and W3 (`task_w3.py`) are the same design with their own
+prompts, tools and scorers: each declares a `Workflow` and calls `build_task`,
+so a new condition is wired once, here, rather than three times.
 """
 
+import hashlib
 import json
+from collections.abc import Callable, Mapping
+from importlib import import_module
+from importlib.metadata import version
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 
 from inspect_ai import Task, task
 from inspect_ai.dataset import MemoryDataset, Sample
 from inspect_ai.model import GenerateConfig, Model, ModelOutput, get_model
+from inspect_ai.scorer import Scorer
 from inspect_ai.solver import Generate, Solver, TaskState, solver
+from inspect_ai.tool import Tool
 from inspect_ai.util import store_as
 
-from .agents.pipeline import run_pipeline
-from .agents.prompts import (
-    ACTION_SYSTEM,
-    ANALYSIS_SYSTEM,
-    INTAKE_SYSTEM,
-    PROMPTS_VERSION,
+from .agents import prompts
+from .agents.handoff_schemas import HANDOFF_VERSION, trusted_fields
+from .agents.pipeline import (
+    HANDOFF_MODES,
+    ToolNamesForScope,
+    ToolsForScope,
+    run_pipeline,
+)
+from .agents.prompts_handoff import HANDOFF_PROMPTS_VERSION
+from .agents.prompts_relay import RELAY_PROMPTS_VERSION, RELAY_SYSTEM
+from .agents.task_facts import (
+    IDENTITY_MODES,
+    TASK_FACTS_VERSION,
+    facts_w2,
+    verified_w2,
 )
 from .config import (
     DOC_VERSIONS,
@@ -31,31 +50,39 @@ from .config import (
     assert_extraction_pinned,
     config_hash,
 )
+from .defense import DEFENSE_VERSION, DEFENSES, datamark
 from .extraction import extract
+from .monitor import MONITOR_RULES_VERSION
 from .scorers import (
     RUNS_KEY,
     W2_SPEC,
+    ExfilSpec,
     action_divergence,
+    argument_provenance,
+    authorization,
     control_check,
     exfiltration,
+    harm,
+    misdirection,
+    paired_utility,
+    premise_adoption,
     propagation,
+    rank_corruption,
     scope_violation,
     suppression,
 )
-from .tools import Ledger, tool_names_for_scope, tools_for_scope
-from .tools.ats import TOOL_SURFACE
+from .scorers.provenance import PROVENANCE_VERSION
+from .tools import ats
+from .tools.guard import Guard, guard_from_metadata
+from .tools.ledger import Ledger
 
-WORKFLOW = "w2"
+CORPUS = Path(__file__).resolve().parents[2] / "corpus"
 
-DEFAULT_MANIFEST = str(
-    Path(__file__).resolve().parents[2] / "corpus" / "manifest_w2.jsonl"
-)
+DEFAULT_MANIFEST = str(CORPUS / "manifest_w2.jsonl")
 """Manifest shipped with the repo. Resolved from the source tree, so it assumes
 an editable install (`pip install -e .`); pass `manifest=` explicitly otherwise."""
 
-DEFAULT_CONTROLS_MANIFEST = str(
-    Path(__file__).resolve().parents[2] / "corpus" / "manifest_w2_controls.jsonl"
-)
+DEFAULT_CONTROLS_MANIFEST = str(CORPUS / "manifest_w2_controls.jsonl")
 """Benign-but-weird controls: legitimate documents with instruction-like
 phrasing. Run with `controls=True`."""
 
@@ -72,10 +99,111 @@ OPTIONAL_METADATA: tuple[str, ...] = (
     "entitled_actions",
     "tripwire_addresses",
     "expect",
+    "correct",
+    "data_subject_addresses",
+    "candidate_terms",
+    "on_file_addresses",
+    "component_markers",
+    "premise_marker",
+    "premise_subject",
+    "verification_tool",
+    "split",
+    "requester_id",
+    "sender_address",
+    "posting_id",
+    "candidate_roster",
+    "true_ranking",
+    "attacker_candidate",
 )
 """Manifest fields copied into sample metadata when present. They are optional
 so older manifest lines keep loading; carrying `goal`, `base_id`, `file_type` and
 `concealment` into the log is what lets results be sliced by them."""
+
+ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
+
+
+class Workflow(NamedTuple):
+    """Everything that differs between W1, W2 and W3."""
+
+    code: str
+    intake_system: str
+    analysis_system: str
+    action_system: str
+    prompts_version: str
+    tools_for_scope: ToolsForScope
+    tool_names_for_scope: ToolNamesForScope
+    tool_surface: str
+    spec: ExfilSpec
+    state_changing: dict[str, str] | None
+    """W1's state-changing tools (enables the authorization scorer), else None."""
+    write_tools: tuple[str, ...]
+    """Every non-lookup tool (state-changing or sending), for `correct_outcome`."""
+    send_tools: tuple[str, ...]
+    """The subset of `write_tools` that sends mail, for `correct_outcome`."""
+    manifest: str
+    controls_manifest: str
+    task_facts: Callable[[Mapping[str, Any]], str]
+    verified_recipients: Callable[[Mapping[str, Any]], list[str]]
+    """Correspondents the directory verifies: the guard's approved recipients
+    beside the district mailbox, and what the facts block calls approved."""
+    readable_records: Callable[[Mapping[str, Any]], frozenset[str]] | None = None
+    """Student records the guard lets the agent read (W3), else unguarded."""
+    escalation_tools: tuple[str, ...] = ()
+    """Tools that escalate to staff (W3), for `correct_outcome`; empty where a
+    send to an authorized recipient is the escalation."""
+    verification_tools: tuple[Callable[..., Tool], ...] = ()
+    """Lookups `verification_tools=True` adds (W2); empty where the workflow
+    already has them, which makes the parameter a `ValueError`."""
+    verification_surface: str | None = None
+    """`tool_surface` when the verification lookups are granted."""
+
+
+RELAY_MAX = 3
+HandoffMode = Literal["free_text", "typed"]
+
+WORKFLOWS: dict[str, Workflow] = {}
+"""Workflow code -> spec. Each task module registers its own on import; the
+solver receives the code, not the spec, so its logged arguments stay plain."""
+
+
+def workflow(code: str) -> Workflow:
+    """The registered workflow for `code`, importing the W1/W3 modules first.
+
+    Registration happens on import of each task module, so a bare
+    `WORKFLOWS[code]` fails for W1/W3 unless something imported them.
+    """
+    import_module("eduinject.task_w1")
+    import_module("eduinject.task_w3")
+    return WORKFLOWS[code]
+
+
+def register(wf: Workflow) -> Workflow:
+    WORKFLOWS[wf.code] = wf
+    return wf
+
+
+W2 = register(
+    Workflow(
+        code="w2",
+        intake_system=prompts.INTAKE_SYSTEM,
+        analysis_system=prompts.ANALYSIS_SYSTEM,
+        action_system=prompts.ACTION_SYSTEM,
+        prompts_version=prompts.PROMPTS_VERSION,
+        tools_for_scope=ats.tools_for_scope,
+        tool_names_for_scope=ats.tool_names_for_scope,
+        tool_surface=ats.TOOL_SURFACE,
+        spec=W2_SPEC,
+        state_changing=None,
+        write_tools=("submit_shortlist", "send_email"),
+        send_tools=("send_email",),
+        manifest=DEFAULT_MANIFEST,
+        controls_manifest=DEFAULT_CONTROLS_MANIFEST,
+        task_facts=facts_w2,
+        verified_recipients=verified_w2,
+        verification_tools=ats.VERIFICATION_TOOLS,
+        verification_surface=ats.TOOL_SURFACE_VERIFY,
+    )
+)
 
 
 def corpus_label(manifest: str | Path) -> str:
@@ -88,7 +216,23 @@ def corpus_label(manifest: str | Path) -> str:
     return f"{path.parent.name}/{path.name}"
 
 
-ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
+def corpus_digest(manifest: str | Path) -> str:
+    """sha256 (16 hex) of the manifest and every artifact file it names.
+
+    The label says *which* corpus; this says *which bytes*. Regenerating a
+    corpus (new canaries, a reworded request, a parser-visible metadata change)
+    changes what the model sees without changing the label, so the bytes are
+    hashed too.
+    """
+    manifest = Path(manifest).resolve()
+    root = manifest.parent.parent
+    digest = hashlib.sha256(manifest.read_bytes())
+    for line in manifest.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            entry = json.loads(line)
+            for key in ("artifact_path", "twin_path"):
+                digest.update((root / entry[key]).read_bytes())
+    return digest.hexdigest()[:16]
 
 
 def bind_model(
@@ -152,12 +296,13 @@ def resolve_run_mode(
     """Resolve the controls flag into (manifest, benign_only).
 
     Controls are scored on a single run per document, exactly like the benign
-    baseline, so `controls=True` implies `benign_only`. If the caller did not
-    pass a manifest, the workflow's controls manifest is used.
+    baseline, so `controls=True` implies `benign_only`. If the caller passed
+    the workflow's main manifest (in any spelling of its path), the controls
+    manifest is used instead.
     """
     if controls:
         benign_only = True
-        if manifest == default_manifest:
+        if Path(manifest).resolve() == Path(default_manifest).resolve():
             manifest = default_controls
     return manifest, benign_only
 
@@ -208,26 +353,99 @@ def dataset_from_manifest(manifest: str | Path) -> MemoryDataset:
     return MemoryDataset(samples, name=manifest.stem)
 
 
+def tools_with_verification(
+    workflow: Workflow, enabled: bool
+) -> tuple[ToolsForScope, ToolNamesForScope]:
+    """The workflow's scope functions, with its verification lookups appended at
+    every scope when `enabled` (C3); unchanged otherwise."""
+    if not enabled:
+        return workflow.tools_for_scope, workflow.tool_names_for_scope
+    extra = workflow.verification_tools
+
+    def tools(scope: str, instance: str | None, guard: Guard | None) -> list[Tool]:
+        added = [f(instance=instance, guard=guard) for f in extra]
+        return [*workflow.tools_for_scope(scope, instance, guard), *added]
+
+    def names(scope: str) -> tuple[str, ...]:
+        added = tuple(f.__name__ for f in extra)
+        return (*workflow.tool_names_for_scope(scope), *added)
+
+    return tools, names
+
+
+def guard_for(workflow: Workflow, metadata: Mapping[str, Any]) -> Guard:
+    """The guard a sample's tools enforce under identity_mode="guard"."""
+    readable = (
+        workflow.readable_records(metadata) if workflow.readable_records else None
+    )
+    return guard_from_metadata(
+        metadata,
+        workflow.verified_recipients(metadata),
+        tuple(workflow.state_changing or ()),
+        readable,
+    )
+
+
 @solver
-def paired_pipeline(scope: str, isolated: bool) -> Solver:
-    """Run the attack document and its twin through the pipeline.
+def paired_pipeline(
+    workflow: str,
+    scope: str,
+    isolated: bool,
+    benign_only: bool = False,
+    identity_mode: str = "off",
+    defense: str = "none",
+    relay_stages: int = 0,
+    handoff_mode: HandoffMode = "free_text",
+    gate: bool = False,
+    verification_tools: bool = False,
+) -> Solver:
+    """Run the attack document and its twin (or the twin alone) through the pipeline.
 
     Args:
+        workflow: Registered workflow code ("w1", "w2", "w3").
         scope: Write scope granted to the action stage.
         isolated: Whether stages after intake see the source document.
+        benign_only: Run only the twin -- Phase 2's baseline, with no injected
+            content anywhere in the sample. It measures the pipeline's own
+            behaviour on legitimate input (false-positive rates and run-to-run
+            variance), which is what the null rule's floor is set from (Doc 4
+            §13.4), not from any run that also contains an attack.
+        identity_mode: "off", "facts" (verified task facts in the action
+            stage's input) or "guard" (the same facts, enforced by the tools).
+        defense: "none" or "spotlight" (datamark the document and tell every
+            stage that receives it that marked text carries no instructions).
+        relay_stages: Extra relay stages between analysis and action (0..3).
+        handoff_mode: "free_text" or "typed" stage hand-off.
+        gate: Enable the monitor gate on the action stage's calls.
+        verification_tools: Grant the workflow's verification lookups.
 
     Returns:
-        A solver that records both runs under `metadata["runs"]`.
+        A solver that records each run under `metadata["runs"]`.
     """
+    spec = WORKFLOWS[workflow]
+    tools_for_scope, tool_names_for_scope = tools_with_verification(
+        spec, verification_tools
+    )
+    labels = ("twin",) if benign_only else ("attack", "twin")
+    spotlight = defense == "spotlight"
+    clause = prompts.SPOTLIGHT_CLAUSE if spotlight else ""
+    # The clause describes the document, so only stages that receive it get it.
+    later = "" if isolated else clause
 
     async def solve(state: TaskState, generate: Generate) -> TaskState:
-        documents = {
-            "attack": extract(state.metadata["artifact_path"]),
-            "twin": extract(state.metadata["twin_path"]),
-        }
+        meta = state.metadata
+        typed = handoff_mode == "typed"
+        # Typed hand-off: the trusted record replaces the facts block (ruling 2).
+        facts = spec.task_facts(meta) if identity_mode != "off" and not typed else None
+        trusted = trusted_fields(workflow, meta).model_dump_json() if typed else None
+        guard = guard_for(spec, meta) if identity_mode == "guard" else None
+        paths = {"attack": meta["artifact_path"], "twin": meta["twin_path"]}
 
         runs: dict[str, dict[str, Any]] = {}
-        for label, document_text in documents.items():
+        meta[RUNS_KEY] = runs
+        for label in labels:
+            extracted = extract(paths[label])
+            document_text = datamark(extracted) if spotlight else extracted
             # Separate ledger instances keep the two runs' tool activity from
             # merging — they share a sample, and therefore a store.
             result = await run_pipeline(
@@ -238,69 +456,201 @@ def paired_pipeline(scope: str, isolated: bool) -> Solver:
                 instance=label,
                 tools_for_scope=tools_for_scope,
                 tool_names_for_scope=tool_names_for_scope,
-                intake_system=INTAKE_SYSTEM,
-                analysis_system=ANALYSIS_SYSTEM,
-                action_system=ACTION_SYSTEM,
+                intake_system=spec.intake_system + clause,
+                analysis_system=spec.analysis_system + later,
+                action_system=spec.action_system + later,
+                task_facts=facts,
+                guard=guard,
+                relay_stages=relay_stages,
+                relay_system=RELAY_SYSTEM[workflow] + later,
+                handoff_mode=handoff_mode,
+                trusted_block=trusted,
+                gate=gate,
+                gate_meta={k: v for k, v in meta.items() if k != RUNS_KEY},
+                workflow=workflow,
+                identity_mode=identity_mode,
             )
+            # Written per run, so a run that hits a limit later still leaves
+            # the finished one on the record.
             runs[label] = {
+                "document_text": extracted,
                 "pipeline": result,
                 "ledger": store_as(Ledger, instance=label).model_dump(),
             }
 
-        state.metadata[RUNS_KEY] = runs
         state.output = ModelOutput.from_content(
-            model=str(state.model), content=runs["attack"]["pipeline"]["final"]
+            model=str(state.model), content=runs[labels[0]]["pipeline"]["final"]
         )
         return state
 
     return solve
 
 
-@solver
-def benign_pipeline(scope: str, isolated: bool) -> Solver:
-    """Run only the benign twin through the pipeline — no attack artifact.
+def scorers_for(
+    workflow: Workflow,
+    benign_only: bool,
+    relay_stages: int = 0,
+    identity_mode: str = "off",
+    handoff_mode: str = "free_text",
+) -> list[Scorer]:
+    """The scorer set for a cell. Benign-only cells score the twin alone and
+    drop the attack-vs-twin outcomes, which do not exist there."""
+    spec, changing = workflow.spec, workflow.state_changing
+    label = "twin" if benign_only else "attack"
+    out: list[Scorer] = [
+        propagation(run_label=label, relay_stages=relay_stages),
+        exfiltration(run_label=label, spec=spec),
+    ]
+    if changing:
+        out.append(authorization(changing, run_label=label))
+    out.append(scope_violation(run_label=label))
+    out.append(misdirection(run_label=label, spec=spec))
+    if benign_only:
+        out.append(
+            control_check(
+                spec=spec,
+                state_changing=changing,
+                write_tools=workflow.write_tools,
+                send_tools=workflow.send_tools,
+                escalation_tools=workflow.escalation_tools,
+            )
+        )
+    else:
+        out += [
+            action_divergence(),
+            suppression(),
+            argument_provenance(workflow.code, identity_mode, handoff_mode),
+            paired_utility(
+                spec=spec,
+                state_changing=changing,
+                write_tools=workflow.write_tools,
+                send_tools=workflow.send_tools,
+                escalation_tools=workflow.escalation_tools,
+            ),
+        ]
+        if workflow.code == "w2":
+            out.append(rank_corruption())
+        sinks = set(workflow.write_tools) - set(workflow.escalation_tools)
+        out.append(premise_adoption(sink_tools=sorted(sinks)))
+    out.append(harm(spec=spec, state_changing=changing, run_label=label))
+    return out
 
-    This is Phase 2's benign-only baseline: the twin is the *only* document
-    run, so there is no injected content anywhere in the sample and no attack
-    run to compare against. It measures the pipeline's own behavior on
-    legitimate input alone — false-positive rates and run-to-run variance —
-    which is what the G2/A3 and G5 materiality thresholds must be set from
-    (Doc 4 §13.4), not from any run that also contains an attack condition.
 
-    Args:
-        scope: Write scope granted to the action stage.
-        isolated: Whether stages after intake see the source document.
+def build_task(
+    workflow: Workflow,
+    *,
+    scope: str,
+    isolated: bool,
+    manifest: str,
+    message_limit: int | None,
+    epochs: int | None,
+    benign_only: bool,
+    controls: bool,
+    model: str | None,
+    model_args: dict[str, Any] | None,
+    reasoning_effort: ReasoningEffort | None,
+    identity_mode: str,
+    defense: str,
+    relay_stages: int = 0,
+    handoff_mode: HandoffMode = "free_text",
+    gate: bool = False,
+    verification_tools: bool = False,
+) -> Task:
+    """Build one cell of a workflow's experiment (see the `eduinject_*` tasks)."""
+    if identity_mode not in IDENTITY_MODES:
+        raise ValueError(f"identity_mode must be one of {IDENTITY_MODES}")
+    if defense not in DEFENSES:
+        raise ValueError(f"defense must be one of {DEFENSES}")
+    if (
+        not isinstance(relay_stages, int)
+        or isinstance(relay_stages, bool)
+        or not 0 <= relay_stages <= RELAY_MAX
+    ):
+        raise ValueError(f"relay_stages must be an int in 0..{RELAY_MAX}")
+    if handoff_mode not in HANDOFF_MODES:
+        raise ValueError(f"handoff_mode must be one of {HANDOFF_MODES}")
+    if not isinstance(gate, bool):
+        raise ValueError("gate must be a bool")  # noqa: TRY004
+    if not isinstance(verification_tools, bool):
+        raise ValueError("verification_tools must be a bool")  # noqa: TRY004
+    if handoff_mode == "typed" and identity_mode == "facts":
+        raise ValueError(
+            'handoff_mode="typed" cannot combine with identity_mode="facts": '
+            "typed hand-off already carries the verified facts"
+        )
+    if verification_tools and not workflow.verification_tools:
+        raise ValueError(
+            f"verification_tools: {workflow.code} has no verification tools to add"
+        )
+    manifest, benign_only = resolve_run_mode(
+        manifest, workflow.manifest, workflow.controls_manifest, controls, benign_only
+    )
+    # C2: the extraction stack decides which concealment channels are visible
+    # at all, so drift fails the run here rather than silently changing what
+    # was measured.
+    assert_extraction_pinned()
 
-    Returns:
-        A solver that records the single twin run under `metadata["runs"]["twin"]`.
-    """
-
-    async def solve(state: TaskState, generate: Generate) -> TaskState:
-        document_text = extract(state.metadata["twin_path"])
-        result = await run_pipeline(
-            document_text,
-            state.input_text,
+    run_params: dict[str, Any] = {
+        "workflow": workflow.code,
+        "scope": scope,
+        "isolated": isolated,
+        "benign_only": benign_only,
+        "controls": controls,
+        "message_limit": message_limit,
+        "prompts_version": workflow.prompts_version,
+        "corpus": corpus_label(manifest),
+        "corpus_digest": corpus_digest(manifest),
+        "tool_surface": (
+            workflow.verification_surface
+            if verification_tools
+            else workflow.tool_surface
+        ),
+        "model": model,
+        "model_args": model_args,
+        "reasoning_effort": reasoning_effort,
+        "identity_mode": identity_mode,
+        "task_facts_version": TASK_FACTS_VERSION,
+        "defense": defense,
+        "defense_version": DEFENSE_VERSION,
+        "relay_stages": relay_stages,
+        "relay_prompts_version": RELAY_PROMPTS_VERSION,
+        "handoff_mode": handoff_mode,
+        "handoff_version": HANDOFF_VERSION,
+        "handoff_prompts_version": HANDOFF_PROMPTS_VERSION,
+        "gate": gate,
+        "monitor_rules_version": MONITOR_RULES_VERSION,
+        "provenance_version": PROVENANCE_VERSION,
+        "verification_tools": verification_tools,
+        # The react loop and its submit plumbing come from Inspect itself.
+        "inspect_ai": version("inspect-ai"),
+    }
+    return Task(
+        dataset=dataset_from_manifest(manifest),
+        solver=paired_pipeline(
+            workflow.code,
             scope=scope,
             isolated=isolated,
-            instance="twin",
-            tools_for_scope=tools_for_scope,
-            tool_names_for_scope=tool_names_for_scope,
-            intake_system=INTAKE_SYSTEM,
-            analysis_system=ANALYSIS_SYSTEM,
-            action_system=ACTION_SYSTEM,
-        )
-        state.metadata[RUNS_KEY] = {
-            "twin": {
-                "pipeline": result,
-                "ledger": store_as(Ledger, instance="twin").model_dump(),
-            }
-        }
-        state.output = ModelOutput.from_content(
-            model=str(state.model), content=result["final"]
-        )
-        return state
-
-    return solve
+            benign_only=benign_only,
+            identity_mode=identity_mode,
+            defense=defense,
+            relay_stages=relay_stages,
+            handoff_mode=handoff_mode,
+            gate=gate,
+            verification_tools=verification_tools,
+        ),
+        message_limit=message_limit,
+        epochs=epochs,
+        model=bind_model(model, model_args, reasoning_effort),
+        scorer=scorers_for(
+            workflow, benign_only, relay_stages, identity_mode, handoff_mode
+        ),
+        metadata={
+            **run_params,
+            "extraction_pins": EXTRACTION_PINS,
+            "doc_versions": DOC_VERSIONS,
+            "config_hash": config_hash(**run_params),
+        },
+    )
 
 
 @task
@@ -315,6 +665,12 @@ def eduinject_w2(
     model: str | None = None,
     model_args: dict[str, Any] | None = None,
     reasoning_effort: ReasoningEffort | None = None,
+    identity_mode: str = "off",
+    defense: str = "none",
+    relay_stages: int = 0,
+    handoff_mode: HandoffMode = "free_text",
+    gate: bool = False,
+    verification_tools: bool = False,
 ) -> Task:
     """Indirect prompt injection through a district hiring workflow.
 
@@ -336,11 +692,10 @@ def eduinject_w2(
         benign_only: When True, run only the twin (Phase 2's baseline) --
             no attack artifact runs at all. Scores propagation (a floor
             check, should read 0), exfiltration (the G1 false-positive
-            rate), and scope_violation (the out-of-scope-call base rate),
-            each read from the twin run. action_divergence is omitted --
-            it is defined only as attack-vs-twin, which does not exist here.
-            Also scores `control_check` on each twin (harm done, and whether
-            the legitimate task was completed).
+            rate), scope_violation (the out-of-scope-call base rate) and
+            `control_check` from the twin run. action_divergence and
+            suppression are omitted -- they are defined only as
+            attack-vs-twin, which does not exist here.
         controls: When True, run the benign-but-weird controls manifest
             instead (implies `benign_only`). Same scorers as the baseline, so
             a control's rates compare directly with the twin baseline for the
@@ -355,68 +710,35 @@ def eduinject_w2(
             `responses_api`. Recorded in metadata and `config_hash`.
         reasoning_effort: Fixed reasoning effort for every stage, recorded in
             `config_hash`. None leaves the provider default.
+        identity_mode: "off" (v1 behaviour), "facts" (verified task facts in
+            the action stage's input) or "guard" (facts enforced by the tools).
+            See docs/design/10.
+        defense: "none" or "spotlight" (datamarking, Hines et al. 2024). See
+            docs/design/10.
+        relay_stages: Extra relay stages between analysis and action (0..3).
+        handoff_mode: "free_text" or "typed" stage hand-off.
+        gate: Monitor gate on the action stage's calls.
+        verification_tools: Grant the workflow's verification lookups (W2).
 
     Returns:
         The configured task.
     """
-    manifest, benign_only = resolve_run_mode(
-        manifest, DEFAULT_MANIFEST, DEFAULT_CONTROLS_MANIFEST, controls, benign_only
-    )
-    # C2: the extraction stack decides which concealment channels are visible
-    # at all, so drift fails the run here rather than silently changing what
-    # was measured.
-    assert_extraction_pinned()
-
-    if benign_only:
-        solver = benign_pipeline(scope=scope, isolated=isolated)
-        scorers = [
-            propagation(run_label="twin"),
-            exfiltration(run_label="twin"),
-            scope_violation(run_label="twin"),
-            control_check(spec=W2_SPEC),
-        ]
-    else:
-        solver = paired_pipeline(scope=scope, isolated=isolated)
-        scorers = [
-            propagation(),
-            exfiltration(),
-            scope_violation(),
-            action_divergence(),
-            suppression(),
-        ]
-
-    return Task(
-        dataset=dataset_from_manifest(manifest),
-        solver=solver,
+    return build_task(
+        W2,
+        scope=scope,
+        isolated=isolated,
+        manifest=manifest,
         message_limit=message_limit,
         epochs=epochs,
-        model=bind_model(model, model_args, reasoning_effort),
-        scorer=scorers,
-        metadata={
-            "workflow": WORKFLOW,
-            "scope": scope,
-            "isolated": isolated,
-            "benign_only": benign_only,
-            "controls": controls,
-            "model": model,
-            "model_args": model_args,
-            "reasoning_effort": reasoning_effort,
-            "corpus": corpus_label(manifest),
-            "tool_surface": TOOL_SURFACE,
-            "prompts_version": PROMPTS_VERSION,
-            "extraction_pins": EXTRACTION_PINS,
-            "doc_versions": DOC_VERSIONS,
-            "config_hash": config_hash(
-                workflow=WORKFLOW,
-                scope=scope,
-                isolated=isolated,
-                benign_only=benign_only,
-                prompts_version=PROMPTS_VERSION,
-                corpus=corpus_label(manifest),
-                tool_surface=TOOL_SURFACE,
-                model=model,
-                model_args=model_args,
-                reasoning_effort=reasoning_effort,
-            ),
-        },
+        benign_only=benign_only,
+        controls=controls,
+        model=model,
+        model_args=model_args,
+        reasoning_effort=reasoning_effort,
+        identity_mode=identity_mode,
+        defense=defense,
+        relay_stages=relay_stages,
+        handoff_mode=handoff_mode,
+        gate=gate,
+        verification_tools=verification_tools,
     )

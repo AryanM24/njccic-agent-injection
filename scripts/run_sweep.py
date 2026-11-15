@@ -15,13 +15,20 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, get_args
+from typing import Any, NamedTuple, get_args
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from dotenv import find_dotenv, load_dotenv
+from estimate_cost import estimate_usd, token_stats
 from inspect_ai import eval_set
 
+from eduinject.agents.task_facts import IDENTITY_MODES
+from eduinject.config import draft_documents
+from eduinject.defense import DEFENSES
+from eduinject.models import ModelEntry, load_models
 from eduinject.task import DEFAULT_MANIFEST as W2_MANIFEST
-from eduinject.task import ReasoningEffort, eduinject_w2
+from eduinject.task import HANDOFF_MODES, ReasoningEffort, eduinject_w2
 from eduinject.task_w1 import DEFAULT_MANIFEST as W1_MANIFEST
 from eduinject.task_w1 import eduinject_w1
 from eduinject.task_w3 import DEFAULT_MANIFEST as W3_MANIFEST
@@ -40,6 +47,40 @@ WORKFLOWS = {
 }
 
 
+class Cell(NamedTuple):
+    """One model configuration of the sweep: model, bound args, effort, price."""
+
+    model: str | None
+    model_args: tuple[tuple[str, Any], ...]
+    reasoning_effort: str | None
+    entry: ModelEntry | None
+
+
+class Condition(NamedTuple):
+    """The five axes a named arm fixes together."""
+
+    isolated: bool
+    handoff_mode: str
+    defense: str
+    relay_stages: int
+    gate: bool
+
+
+ARMS = {
+    "defense": [
+        Condition(iso, hand, defense, 0, gate)
+        for gate in (False, True)
+        for iso, hand, defense in [
+            (False, "free_text", "none"),
+            (True, "free_text", "none"),
+            (True, "typed", "none"),
+            (True, "typed", "spotlight"),
+        ]
+    ],
+    "halflife": [Condition(True, "free_text", "none", n, False) for n in range(4)],
+}
+
+
 def parse_model_arg(text: str) -> tuple[str, Any]:
     """Parse one `-M key=value`; the value is JSON if it parses, else a string."""
     key, sep, raw = text.partition("=")
@@ -55,8 +96,29 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--model",
-        default=os.environ.get("INSPECT_EVAL_MODEL"),
-        help="Model to evaluate (defaults to $INSPECT_EVAL_MODEL).",
+        default=None,
+        help="Model to evaluate (defaults to the preset's, else $INSPECT_EVAL_MODEL).",
+    )
+    parser.add_argument(
+        "--model-preset",
+        "--preset",
+        dest="model_presets",
+        nargs="+",
+        choices=sorted(load_models()),
+        default=[],
+        help="Registry models (configs/models.json) with host pin and price. "
+        "Several names sweep the model axis; the same name may repeat. Explicit "
+        "--model / -M override the pin.",
+    )
+    parser.add_argument(
+        "--hosts",
+        nargs="+",
+        default=None,
+        metavar="PROVIDER",
+        help="OpenRouter hosts to sweep: each pins "
+        '{"order":[PROVIDER],"allow_fallbacks":false} per cell, crossed with '
+        "models and effort, overriding the registry pin (default: the pin). "
+        "Cannot combine with -M provider=....",
     )
     parser.add_argument(
         "-M",
@@ -72,9 +134,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--reasoning-effort",
+        nargs="+",
         default=None,
         choices=get_args(ReasoningEffort),
-        help="Fixed reasoning effort for every stage (recorded in config_hash).",
+        help="Reasoning effort cells to sweep (recorded in config_hash); "
+        "defaults to the preset's.",
     )
     parser.add_argument(
         "--log-dir", default="logs/sweep", help="Directory for the eval set logs."
@@ -94,9 +158,69 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--isolation",
-        default="both",
+        default=None,
         choices=sorted(ISOLATION_CHOICES),
-        help="Isolation conditions to sweep ('both' includes the negative control).",
+        help="Isolation conditions to sweep (default both; 'both' includes the "
+        "negative control).",
+    )
+    parser.add_argument(
+        "--identity",
+        nargs="+",
+        default=["off"],
+        choices=list(IDENTITY_MODES),
+        help="identity_mode cells to sweep: off (v1), facts (verified task facts "
+        "for the action stage), guard (facts enforced by the tools). doc 10 §2-3.",
+    )
+    parser.add_argument(
+        "--defense",
+        nargs="+",
+        default=None,
+        choices=list(DEFENSES),
+        help="Prompt-level defense cells to sweep (spotlight = datamarking, "
+        "doc 10 §4).",
+    )
+    parser.add_argument(
+        "--relay-stages",
+        nargs="+",
+        type=int,
+        default=None,
+        help="relay_stages cells to sweep (extra relay stages, 0..3).",
+    )
+    parser.add_argument(
+        "--handoff-modes",
+        nargs="+",
+        default=None,
+        choices=list(HANDOFF_MODES),
+        help="handoff_mode cells to sweep.",
+    )
+    parser.add_argument(
+        "--gate",
+        nargs="+",
+        default=None,
+        choices=["off", "on"],
+        help="gate cells to sweep.",
+    )
+    parser.add_argument(
+        "--arms",
+        choices=sorted(ARMS),
+        default=None,
+        help="Named comparison replacing the isolation/handoff/gate/relay/defense "
+        "axes (those flags then exit 2). defense: isolation off; on; typed; "
+        "typed + spotlight, each without and with the gate (8 arms per scope). "
+        "halflife: relay depths 0-3, isolated, free_text, gate off. doc 11 §4.",
+    )
+    parser.add_argument(
+        "--verification-tools",
+        nargs="+",
+        default=["off"],
+        choices=["off", "on"],
+        help="verification_tools cells to sweep (W2 only).",
+    )
+    parser.add_argument(
+        "--allow-draft-docs",
+        action="store_true",
+        help="Run even though a governing design document is still a draft. Such "
+        "runs are NOT pre-registered; use only for pilots, and say so.",
     )
     parser.add_argument(
         "--manifest",
@@ -138,7 +262,55 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Build every cell and print its run count and config_hash, then "
         "stop before contacting the model.",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    axes = ("isolation", "handoff_modes", "gate", "relay_stages", "defense")
+    if args.arms:
+        clash = [a for a in axes if getattr(args, a) is not None]
+        if clash:
+            flags = ", ".join("--" + a.replace("_", "-") for a in clash)
+            parser.exit(2, f"--arms conflicts with {flags}\n")
+        if args.arms == "defense" and "facts" in args.identity:
+            parser.exit(
+                2,
+                "--arms defense includes typed hand-off arms, which cannot run "
+                "with --identity facts (doc 11 §8 ruling 2); use off or guard\n",
+            )
+        args.conditions = ARMS[args.arms]
+    else:
+        args.conditions = [
+            Condition(iso, hand, defense, relay, gate == "on")
+            for iso in ISOLATION_CHOICES[args.isolation or "both"]
+            for hand in args.handoff_modes or ["free_text"]
+            for defense in args.defense or ["none"]
+            for relay in args.relay_stages or [0]
+            for gate in args.gate or ["off"]
+        ]
+    args.cells = []
+    for name in args.model_presets or [None]:
+        entry = load_models()[name] if name else None
+        if entry and entry.todo:
+            parser.exit(2, f"configs/models.json entry {name} has TODO fields\n")
+        base = list(args.model_args)
+        model = args.model or (entry.model if entry else None)
+        model = model or os.environ.get("INSPECT_EVAL_MODEL")
+        if args.hosts and any(key == "provider" for key, _ in base):
+            parser.exit(2, "--hosts conflicts with -M provider=...\n")
+        providers: list[Any] = [
+            {"order": [host], "allow_fallbacks": False} for host in args.hosts or []
+        ] or [entry.provider if entry else None]
+        for provider in providers:
+            model_args = list(base)
+            if provider is not None and not any(k == "provider" for k, _ in base):
+                model_args = [("provider", provider), *model_args]
+            for effort in args.reasoning_effort or [
+                entry.reasoning_effort if entry else None
+            ]:
+                cell = Cell(model, tuple(model_args), effort, entry)
+                if cell in args.cells:
+                    print(f"warning: duplicate cell dropped: {cell}", file=sys.stderr)
+                else:
+                    args.cells.append(cell)
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -146,7 +318,7 @@ def main(argv: list[str] | None = None) -> int:
     # (and need its API key) before that.
     load_dotenv(find_dotenv(usecwd=True))
     args = parse_args(argv)
-    if not args.model:
+    if not args.cells[0].model:
         print(
             "no model: pass --model or set INSPECT_EVAL_MODEL (see .env.example)",
             file=sys.stderr,
@@ -163,52 +335,103 @@ def main(argv: list[str] | None = None) -> int:
     task_fn, default_manifest = WORKFLOWS[args.workflow]
     manifest = args.manifest or default_manifest
 
-    isolation = ISOLATION_CHOICES[args.isolation]
-    tasks = [
-        task_fn(
-            scope=scope,
-            isolated=isolated,
-            manifest=manifest,
-            epochs=args.epochs,
-            benign_only=args.benign_only,
-            controls=args.controls,
-            model=args.model,
-            model_args=dict(args.model_args) or None,
-            reasoning_effort=args.reasoning_effort,
+    cells = [
+        (
+            cell,
+            task_fn(
+                scope=scope,
+                isolated=cond.isolated,
+                manifest=manifest,
+                epochs=args.epochs,
+                benign_only=args.benign_only,
+                controls=args.controls,
+                model=cell.model,
+                model_args=dict(cell.model_args) or None,
+                reasoning_effort=cell.reasoning_effort,  # type: ignore[arg-type]
+                identity_mode=identity,
+                defense=cond.defense,
+                relay_stages=cond.relay_stages,
+                handoff_mode=cond.handoff_mode,
+                gate=cond.gate,
+                verification_tools=verify == "on",
+            ),
         )
+        for cell in args.cells
         for scope in args.scopes
-        for isolated in isolation
+        for cond in args.conditions
+        for identity in args.identity
+        for verify in args.verification_tools
     ]
+    tasks = [task for _, task in cells]
 
     print(
-        f"sweeping {len(tasks)} cell(s) of {args.workflow} on {args.model} "
+        f"sweeping {len(tasks)} cell(s) of {args.workflow} on "
+        f"{len({c.model for c, _ in cells})} model(s) "
         f"(epochs={args.epochs}, benign_only={args.benign_only}, "
-        f"controls={args.controls}, model_args={dict(args.model_args)}, "
-        f"reasoning_effort={args.reasoning_effort})"
+        f"controls={args.controls})"
     )
+    twin_only = args.benign_only or args.controls
     total = 0
-    for task in tasks:
+    usd_total = 0.0
+    fallback = False
+    for cell, task in cells:
         meta = task.metadata or {}
         samples = len(task.dataset)
         if args.limit is not None:
             samples = min(samples, args.limit)
         runs = samples * (task.epochs or 1)
         total += runs
+        line = " est=n/a"
+        if cell.entry:
+            stats = token_stats([args.log_dir], {"config_hash": meta["config_hash"]})
+            usd = estimate_usd(runs, twin_only, meta["relay_stages"], cell.entry, stats)
+            fallback |= stats is None
+            assert usd is not None  # TODO-priced entries are refused in parse_args
+            usd_total += usd
+            line = f" est=${usd:,.2f}"
         print(
-            f"  scope={meta['scope']:<10} "
+            f"  model={cell.model} effort={cell.reasoning_effort} "
+            f"provider={dict(cell.model_args).get('provider')} "
+            f"scope={meta['scope']:<10} "
             f"isolated={meta['isolated']!s:<5} "
+            f"identity={meta['identity_mode']:<5} "
+            f"defense={meta['defense']:<9} "
+            f"relay={meta['relay_stages']} "
+            f"handoff={meta['handoff_mode']} "
+            f"gate={meta['gate']} "
+            f"verify={meta['verification_tools']} "
             f"runs={runs:<6} "
-            f"config_hash={meta['config_hash']}"
+            f"config_hash={meta['config_hash']}{line}"
         )
-    unit = "twin runs" if args.benign_only or args.controls else "pairs"
+    unit = "twin runs" if twin_only else "pairs"
     print(f"total: {total} {unit}")
+    if any(c.entry for c, _ in cells):
+        basis = (
+            "default pilot tokens (no logs found in --log-dir)"
+            if fallback
+            else "tokens measured from existing logs"
+        )
+        print(
+            f"estimated cost: ${usd_total:,.2f} (+~20% retries; list prices; {basis})"
+        )
+    drafts = draft_documents()
+    if drafts:
+        print(f"governing documents still in draft: {', '.join(drafts)}")
     if args.dry_run:
         return 0
+    paid = not all(str(c.model).startswith("mockllm/") for c, _ in cells)
+    if drafts and paid and not args.allow_draft_docs:
+        print(
+            "refusing a paid run while governing documents are drafts: sign and "
+            "push them first (doc 10 §8), or pass --allow-draft-docs for a pilot",
+            file=sys.stderr,
+        )
+        return 3
 
     success, logs = eval_set(
         tasks,
         log_dir=args.log_dir,
-        model=args.model,
+        model=args.cells[0].model if len({c.model for c in args.cells}) == 1 else None,
         limit=args.limit,
         max_connections=args.max_connections,
     )

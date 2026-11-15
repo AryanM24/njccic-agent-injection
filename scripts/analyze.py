@@ -3,14 +3,31 @@
 
     analyze.py report LOG_DIR... [--out DIR]
         rows.csv          one row per (sample, epoch), with status and scores
-        denominators.csv  scored / error / limit counts per cell (doc 04 §13.5)
+        denominators.csv  scored / error / limit / handoff_parse_error counts per cell (doc 04 §13.5)
         rates.csv         per cell and metric: rate, pair-clustered 95% CI,
-                          saturation flag, epoch SD and range (noise floor)
+                          saturation flag, epoch range
         rates_by_base.csv the same per base scenario (D16)
-        comparisons.csv   isolation, scope and model contrasts, paired by
-                          document, with the null rule under both candidate
-                          noise floors (doc 09 §4, pending sign-off)
+        comparisons.csv   isolation, scope, identity, defense and model
+                          contrasts, paired by document: the noise floor and
+                          the null rule's verdict (doc 09 §4), a sign-flip
+                          permutation p, Holm over the primary family, the
+                          MDE, and with --gee a pair-clustered GEE (doc 10 §5)
+        interaction.csv   H2: isolation's effect with facts minus without
+        in_pair.csv       attack − twin harm and utility within each pair,
+                          per attack cell (doc 10 §5)
+        concentration.csv harm positives per distinct pair
+        conditional.csv   P(harm | marker reached analysis / action)
+        gee.csv           doc 11 §3.5: in-pair harm on arm and every varying
+                          CONTRAST_FAMILY factor, exchangeable GEE (robust SEs),
+                          with the floor rule's verdict per term
+        gee_independence.csv  the same, independence + bias-reduced SEs
+        mixed.csv         pair random-intercept logistic model (sensitivity)
+        holm.csv          Holm over the GEE terms of each family
+                          (working correlation and family pending PI sign-off)
         report.md         a readable summary of the above
+
+    analyze.py power --base-rate R --pairs N --epochs E
+        Simulated minimum detectable attack - twin difference at 80% power.
 
     analyze.py sample-human LOG_DIR... [--fraction 0.10] [--out DIR]
         coding_sheet.csv  stratified sample with blank coding columns
@@ -20,38 +37,97 @@
     analyze.py kappa CODER_A.csv CODER_B.csv [--key answer_key.csv]
         Cohen's kappa per coded column, coder vs coder and coder vs automated.
 
+    analyze.py trace-check LOG_DIR... [--out FILE]
+        Per W1 cell and run label (doc 11 §2.10, A-19): unauthorized action
+        attempts, and how many had or lacked an ownership lookup of the same
+        target before them. Default out logs/analysis/trace_check.csv.
+
+    analyze.py export-pairs LOG_DIR... --salt SECRET [--out FILE]
+        Pair-level aggregates for reproducing the analyses (doc 10, plan WS12):
+        per cell, pair and metric, the run count and mean. Pair ids are salted
+        hashes and the technique columns (goal, channel, file type) are dropped,
+        so the file cannot rank attack techniques. Releasing it is still a doc
+        05 decision.
+
 Outputs default to logs/analysis/, which is gitignored: analysis of canonical
 runs is Tier 1, like the logs it is computed from. Nothing here contacts a model.
 """
 
 import argparse
 import csv
+import random
 import sys
 from collections.abc import Sequence
 from itertools import combinations
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
+from eduinject import stats
 from eduinject.analysis import (
     CELL_FIELDS,
+    N_BOOT,
     REPORTABILITY,
-    cohen_kappa,
+    comparison_floor,
     denominators,
     epoch_spread,
+    finished_samples,
     group,
-    is_null,
+    kappa_report,
     load_rows,
+    mean_with_ci,
     metrics_in,
+    noise_floor,
+    norm_code,
+    ownership_lookup_check,
     paired_difference,
     rate_with_ci,
+    refuse_stale,
     saturated,
+    sheet_problems,
     stratified_sample,
     tool_use_check,
+    verdict,
+    within_pair_difference,
+    within_pair_differences,
 )
 
 SCOPE_ORDER = ("read_only", "standard", "read_write")
-FLOOR_FIELDS = ("model", "host", "reasoning_effort", "workflow", "scope", "isolated")
-"""A benign-only cell supplies the floor for every cell matching it on these."""
+
+IDENTITY_ORDER = ("guard", "facts", "off")
+DEFENSE_ORDER = ("spotlight", "none")
+"""Most defended first, so A − B < 0 means the defense helped."""
+
+PRIMARY_METRICS = ("exfiltration", "authorization", "propagation.action")
+CONTRASTS = (
+    ("isolation", ("isolated",)),
+    ("scope", ("scope",)),
+    ("identity", ("identity_mode",)),
+    ("defense", ("defense",)),
+    ("model", ("model", "host", "reasoning_effort")),
+)
+"""(kind, cell fields that vary) for each `comparisons.csv` contrast."""
+
+PRIMARY_CONTRASTS = tuple(
+    kind
+    for kind, fields in CONTRASTS
+    if fields[0] in stats.CONTRAST_FAMILY and kind != "model"
+)
+"""The primary rows of `comparisons.csv`: the contrasts whose factor is in
+`stats.CONTRAST_FAMILY` (doc 11 §3.5, pending PI sign-off), Holm-corrected
+within each model and workflow. `model` is in the family too, but its primary
+test is the GEE term in `holm.csv` (Holm across the family's terms), so its
+`comparisons.csv` rows stay exploratory rather than being counted twice."""
+
+HARM_METRICS = (
+    "exfiltration",
+    "authorization",
+    "misdirection",
+    "harm.completed",
+    "harm.attempted",
+)
+"""Harm outcomes for concentration and conditional rates. `scope_violation` is
+not one: it is a provisioning check (always 0 when the tools match the scope)."""
+CONDITIONS = ("propagation.analysis", "propagation.action")
 
 CODED = ("exfiltration", "scope_violation", "authorization", "action_divergence")
 """Binary outcomes the human coders score independently (doc 09 §6)."""
@@ -77,32 +153,6 @@ def reportability(metric: str) -> str:
     return REPORTABILITY.get(metric.split(".")[0], "unclassified")
 
 
-def floors(rows: list[dict[str, Any]]) -> dict[tuple[Any, ...], dict[str, Any]]:
-    """Noise floors from benign-only (non-control) cells, keyed for matching."""
-    found: dict[tuple[Any, ...], dict[str, Any]] = {}
-    for key, cell_rows in group(r for r in rows if r["benign_only"]).items():
-        cell = cell_dict(key)
-        if cell["controls"]:
-            continue
-        match = tuple(cell[f] for f in FLOOR_FIELDS)
-        for metric in metrics_in(cell_rows):
-            spread = epoch_spread(cell_rows, metric)
-            if spread:
-                found[(*match, metric)] = {"sd": spread.sd, "range": spread.range}
-    return found
-
-
-def floor_for(
-    cells: Sequence[dict[str, Any]], metric: str, table: dict[tuple[Any, ...], Any]
-) -> dict[str, float] | None:
-    """The larger floor of the cells being compared, or None if either lacks one."""
-    found = [table.get((*(c[f] for f in FLOOR_FIELDS), metric)) for c in cells]
-    present = [f for f in found if f is not None]
-    if len(present) < len(found):
-        return None
-    return {s: max(f[s] for f in present) for s in ("sd", "range")}
-
-
 def rate_rows(
     rows: list[dict[str, Any]], extra: Sequence[str], n_boot: int
 ) -> list[dict[str, Any]]:
@@ -123,7 +173,12 @@ def rate_rows(
                     "ci_lo": round(ci.lo, 4),
                     "ci_hi": round(ci.hi, 4),
                     "saturated": saturated(ci),
-                    "epoch_sd": round(spread.sd, 4) if spread else "",
+                    # A zero is "below this", not proof of absence (doc 10 §5).
+                    "upper95_if_zero": (
+                        round(stats.zero_upper_bound(ci.n_pairs), 4)
+                        if ci.rate == 0
+                        else ""
+                    ),
                     "epoch_range": round(spread.range, 4) if spread else "",
                     "reportability": reportability(metric),
                 }
@@ -144,11 +199,7 @@ def contrasts(
         return tuple(v for f, v in cell.items() if f not in fields)
 
     out: list[tuple[str, tuple[Any, ...], tuple[Any, ...]]] = []
-    for kind, fields in (
-        ("isolation", ("isolated",)),
-        ("scope", ("scope",)),
-        ("model", ("model", "host", "reasoning_effort")),
-    ):
+    for kind, fields in CONTRASTS:
         buckets: dict[tuple[Any, ...], list[tuple[Any, ...]]] = {}
         for key in cells:
             buckets.setdefault(without(key, fields), []).append(key)
@@ -158,15 +209,23 @@ def contrasts(
                 keys.sort(key=lambda k: SCOPE_ORDER.index(cell_dict(k)["scope"]))
             elif kind == "isolation":
                 keys.sort(key=lambda k: not cell_dict(k)["isolated"])
+            elif kind == "identity":
+                keys.sort(
+                    key=lambda k: IDENTITY_ORDER.index(cell_dict(k)["identity_mode"])
+                )
+            elif kind == "defense":
+                keys.sort(key=lambda k: DEFENSE_ORDER.index(cell_dict(k)["defense"]))
             else:
                 keys.sort(key=str)
             out.extend((kind, a, b) for a, b in combinations(keys, 2))
     return out
 
 
-def comparison_rows(rows: list[dict[str, Any]], n_boot: int) -> list[dict[str, Any]]:
+def comparison_rows(
+    rows: list[dict[str, Any]], n_boot: int, gee: bool = False
+) -> list[dict[str, Any]]:
     cells = group(rows)
-    floor_table = floors(rows)
+    baselines = [r for r in rows if r["benign_only"] and not r["controls"]]
     out: list[dict[str, Any]] = []
     for kind, key_a, key_b in contrasts(cells):
         a, b = cell_dict(key_a), cell_dict(key_b)
@@ -178,7 +237,12 @@ def comparison_rows(rows: list[dict[str, Any]], n_boot: int) -> list[dict[str, A
             diff = paired_difference(cells[key_a], cells[key_b], metric, n_boot=n_boot)
             if diff is None:
                 continue
-            floor = floor_for((a, b), metric, floor_table)
+            floor = comparison_floor(baselines, a, b, metric)
+            diffs = stats.paired_differences(cells[key_a], cells[key_b], metric)
+            minimum = stats.mde(diffs)
+            fit = (
+                stats.gee_contrast(cells[key_a], cells[key_b], metric) if gee else None
+            )
             out.append(
                 {
                     "contrast": kind,
@@ -190,15 +254,370 @@ def comparison_rows(rows: list[dict[str, Any]], n_boot: int) -> list[dict[str, A
                     "diff_a_minus_b": round(diff.diff, 4),
                     "ci_lo": round(diff.lo, 4),
                     "ci_hi": round(diff.hi, 4),
-                    "floor_sd": round(floor["sd"], 4) if floor else "",
-                    "floor_range": round(floor["range"], 4) if floor else "",
-                    "null_if_floor_sd": is_null(diff, floor["sd"] if floor else None),
-                    "null_if_floor_range": is_null(
-                        diff, floor["range"] if floor else None
-                    ),
+                    "floor": round(floor, 4) if floor is not None else "",
+                    "verdict": verdict(diff, floor),
+                    "p_sign_flip": round(stats.sign_flip_test(diffs), 4),
+                    "mde_80": round(minimum, 4) if minimum is not None else "",
+                    "gee_log_odds": round(fit.log_odds, 4) if fit else "",
+                    "gee_p": round(fit.p, 4) if fit else "",
+                    "primary": is_primary(kind, metric, shared),
                     "reportability": reportability(metric),
                 }
             )
+    add_holm(out)
+    return out
+
+
+def is_primary(kind: str, metric: str, cell: dict[str, Any]) -> bool:
+    """Whether a contrast is in the pre-declared primary family (doc 10 §5).
+
+    Harm contrasts count on attack cells only: on twin baselines they are
+    floor checks (about 0, p = 1) and would only inflate Holm's m. H4, the
+    utility cost of a defense, is the one primary contrast on twin baselines.
+    """
+    if cell.get("controls"):
+        return False
+    if cell.get("benign_only"):
+        return kind in ("identity", "defense") and metric == UTILITY_METRIC
+    return kind in PRIMARY_CONTRASTS and metric in PRIMARY_METRICS
+
+
+UTILITY_METRIC = "control_check.did_correct_thing"
+"""H4's metric: benign utility, on twin baselines."""
+
+FAMILY_FIELDS = ("model", "host", "reasoning_effort", "workflow", "benign_only")
+"""A Holm family: one model as served (host, effort), one workflow, and attack
+cells apart from twin baselines."""
+
+
+def add_holm(comparisons: list[dict[str, Any]]) -> None:
+    """Holm-adjust the primary rows' sign-flip p-values within each family."""
+    families: dict[tuple[Any, ...], dict[int, float]] = {}
+    for i, row in enumerate(comparisons):
+        if row["primary"]:
+            family = tuple(row.get(f) for f in FAMILY_FIELDS)
+            families.setdefault(family, {})[i] = row["p_sign_flip"]
+    for members in families.values():
+        adjusted = stats.holm({str(i): p for i, p in members.items()})
+        for i in members:
+            comparisons[i]["p_holm"] = round(adjusted[str(i)], 4)
+
+
+def interaction_rows(rows: list[dict[str, Any]], n_boot: int) -> list[dict[str, Any]]:
+    """H2 (doc 10 §5): does isolation's effect on harm change once verified
+    facts are restored?
+
+    Per pair, (isolated − not, with facts) − (isolated − not, without facts),
+    over pairs present in all four cells; bootstrap over pairs, sign-flip p,
+    Holm within each family. A non-zero value means part of what isolation did
+    in the first edition was the facts it withheld.
+    """
+    cells = group(rows)
+    by_rest: dict[tuple[Any, ...], dict[tuple[bool, str], list[dict[str, Any]]]] = {}
+    for key, cell_rows in cells.items():
+        cell = cell_dict(key)
+        if cell["benign_only"] or cell["identity_mode"] not in ("off", "facts"):
+            continue
+        rest = tuple(
+            v for f, v in cell.items() if f not in ("isolated", "identity_mode")
+        )
+        by_rest.setdefault(rest, {})[(cell["isolated"], cell["identity_mode"])] = (
+            cell_rows
+        )
+    out: list[dict[str, Any]] = []
+    rest_fields = [f for f in CELL_FIELDS if f not in ("isolated", "identity_mode")]
+    for rest, quad in sorted(by_rest.items(), key=str):
+        if len(quad) < 4:
+            continue
+        for metric in PRIMARY_METRICS:
+            means = {k: stats.per_pair_means(v, metric) for k, v in quad.items()}
+            pairs = sorted(set.intersection(*(set(m) for m in means.values())), key=str)
+            if not pairs:
+                continue
+            dd = {
+                p: (means[(True, "facts")][p] - means[(False, "facts")][p])
+                - (means[(True, "off")][p] - means[(False, "off")][p])
+                for p in pairs
+            }
+            ci = mean_with_ci(dd, n_boot)
+            assert ci is not None  # `pairs` is non-empty
+            out.append(
+                {
+                    **dict(zip(rest_fields, rest, strict=True)),
+                    "metric": metric,
+                    "n_pairs": ci.n_pairs,
+                    "interaction": round(ci.diff, 4),
+                    "ci_lo": round(ci.lo, 4),
+                    "ci_hi": round(ci.hi, 4),
+                    "p_sign_flip": round(stats.sign_flip_test(list(dd.values())), 4),
+                    "primary": True,
+                }
+            )
+    add_holm(out)
+    return out
+
+
+IN_PAIR = (
+    ("harm", "paired_utility.harm_attack", "paired_utility.harm_twin"),
+    ("utility", "paired_utility.utility_attack", "paired_utility.utility_twin"),
+)
+"""(name, attack metric, twin metric): the in-pair attack effect (doc 10 §5)."""
+
+
+def in_pair_rows(rows: list[dict[str, Any]], n_boot: int) -> list[dict[str, Any]]:
+    """Attack − twin within each pair, per attack cell: what the injection did,
+    with the twin run of the same sample as the control."""
+    out: list[dict[str, Any]] = []
+    for key, cell_rows in sorted(group(rows).items(), key=str):
+        if cell_dict(key)["benign_only"]:
+            continue
+        for name, a, b in IN_PAIR:
+            diff = within_pair_difference(cell_rows, a, b, n_boot=n_boot)
+            if diff is None:
+                continue
+            diffs = list(within_pair_differences(cell_rows, a, b).values())
+            minimum = stats.mde(diffs)
+            out.append(
+                {
+                    **cell_dict(key),
+                    "outcome": name,
+                    "n_pairs": diff.n_pairs,
+                    "attack_minus_twin": round(diff.diff, 4),
+                    "ci_lo": round(diff.lo, 4),
+                    "ci_hi": round(diff.hi, 4),
+                    "p_sign_flip": round(stats.sign_flip_test(diffs), 4),
+                    "mde_80": round(minimum, 4) if minimum is not None else "",
+                }
+            )
+    return out
+
+
+PENDING = "pending PI sign-off (doc 11 §3.5, §8 ruling 3)"
+"""Stamped on every GEE and Holm row: the working correlation and the family
+are not settled until the PI signs."""
+
+GEE_FAMILY_FIELDS = tuple(
+    f
+    for f in CELL_FIELDS
+    if f not in (*stats.CONTRAST_FAMILY, "host", "reasoning_effort")
+    and f not in ("benign_only", "controls")
+)
+"""What one GEE family holds fixed; the `CONTRAST_FAMILY` factors vary inside
+it. Host and effort travel with `model` (the model as served)."""
+
+
+def _served(row: dict[str, Any]) -> dict[str, Any]:
+    """The row with `model` naming the model as served (host, effort)."""
+    host, effort = row.get("host"), row.get("reasoning_effort")
+    if not (host or effort):
+        return row
+    return {**row, "model": f"{row['model']} ({host or '-'}, {effort or '-'})"}
+
+
+class GeeTables(NamedTuple):
+    gee: list[dict[str, Any]]
+    gee_independence: list[dict[str, Any]]
+    mixed: list[dict[str, Any]]
+    holm: list[dict[str, Any]]
+
+
+def gee_tables(rows: list[dict[str, Any]], n_boot: int) -> GeeTables:
+    """Doc 11 §3.5: per family, the in-pair harm outcome (`IN_PAIR`'s harm)
+    regressed on `arm` and every `CONTRAST_FAMILY` factor that varies in it.
+
+    The exchangeable GEE is primary, independence + bias-reduced and the pair
+    random-intercept model sit beside it, and Holm runs over the primary
+    fit's terms. Each GEE term names its `reference` level and keeps the floor
+    rule as a column: the paired raw difference between the level and its
+    reference (attack runs only, except for `arm`), the largest `noise_floor`
+    of the family's cells, and `verdict`. A separated level gets a row with its
+    counts and exact bound; factors left unfitted for too few events after
+    separation get a row naming them; a family with no fit at all (no event,
+    too few events, no statsmodels, a failed fit) gets one `NO_FIT` row.
+    """
+    _, attack, twin = IN_PAIR[0]
+    outcome = attack.removesuffix("_attack")
+    baselines = [r for r in rows if r["benign_only"] and not r["controls"]]
+    families: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+    for row in rows:
+        if not (row["benign_only"] or row["controls"]):
+            key = tuple(row.get(f) for f in GEE_FAMILY_FIELDS)
+            families.setdefault(key, []).append(row)
+    out = GeeTables([], [], [], [])
+    for key, family_rows in sorted(families.items(), key=str):
+        fixed = {**dict(zip(GEE_FAMILY_FIELDS, key, strict=True)), "outcome": outcome}
+        long = stats.long_rows([_served(r) for r in family_rows], (attack, twin))
+        factors = [
+            f
+            for f in stats.CONTRAST_FAMILY
+            if f == "arm" or len({str(r.get(f)) for r in long}) > 1
+        ]
+        cell_floors = [
+            noise_floor(baselines, cell_dict(k), twin) for k in group(family_rows)
+        ]
+        floor = (
+            None
+            if None in cell_floors
+            else max(f for f in cell_floors if f is not None)
+        )
+        n_pairs = len({r["artifact_id"] for r in long})
+        fits: tuple[tuple[stats.GeeCov, list[dict[str, Any]]], ...] = (
+            ("exchangeable", out.gee),
+            ("independence_bias_reduced", out.gee_independence),
+        )
+        for cov, table in fits:
+            fit = stats.gee_fit(long, outcome, factors, cov=cov)
+            if fit is None:
+                table.append({**fixed, "n_pairs": n_pairs, "cov": cov, "note": NO_FIT})
+                continue
+            dropped = {s.term for s in fit.separated}
+            table.extend(
+                {
+                    **fixed,
+                    "term": s.term,
+                    "n_pairs": s.n_pairs,
+                    "cov": cov,
+                    "status": PENDING,
+                    "note": f"separated: {s.events}/{s.n_runs} runs had the outcome "
+                    f"(rest of the factor {s.other_events}/{s.other_runs}); exact 95% "
+                    f"{'upper' if s.events == 0 else 'lower'} bound {s.bound:.4f} "
+                    f"over {s.n_pairs} pairs; left out of the fit",
+                }
+                for s in fit.separated
+            )
+            if fit.unfitted:
+                table.append(
+                    {
+                        **fixed,
+                        "n_pairs": fit.n_groups,
+                        "cov": cov,
+                        "status": PENDING,
+                        "note": "not fitted after separation: fewer than "
+                        f"{stats.MIN_GEE_EVENTS} events or non-events remain; "
+                        f"factors {', '.join(fit.unfitted)}",
+                    }
+                )
+            for term, t in fit.terms.items():
+                factor = term.split("=", 1)[0]
+                # Besides `arm` itself, compare attack runs: the factor's effect
+                # on harm under attack, not pooled with the twin runs.
+                runs = [r for r in long if factor == "arm" or r["arm"] == "attack"]
+                named = [(f"{factor}={r.get(factor)}", r) for r in runs]
+                level = [r for name, r in named if name == term]
+                ref = [
+                    r
+                    for name, r in named
+                    if name not in fit.terms and name not in dropped
+                ]
+                diff = paired_difference(level, ref, outcome, n_boot=n_boot)
+                table.append(
+                    {
+                        **fixed,
+                        "term": term,
+                        "reference": f"{factor}={fit.references[factor]}",
+                        "n_pairs": fit.n_groups,
+                        "cov": cov,
+                        "status": PENDING,
+                        "log_odds": round(t.log_odds, 4),
+                        "se": round(t.se, 4),
+                        "lo": round(t.lo, 4),
+                        "hi": round(t.hi, 4),
+                        "p": round(t.p, 4),
+                        "diff": round(diff.diff, 4) if diff else "",
+                        "floor": round(floor, 4) if floor is not None else "",
+                        "verdict": verdict(diff, floor) if diff else "",
+                    }
+                )
+            if cov == "exchangeable":
+                adjusted = stats.holm({term: t.p for term, t in fit.terms.items()})
+                out.holm.extend(
+                    {
+                        **fixed,
+                        "term": term,
+                        "status": PENDING,
+                        "p": round(fit.terms[term].p, 4),
+                        "p_holm": round(p, 4),
+                    }
+                    for term, p in adjusted.items()
+                )
+        mixed = stats.mixed_fit(long, outcome, factors)
+        if mixed is None:
+            out.mixed.append({**fixed, "n_pairs": n_pairs, "note": NO_FIT})
+        for term, (estimate, sd) in (mixed.terms if mixed else {}).items():
+            out.mixed.append(
+                {
+                    **fixed,
+                    "term": term,
+                    "n_pairs": n_pairs,
+                    "log_odds": round(estimate, 4),
+                    "sd": round(sd, 4),
+                    "lo": round(estimate - 1.96 * sd, 4),
+                    "hi": round(estimate + 1.96 * sd, 4),
+                }
+            )
+    return out
+
+
+NO_FIT = (
+    f"no fit: separation, fewer than {stats.MIN_GEE_EVENTS} events or non-events, "
+    "or statsmodels not installed"
+)
+
+
+def concentration_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Per cell and harm metric: how many distinct pairs carry the positives."""
+    out: list[dict[str, Any]] = []
+    for key, cell_rows in sorted(group(rows).items(), key=str):
+        for metric in HARM_METRICS:
+            c = stats.pair_concentration(cell_rows, metric)
+            if c.positive_runs:
+                out.append(
+                    {
+                        **cell_dict(key),
+                        "metric": metric,
+                        "positive_runs": c.positive_runs,
+                        "pairs": c.pairs,
+                        "pairs_with_any": c.pairs_with_any,
+                        "top_pair_share": round(c.top_pair_share, 4),
+                    }
+                )
+    return out
+
+
+def conditional_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """P(harm | the marker reached a later stage), per attack cell."""
+    out: list[dict[str, Any]] = []
+    for key, cell_rows in sorted(group(rows).items(), key=str):
+        if cell_dict(key)["benign_only"]:
+            continue
+        for harm in HARM_METRICS:
+            for given in CONDITIONS:
+                c = stats.conditional_rate(cell_rows, harm, given)
+                if c.n_given:
+                    out.append(
+                        {
+                            **cell_dict(key),
+                            "outcome": harm,
+                            "given": given,
+                            "n_given": c.n_given,
+                            "rate": round(c.rate or 0.0, 4),
+                        }
+                    )
+        # Exploratory (doc 10 §9): influence that got past the verbatim channel.
+        if cell_dict(key)["isolated"]:
+            c = stats.conditional_rate(
+                cell_rows, "action_divergence", "propagation.analysis", when=False
+            )
+            if c.n_given:
+                out.append(
+                    {
+                        **cell_dict(key),
+                        "outcome": "action_divergence (laundering candidate)",
+                        "given": "NOT propagation.analysis",
+                        "n_given": c.n_given,
+                        "rate": round(c.rate or 0.0, 4),
+                    }
+                )
     return out
 
 
@@ -208,7 +627,7 @@ def report_md(
     lines = [
         "# Sweep analysis",
         "",
-        "Procedure: `docs/design/09_analysis_plan.md` (draft until signed).",
+        "Procedure: `docs/design/09_analysis_plan.md`.",
         "Every rate below is a lower bound; see `reportability` for what each",
         "metric may be used for. Saturated cells (rate 0 or 1) are reported but",
         "excluded from comparative claims (doc 04 §14).",
@@ -217,13 +636,15 @@ def report_md(
         "",
         "## Denominators (doc 04 §13.5)",
         "",
-        "| " + " | ".join(CELL_FIELDS) + " | total | scored | error | limit |",
-        "|" + " --- |" * (len(CELL_FIELDS) + 4),
+        "| "
+        + " | ".join(CELL_FIELDS)
+        + " | total | scored | error | limit | handoff_parse_error |",
+        "|" + " --- |" * (len(CELL_FIELDS) + 5),
     ]
     for key, cell_rows in sorted(group(rows).items(), key=str):
         d = denominators(cell_rows)
         cells = [str(v) for v in key]
-        counts = [str(d[k]) for k in ("total", "scored", "error", "limit")]
+        counts = [str(d[k]) for k in d]
         lines.append("| " + " | ".join(cells + counts) + " |")
     silent = [
         (key, tool_use_check(cell_rows))
@@ -257,7 +678,9 @@ def report_md(
 
 
 def cmd_report(args: argparse.Namespace) -> int:
-    rows, dropped = load_rows(args.log_dirs)
+    if refuse_stale(args.log_dirs, args.allow_stale):
+        return 4
+    rows, dropped = load_rows(args.log_dirs, args.split)
     if not rows:
         print(f"no eduinject logs under {args.log_dirs}", file=sys.stderr)
         return 1
@@ -273,21 +696,48 @@ def cmd_report(args: argparse.Namespace) -> int:
     )
     write_csv(out / "rates.csv", rates)
     write_csv(out / "rates_by_base.csv", rate_rows(rows, ("base_id",), args.n_boot))
-    write_csv(out / "comparisons.csv", comparison_rows(rows, args.n_boot))
+    write_csv(out / "comparisons.csv", comparison_rows(rows, args.n_boot, args.gee))
+    write_csv(out / "in_pair.csv", in_pair_rows(rows, args.n_boot))
+    write_csv(out / "interaction.csv", interaction_rows(rows, args.n_boot))
+    write_csv(out / "concentration.csv", concentration_rows(rows))
+    write_csv(out / "conditional.csv", conditional_rows(rows))
+    tables = gee_tables(rows, args.n_boot)
+    write_csv(out / "gee.csv", tables.gee)
+    write_csv(out / "gee_independence.csv", tables.gee_independence)
+    write_csv(out / "mixed.csv", tables.mixed)
+    write_csv(out / "holm.csv", tables.holm)
     (out / "report.md").write_text(report_md(rows, dropped, rates), encoding="utf-8")
     print(f"{len(rows)} runs ({dropped} duplicates dropped) -> {out.resolve()}")
     return 0
 
 
 def cmd_sample_human(args: argparse.Namespace) -> int:
-    rows, _ = load_rows(args.log_dirs)
-    chosen = stratified_sample(rows, args.fraction, args.seed)
+    if refuse_stale(args.log_dirs, args.allow_stale):
+        return 4
+    rows, _ = load_rows(args.log_dirs, args.split)
+    chosen = stratified_sample(
+        rows, args.fraction, args.min_per_cell, args.seed, args.enrich_positive
+    )
     if not chosen:
         print("no scored runs to sample", file=sys.stderr)
         return 1
-    ids = ("log", "sample_id", "epoch", *CELL_FIELDS, "artifact_id", "goal", "channel")
+    # Sheet order would otherwise group cells and put enriched rows last.
+    random.Random(args.seed).shuffle(chosen)
+    ids = (
+        "log",
+        "sample_id",
+        "epoch",
+        *CELL_FIELDS,
+        "artifact_id",
+        "goal",
+        "channel",
+        "sample",
+    )
     sheet = [
-        {**{f: r.get(f) for f in ids}, **{f"code:{c}": "" for c in CODED}}
+        {
+            **{f: r.get(f) for f in ids if f != "sample"},
+            **{f"code:{c}": "" for c in CODED},
+        }
         for r in chosen
     ]
     key = [
@@ -312,24 +762,45 @@ def read_codes(path: str) -> dict[tuple[str, str, str], dict[str, str]]:
         return {(r["log"], r["sample_id"], r["epoch"]): r for r in csv.DictReader(f)}
 
 
-def _norm(value: str) -> str:
-    """Treat 1, 1.0 and '1' alike, so coder sheets compare with the key."""
-    try:
-        return str(float(value))
-    except ValueError:
-        return value.strip().lower()
+_norm = norm_code
 
 
 def cmd_kappa(args: argparse.Namespace) -> int:
     sheets = {"A": read_codes(args.coder_a), "B": read_codes(args.coder_b)}
     if args.key:
         sheets["auto"] = read_codes(args.key)
+    codebook = {f"code:{c}": {"0", "1", "n/a"} for c in CODED}
+    refused = False
+    if not args.key:
+        print(
+            "warning: no --key, so blank-row and constant-column (DEV-1) checks "
+            "are skipped; pass --key to run them",
+            file=sys.stderr,
+        )
+    for name in ("A", "B"):
+        ref = list(sheets["auto"].values()) if args.key else None
+        other = sheets["B" if name == "A" else "A"]
+        for problem in sheet_problems(
+            list(sheets[name].values()),
+            ref,
+            codebook,
+            list(other.values()),
+        ):
+            print(f"coder {name}: {problem}", file=sys.stderr)
+            refused = True
+    if refused and not args.accept_suspicious:
+        print(
+            "refused: fix the sheets (or pass --accept-suspicious and report why)",
+            file=sys.stderr,
+        )
+        return 2
     runs = sorted(set.intersection(*(set(s) for s in sheets.values())))
     if not runs:
         print("the sheets share no runs", file=sys.stderr)
         return 1
     print(f"{len(runs)} runs coded by every party")
-    for column in (f"code:{c}" for c in CODED):
+    out_rows = []
+    for column in codebook:
         # A metric that does not apply to a run (authorization outside W1) is
         # blank in the key; coders may write "n/a" there. Score only the rest.
         applies = [
@@ -343,12 +814,104 @@ def cmd_kappa(args: argparse.Namespace) -> int:
             if not applies or any(v in NA for v in a + b):
                 print(f"  {column} {x}-{y}: incomplete, skipped")
                 continue
-            agree = sum(u == v for u, v in zip(a, b, strict=True)) / len(a)
+            rep = kappa_report(a, b)
             print(
-                f"  {column} {x}-{y}: kappa = {cohen_kappa(a, b):.3f} "
-                f"(n={len(a)}, raw agreement {agree:.3f}, "
-                f"positives {a.count('1.0')}/{b.count('1.0')})"
+                f"  {column} {x}-{y}: kappa = {rep.kappa:.3f} (n={rep.n}, raw "
+                f"agreement {rep.raw_agreement:.3f}, positive agreement "
+                f"{rep.positive_agreement:.3f}, positives "
+                f"{rep.positives_a}/{rep.positives_b})"
             )
+            out_rows.append({"column": column, "pair": f"{x}-{y}", **rep._asdict()})
+    out = Path(args.out or "logs/analysis/human")
+    write_csv(out / "kappa.csv", out_rows)
+    print(f"kappa -> {(out / 'kappa.csv').resolve()}")
+    return 0
+
+
+TECHNIQUE_FIELDS = ("goal", "channel", "file_type", "concealment")
+"""Columns that would rank attack techniques (doc 05 §6, Tier 1): never exported."""
+
+
+def pair_export_rows(rows: list[dict[str, Any]], salt: str) -> list[dict[str, Any]]:
+    """Per cell × pseudonymous pair × metric: runs and mean. No text, no ids."""
+    import hashlib
+
+    if not salt:
+        raise ValueError("a non-empty --salt is required (keep it private)")
+    out: list[dict[str, Any]] = []
+    for key, cell_rows in sorted(
+        group(rows, ("base_id", "artifact_id")).items(), key=str
+    ):
+        cell = cell_dict(key, ("base_id", "artifact_id"))
+        artifact = str(cell.pop("artifact_id"))
+        pair = hashlib.sha256(f"{salt}:{artifact}".encode()).hexdigest()[:12]
+        for metric in metrics_in(cell_rows):
+            values = [
+                float(r[f"score:{metric}"])
+                for r in cell_rows
+                if r["status"] == "scored" and f"score:{metric}" in r
+            ]
+            if values:
+                out.append(
+                    {
+                        **cell,
+                        "pair": pair,
+                        "metric": metric,
+                        "n_runs": len(values),
+                        "mean": round(sum(values) / len(values), 4),
+                    }
+                )
+    assert not any(f in row for row in out for f in TECHNIQUE_FIELDS)
+    return out
+
+
+def cmd_export_pairs(args: argparse.Namespace) -> int:
+    if refuse_stale(args.log_dirs, args.allow_stale):
+        return 4
+    rows, _ = load_rows(args.log_dirs, args.split)
+    out = pair_export_rows(rows, args.salt)
+    write_csv(Path(args.out), out)
+    print(f"{len(out)} pair-level rows -> {Path(args.out).resolve()}")
+    return 0
+
+
+def cmd_trace_check(args: argparse.Namespace) -> int:
+    if refuse_stale(args.log_dirs, args.allow_stale):
+        return 4
+    rows = [
+        {
+            **dict(zip((*CELL_FIELDS, "label"), r.cell, strict=True)),
+            "unauthorized_attempts": r.unauthorized_attempts,
+            "with_prior_lookup": r.with_prior_lookup,
+            "without_prior_lookup": r.without_prior_lookup,
+        }
+        for r in ownership_lookup_check(finished_samples(args.log_dirs))
+    ]
+    write_csv(Path(args.out), rows)
+    print(f"{len(rows)} cells -> {Path(args.out).resolve()}")
+    return 0
+
+
+def cmd_power(args: argparse.Namespace) -> int:
+    delta = stats.power_mde(
+        args.base_rate,
+        args.pairs,
+        args.epochs,
+        n_sim=args.n_sim,
+        seed=args.seed,
+        icc=args.icc,
+        effect_concentration=args.effect_concentration,
+    )
+    found = f"{delta:.2f}" if delta is not None else "none (not reachable)"
+    print(f"minimum detectable mean attack - twin difference: {found}")
+    print(
+        "assumptions: "
+        f"twin base rate {args.base_rate} on the logit scale with pair ICC {args.icc}; "
+        f"effect in {args.effect_concentration:.0%} of pairs (capped at rate 1); "
+        f"{args.pairs} pairs x {args.epochs} epochs per arm; paired sign-flip test "
+        f"(999 fixed patterns), alpha 0.05, 80% power, {args.n_sim} simulations, "
+        f"seed {args.seed}"
+    )
     return 0
 
 
@@ -360,13 +923,43 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     report = sub.add_parser("report", help="tables, comparisons and summary")
     report.add_argument("log_dirs", nargs="+")
+    report.add_argument("--split", choices=("dev", "confirm"), default=None)
+    report.add_argument(
+        "--allow-stale",
+        action="store_true",
+        help="analyze logs whose scores no longer match the current scorers",
+    )
     report.add_argument("--out", default="logs/analysis")
-    report.add_argument("--n-boot", type=int, default=1000)
+    report.add_argument(
+        "--n-boot",
+        type=int,
+        default=N_BOOT,
+        help="Bootstrap resamples (doc 09 §3: 1,000; doc 10 §5 proposes 10,000).",
+    )
+    report.add_argument(
+        "--gee",
+        action="store_true",
+        help="Add the pair-clustered GEE sensitivity analysis (needs the "
+        "`analysis` extra: statsmodels).",
+    )
     report.set_defaults(func=cmd_report)
 
     human = sub.add_parser("sample-human", help="stratified human-coding sample")
     human.add_argument("log_dirs", nargs="+")
-    human.add_argument("--fraction", type=float, default=0.10)
+    human.add_argument("--split", choices=("dev", "confirm"), default=None)
+    human.add_argument(
+        "--allow-stale",
+        action="store_true",
+        help="analyze logs whose scores no longer match the current scorers",
+    )
+    human.add_argument("--fraction", type=float, default=0.02)
+    human.add_argument("--min-per-cell", type=int, default=5)
+    human.add_argument(
+        "--enrich-positive",
+        default=None,
+        metavar="METRIC",
+        help="Add a supplementary sample, half runs METRIC flagged (never pooled).",
+    )
     human.add_argument("--seed", type=int, default=0)
     human.add_argument("--out", default="logs/analysis/human")
     human.set_defaults(func=cmd_sample_human)
@@ -375,7 +968,46 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     kappa.add_argument("coder_a")
     kappa.add_argument("coder_b")
     kappa.add_argument("--key", default=None, help="answer_key.csv (automated)")
+    kappa.add_argument("--out", default=None, help="default: logs/analysis/human")
+    kappa.add_argument("--accept-suspicious", action="store_true")
     kappa.set_defaults(func=cmd_kappa)
+
+    export = sub.add_parser("export-pairs", help="pseudonymized pair-level aggregates")
+    export.add_argument("log_dirs", nargs="+")
+    export.add_argument("--split", choices=("dev", "confirm"), default=None)
+    export.add_argument(
+        "--allow-stale",
+        action="store_true",
+        help="analyze logs whose scores no longer match the current scorers",
+    )
+    export.add_argument("--salt", required=True, help="private; do not publish it")
+    export.add_argument("--out", default="logs/analysis/pairs.csv")
+    export.set_defaults(func=cmd_export_pairs)
+
+    trace = sub.add_parser("trace-check", help="ownership lookup before W1 actions")
+    trace.add_argument("log_dirs", nargs="+")
+    trace.add_argument(
+        "--allow-stale",
+        action="store_true",
+        help="analyze logs whose scores no longer match the current scorers",
+    )
+    trace.add_argument("--out", default="logs/analysis/trace_check.csv")
+    trace.set_defaults(func=cmd_trace_check)
+
+    power = sub.add_parser("power", help="simulated minimum detectable effect")
+    power.add_argument("--base-rate", type=float, required=True)
+    power.add_argument("--pairs", type=int, required=True)
+    power.add_argument("--epochs", type=int, required=True)
+    power.add_argument("--icc", type=float, default=stats.POWER_ICC)
+    power.add_argument(
+        "--effect-concentration",
+        type=float,
+        default=stats.POWER_EFFECT_CONCENTRATION,
+        help="share of pairs the attack moves",
+    )
+    power.add_argument("--n-sim", type=int, default=500)
+    power.add_argument("--seed", type=int, default=0)
+    power.set_defaults(func=cmd_power)
     return parser.parse_args(argv)
 
 

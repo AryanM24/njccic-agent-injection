@@ -1,7 +1,7 @@
 .PHONY: install
 install:
 	pip install -r requirements.lock.txt
-	pip install -e ".[dev,openrouter]"
+	pip install -e ".[dev,openrouter,analysis]" ruff==0.16.5 mypy==2.3.1
 
 .PHONY: hooks
 hooks:
@@ -18,8 +18,16 @@ ruff:
 mypy:
 	mypy --exclude tests/test_package src tests
 
+# Exactly what .github/workflows/eduinject.yml runs (check-only, eduinject paths).
 .PHONY: check
-check: ruff mypy
+check:
+	ruff check src/eduinject tests scripts
+	ruff format --check src/eduinject tests scripts
+	mypy --exclude tests/test_package src/eduinject tests
+
+.PHONY: test-eduinject
+test-eduinject:
+	pytest -q
 
 .PHONY: test
 test:

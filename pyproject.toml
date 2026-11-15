@@ -13,6 +13,7 @@ dependencies = [
     "python-docx",
     "pydantic",
     "reportlab",
+    "python-dotenv",
 ]
 
 [project.optional-dependencies]
@@ -24,6 +25,15 @@ dev = [
 # eval against openrouter/* needs the openai client.
 openrouter = [
     "openai",
+]
+# Post-run analysis: GEE sensitivity (eduinject.stats.gee_contrast), kappa and
+# the report figures. Pinned in requirements.lock.txt.
+analysis = [
+    "statsmodels",
+    "scikit-learn",
+    "pandas",
+    "numpy",
+    "matplotlib",
 ]
 
 [tool.setuptools]

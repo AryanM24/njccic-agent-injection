@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Generate the W2 (hiring / applicant screening) attack/twin fixture corpus.
 
-Numbering starts at w2_0002: w2_0001 is the original pilot pair written by
-make_fixtures.py. Three base scenarios (see _corpus_bases.py).
+Numbering starts at w2_0002, so IDs match the first edition: w2_0001 was its
+single-applicant pilot pair, dropped in the second edition (doc 10 §11b).
+Three base scenarios (see _corpus_bases.py).
 Public builds are marker-only: the only injected content is the placeholder
 marker `ZZPAYLOADZZ`, placed in one documented channel (release policy,
 docs/design/05; README C3). Realistic wording is Tier 1 and lives in the
@@ -26,7 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _corpus_bases import BASES
-from _fixtures_common import generate_workflow
+from _fixtures_common import ROOT, generate_workflow
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -36,16 +37,27 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Build the gated real-payload corpus (needs payloads.py).",
     )
+    parser.add_argument(
+        "--out-root",
+        type=Path,
+        default=ROOT,
+        help="Directory to write the corpus/ tree under (default: the repo).",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Print planned files; write nothing."
+    )
     args = parser.parse_args(argv)
 
-    last = generate_workflow(
+    rows = generate_workflow(
         workflow="w2",
         stem="resume",
         bases=BASES["w2"],
         canonical=args.canonical,
         start_count=2,
+        out_root=args.out_root,
+        dry_run=args.dry_run,
     )
-    generated = last - 2 + 1
+    generated = len(rows)
     print(f"\n{generated} pairs generated, {generated * 2} files")
     return 0
 

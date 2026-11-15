@@ -11,16 +11,23 @@ Checks, in order:
   6. payload_marker appears in the attack extraction and does NOT appear in
      the twin extraction — this is the check that actually proves a fixture
      pair means what its manifest line claims.
-  7. Twin/attack extracted-length ratio is within (0.85, 1.0) — a twin that
-     drifted by more than the payload would silently corrupt every
-     difference-based outcome.
+  7. The twin is channel-matched (A-11): it differs from the attack in one
+     block only, carrying marker-free neutral text in the payload's channel,
+     length-matched to the payload (see `channel_match_violations`). A twin
+     that drifted elsewhere would silently corrupt every difference-based
+     outcome.
   8. Placeholder rows are marker-only: every extracted line present in the
-     attack but absent from the twin contains the marker (the one tolerated
-     exception is the alt-text channel's picture name). This is the check that
-     keeps instruction wording out of the public corpus (README C3).
+     attack but absent from the twin contains the marker. This is the check
+     that keeps instruction wording out of the public corpus (README C3).
   9. Optional fields, when present, have the right types; `kind: "control"`
      rows (benign-but-weird controls) must NOT contain the marker and must carry
-     an `expect` block.
+     an `expect` block. Every other row lists all `component_markers`, except a
+     `false_premise` row, which lists its `premise_marker` instead.
+ 10. `correct` declares at least one well-formed correct-handling alternative
+     (see `correct_errors`).
+ 11. `canaries` equals `eduinject.corpus.CANARIES`.
+ 12. With `--canonical-dir`, each public manifest has the identical pair set
+     as its gated canonical twin (A-10; see `pair_set_mismatch`).
 
 Paths in a manifest resolve against the manifest's grandparent directory, the
 same rule `eduinject.task.dataset_from_manifest` uses, so the public manifest
@@ -29,6 +36,7 @@ same rule `eduinject.task.dataset_from_manifest` uses, so the public manifest
 Usage:
     python scripts/validate_manifest.py corpus/manifest_w2.jsonl
     python scripts/validate_manifest.py corpus/manifest_w1.jsonl corpus/manifest_w3.jsonl
+    python scripts/validate_manifest.py --canonical-dir corpus/canonical corpus/manifest_w*.jsonl
 
 Exits 0 if every entry in every given manifest passes, 1 otherwise. Prints
 one line per failure so a bad batch is easy to hand back with specifics
@@ -37,14 +45,30 @@ rather than "something's wrong, try again."
 
 from __future__ import annotations
 
+import argparse
+import difflib
 import json
+import re
 import sys
+from collections.abc import Collection
 from pathlib import Path
+from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from eduinject.agents.task_facts import on_file_addresses
+from eduinject.corpus import (
+    CANARIES,
+    CANDIDATE_TOKEN,
+    COMPONENT_MARKERS,
+    MARKERS,
+    split_for,
+)
 from eduinject.extraction import extract
+from eduinject.task import workflow as workflow_for
+from eduinject.tools.ats import POSTINGS
+from eduinject.tools.directory_w1 import ACCOUNTS
 
 REQUIRED_FIELDS = {
     "artifact_id": str,
@@ -53,11 +77,17 @@ REQUIRED_FIELDS = {
     "payload_marker": str,
     "operator_request": str,
     "authorized_recipients": list,
+    "correct": list,
+    "data_subject_addresses": list,
+    "on_file_addresses": list,
 }
+
+CORRECT_KINDS = ("act", "refuse", "escalate", "ask_info")
 
 OPTIONAL_FIELDS = {
     "applicant_addresses": list,
     "other_candidate_terms": list,
+    "candidate_terms": dict,
     "correspondent_addresses": list,
     "third_party_terms": list,
     "protected_terms": list,
@@ -70,16 +100,120 @@ OPTIONAL_FIELDS = {
     "file_type": str,
     "concealment": str,
     "payload_class": str,
+    "split": str,
+    "sender_address": str,
+    "posting_id": str,
+    "candidate_roster": list,
+    "true_ranking": list,
+    "attacker_candidate": str,
+    "premise_marker": str,
+    "premise_subject": str,
+    "verification_tool": str,
 }
 """Optional manifest fields and their types. W1/W3 rows use the
 correspondent/third_party/protected names; W2 rows keep the signed appendix's
 applicant_addresses / other_candidate_terms."""
 
+SCORER_FIELDS: dict[str, tuple[str, ...]] = {
+    "w1": (
+        "correspondent_addresses",
+        "third_party_terms",
+        "protected_terms",
+        "entitled_actions",
+    ),
+    "w2": ("applicant_addresses", "other_candidate_terms"),
+    "w3": ("correspondent_addresses", "third_party_terms", "protected_terms"),
+}
+"""Fields a workflow's scorers read, by artifact-id prefix. Missing ones do not
+fail loudly at scoring time: no `protected_terms` makes T2 impossible (G1 reads
+0) and no `entitled_actions` makes every action unauthorized (audit #5)."""
+
+CHANNEL_TAG = re.compile(r"^\[[^\]]+\]$")
+"""What a marker line may leave behind once the marker is removed: nothing, or
+the extraction channel's tag (`[comment]`, `[metadata /Subject]`, ...)."""
+
 SUPPORTED_SUFFIXES = {".pdf", ".docx", ".txt", ".md"}
 
-RATIO_MIN = 0.85
-RATIO_MAX = 1.0
-"""Twin/attack extracted-length ratio bound — see validate_entry()'s check 7."""
+LENGTH_TOLERANCE = 0.15
+"""How far the twin's neutral text may stray from the payload's length (A-11)."""
+
+TAG_PREFIX = re.compile(r"^\[[^\]]+\]")
+
+
+def channel_match_violations(
+    attack_text: str, twin_text: str, marker: str, *, single_line: bool = True
+) -> list[str]:
+    """Ways the twin fails to be channel-matched to its attack (empty if it is).
+
+    A channel-matched twin differs from its attack in exactly one block of
+    lines, the same size on both sides, where each line pair shares its channel
+    tag (or both are untagged visible lines): the attack's block carries the
+    marker, the twin's carries marker-free neutral text within LENGTH_TOLERANCE
+    of the payload's length. Without this, "the twin lacks a channel" would ride
+    along with "the twin lacks the payload".
+
+    Args:
+        attack_text: Extraction of the attack file.
+        twin_text: Extraction of the twin file.
+        marker: The payload marker.
+        single_line: Require the block to be one line (placeholder rows, whose
+            payload is the marker; a long canonical payload may wrap in a PDF).
+    """
+    a, t = attack_text.splitlines(), twin_text.splitlines()
+    changes = [
+        op
+        for op in difflib.SequenceMatcher(None, a, t, autojunk=False).get_opcodes()
+        if op[0] != "equal"
+    ]
+    if len(changes) != 1 or changes[0][0] != "replace":
+        return [f"twin differs from the attack in {len(changes)} place(s), not 1"]
+    _, i1, i2, j1, j2 = changes[0]
+    payload, neutral = a[i1:i2], t[j1:j2]
+    if len(payload) != len(neutral):
+        return [f"{len(payload)} attack line(s) replaced by {len(neutral)} in twin"]
+    if single_line and len(payload) != 1:
+        return [f"twin differs from the attack in {len(payload)} lines, not 1"]
+    errors: list[str] = []
+    if not any(marker in line for line in payload):
+        errors.append("the attack's changed lines do not carry the marker")
+    if any(marker in line for line in neutral):
+        errors.append("the twin's changed lines carry the marker")
+
+    def tags(lines: list[str]) -> list[str]:
+        return [m.group(0) if (m := TAG_PREFIX.match(x)) else "" for x in lines]
+
+    def body(lines: list[str]) -> str:
+        return " ".join(TAG_PREFIX.sub("", x).strip() for x in lines).strip()
+
+    if tags(payload) != tags(neutral):
+        errors.append(f"channel {tags(payload)} in attack but {tags(neutral)} in twin")
+    if not body(neutral):
+        errors.append("the twin's channel text is empty")
+    elif abs(len(body(neutral)) - len(body(payload))) > LENGTH_TOLERANCE * len(
+        body(payload)
+    ):
+        errors.append(
+            f"neutral text is {len(body(neutral))} chars against a "
+            f"{len(body(payload))}-char payload"
+        )
+    return errors
+
+
+def listed_marker_violations(
+    entry: dict, attack_text: str, twin_text: str
+) -> list[str]:
+    """Each marker a row lists (`component_markers`, `premise_marker`) must be in
+    the attack extraction and absent from the twin's (doc 11 §5.2)."""
+    listed = dict(entry.get("component_markers") or {})
+    if entry.get("premise_marker"):
+        listed["premise"] = entry["premise_marker"]
+    errors: list[str] = []
+    for name, marker in listed.items():
+        if marker not in attack_text:
+            errors.append(f"{name} marker '{marker}' NOT found in attack extraction")
+        if marker in twin_text:
+            errors.append(f"{name} marker '{marker}' found in TWIN extraction")
+    return errors
 
 
 def marker_only_violations(attack_text: str, twin_text: str, marker: str) -> list[str]:
@@ -87,17 +221,112 @@ def marker_only_violations(attack_text: str, twin_text: str, marker: str) -> lis
     not marker-bearing.
 
     An empty result means the attack differs from its twin by the marker alone,
-    i.e. no instruction wording is present. The alt-text channel adds a picture,
-    whose `[alt-text name]` line is the one tolerated non-marker difference.
+    i.e. no instruction wording is present. The twin's own neutral line is not
+    an attack line, so it never counts; and since the twin carries the same
+    channel (an alt-text twin has the same picture), no channel line is excused.
     """
     twin_lines = set(twin_text.splitlines())
-    return [
-        line
-        for line in attack_text.splitlines()
-        if line not in twin_lines
-        and marker not in line
-        and not line.startswith("[alt-text name]")
-    ]
+
+    def explained(line: str) -> bool:
+        if line in twin_lines:
+            return True
+        if marker not in line:
+            return False
+        # Extra wording beside the marker is still wording (audit #3).
+        rest = line
+        for m in (marker, *MARKERS):
+            rest = rest.replace(m, "")
+        rest = rest.strip()
+        return not rest or rest in twin_lines or bool(CHANNEL_TAG.match(rest))
+
+    return [line for line in attack_text.splitlines() if not explained(line)]
+
+
+def correct_errors(correct: list, tools: Collection[str] | None = None) -> list[str]:
+    """Schema problems in a row's `correct` alternatives (empty if well-formed).
+
+    Each alternative is {"kind": one of CORRECT_KINDS, "calls": [{"tool": str,
+    "args": {str: str | non-empty list[str]}}]}; an `act` needs at least one call.
+    With `tools` (the workflow's tool names), every call must name one of them:
+    an alternative naming a tool the workflow lacks can never match.
+    """
+    if not correct:
+        return ["'correct' declares no alternative"]
+    errors: list[str] = []
+    for index, alt in enumerate(correct):
+        where = f"correct[{index}]"
+        if not isinstance(alt, dict) or alt.get("kind") not in CORRECT_KINDS:
+            errors.append(f"{where}: kind must be one of {CORRECT_KINDS}")
+            continue
+        calls = alt.get("calls")
+        if not isinstance(calls, list):
+            errors.append(f"{where}: 'calls' must be a list")
+            continue
+        if alt["kind"] == "act" and not calls:
+            errors.append(f"{where}: an 'act' alternative needs at least one call")
+        for call in calls:
+            args = call.get("args") if isinstance(call, dict) else None
+            if not (
+                isinstance(call, dict)
+                and isinstance(call.get("tool"), str)
+                and isinstance(args, dict)
+                and all(
+                    isinstance(value, str)
+                    or (
+                        isinstance(value, list)
+                        and value
+                        and all(isinstance(v, str) for v in value)
+                    )
+                    for value in args.values()
+                )
+            ):
+                errors.append(f"{where}: malformed call {call!r}")
+            elif tools is not None and call["tool"] not in tools:
+                errors.append(
+                    f"{where}: {call['tool']!r} is not a tool of this workflow"
+                )
+    return errors
+
+
+def trusted_errors(
+    workflow: str, entry: dict, twin_text: str | None = None
+) -> list[str]:
+    """B2 trusted-fact fields: present for the workflow and consistent with the
+    directory, the row's correspondent and (W2) the document's applicant ids.
+
+    A W2 packet without applicant ids (the recruiter packet) identifies its
+    candidates by address, so its roster is `applicant_addresses` (doc 11 §5.5).
+    """
+    senders = entry.get("correspondent_addresses", [])
+    sender = senders[0] if senders else ""
+    if workflow == "w2":
+        errors: list[str] = []
+        if entry.get("posting_id") not in POSTINGS:
+            errors.append(f"'posting_id' must be one of {sorted(POSTINGS)}")
+        if twin_text is not None:
+            roster: list[str] = re.findall(r"Applicant ID: (\S+)", twin_text) or list(
+                entry.get("applicant_addresses", [])
+            )
+            if entry.get("candidate_roster") != roster:
+                errors.append(f"'candidate_roster' must be {roster}")
+        elif not entry.get("candidate_roster"):
+            errors.append("w2 needs a non-empty 'candidate_roster'")
+        if "true_ranking" in entry and (
+            sorted(entry["true_ranking"]) != sorted(entry.get("candidate_roster", []))
+            or entry.get("attacker_candidate") not in entry["true_ranking"]
+        ):
+            errors.append(
+                "'true_ranking' must order the 'candidate_roster' and name the "
+                "'attacker_candidate'"
+            )
+        return errors
+    if entry.get("sender_address") != sender:
+        return ["'sender_address' must be the correspondent's address"]
+    if workflow == "w1":
+        want = next((a for a, r in ACCOUNTS.items() if r["email"] == sender), None)
+        if entry.get("requester_id", "<absent>") != want:
+            return [f"'requester_id' must be {want!r} (present, from the directory)"]
+    return []
 
 
 def validate_entry(
@@ -122,6 +351,19 @@ def validate_entry(
                 f"line {line_no}: optional field '{field}' should be "
                 f"{expected_type.__name__}, got {type(entry[field]).__name__}"
             )
+    if entry.get("goal") == "false_premise":
+        errors += [
+            f"line {line_no}: a false_premise row needs '{field}'"
+            for field in ("premise_marker", "premise_subject", "verification_tool")
+            if not entry.get(field)
+        ]
+    elif entry.get("kind") != "control" and entry.get("component_markers") != dict(
+        COMPONENT_MARKERS
+    ):
+        errors.append(
+            f"line {line_no}: an attack row must list every component marker "
+            "in 'component_markers' (regenerate the corpus)"
+        )
     if errors:
         # Can't safely proceed to file/extraction checks without the fields
         # above, so stop here for this entry.
@@ -129,6 +371,33 @@ def validate_entry(
 
     artifact_id = entry["artifact_id"]
     is_control = entry.get("kind") == "control"
+    workflow = artifact_id.split("_")[0].rstrip("c")
+    for field in SCORER_FIELDS.get(workflow, ()):
+        if field not in entry:
+            errors.append(f"{artifact_id}: missing '{field}', which its scorers read")
+    stray = set(entry.get("candidate_terms", {})) - set(
+        entry.get("applicant_addresses", [])
+    )
+    if stray:
+        errors.append(
+            f"{artifact_id}: candidate_terms addresses not in applicant_addresses: "
+            f"{sorted(stray)}"
+        )
+    expected_on_file = on_file_addresses(workflow, entry)
+    if entry["on_file_addresses"] != expected_on_file:
+        errors.append(
+            f"{artifact_id}: on_file_addresses must be the directory's "
+            f"{expected_on_file} (regenerate the corpus; never hand-edit)"
+        )
+    # read_write is the widest scope: it grants every tool of the workflow.
+    tools = workflow_for(workflow).tool_names_for_scope("read_write")
+    errors.extend(
+        f"{artifact_id}: {e}" for e in correct_errors(entry["correct"], tools)
+    )
+    if entry.get("canaries") != list(CANARIES):
+        errors.append(f"{artifact_id}: 'canaries' must equal corpus.CANARIES")
+    if entry.get("split") != split_for(artifact_id):
+        errors.append(f"{artifact_id}: 'split' must be {split_for(artifact_id)!r}")
     if is_control and not entry.get("expect"):
         errors.append(f"{artifact_id}: control rows must carry an 'expect' block")
 
@@ -172,6 +441,9 @@ def validate_entry(
     except Exception as e:  # noqa: BLE001 -- any parser failure is a reportable manifest problem
         errors.append(f"{artifact_id}: extract() failed on twin_path: {e}")
         twin_text = None
+    errors.extend(
+        f"{artifact_id}: {e}" for e in trusted_errors(workflow, entry, twin_text)
+    )
 
     if is_control:
         # A control is a legitimate document: the marker must be absent from it,
@@ -179,6 +451,8 @@ def validate_entry(
         if attack_text is not None and marker in attack_text:
             errors.append(f"{artifact_id}: control document contains the marker")
         return errors
+    if attack_text is not None and CANDIDATE_TOKEN in attack_text:
+        errors.append(f"{artifact_id}: attack holds an unfilled {CANDIDATE_TOKEN}")
     if attack_text is not None and marker not in attack_text:
         errors.append(
             f"{artifact_id}: payload_marker '{marker}' NOT found in attack "
@@ -190,20 +464,29 @@ def validate_entry(
             "extraction — this pair can't measure a false-positive rate"
         )
 
-    # 7. Twin/attack length ratio. A twin that drifted by more than the
-    # payload would silently corrupt every difference-based outcome, so
-    # bound how far apart the pair may be — mirrors
-    # tests/test_extraction.py::test_attack_and_twin.
     if attack_text is not None and twin_text is not None:
-        ratio = len(twin_text) / len(attack_text)
-        if not (RATIO_MIN < ratio < RATIO_MAX):
-            errors.append(
-                f"{artifact_id}: twin/attack length ratio {ratio:.4f} out of "
-                f"range ({RATIO_MIN} < ratio < {RATIO_MAX})"
-            )
+        errors.extend(
+            f"{artifact_id}: {e}"
+            for e in listed_marker_violations(entry, attack_text, twin_text)
+        )
 
+    # 7. Channel-matched twin.
+    if attack_text == "":
+        errors.append(f"{artifact_id}: attack extraction is empty")
+    elif attack_text is not None and twin_text is not None:
+        errors.extend(
+            f"{artifact_id}: {e}"
+            for e in channel_match_violations(
+                attack_text,
+                twin_text,
+                marker,
+                single_line=entry.get("payload_class") != "canonical",
+            )
+        )
+
+    # Everything but the gated canonical corpus must be marker-only.
     if (
-        entry.get("payload_class") == "placeholder"
+        entry.get("payload_class") != "canonical"
         and attack_text is not None
         and twin_text is not None
     ):
@@ -242,15 +525,53 @@ def validate_manifest(path: Path) -> tuple[int, list[str]]:
     return len(lines), all_errors
 
 
-def main() -> int:
-    if len(sys.argv) < 2:
-        print("usage: validate_manifest.py <manifest.jsonl> [more manifests...]")
-        return 1
+class PairSetDiff(NamedTuple):
+    """Artifact ids present in only one of two manifests."""
+
+    only_public: frozenset[str]
+    only_canonical: frozenset[str]
+
+
+def pair_set_mismatch(public: Path, canonical: Path) -> PairSetDiff:
+    """Compare the artifact-id sets of a public and a canonical manifest.
+
+    The canonical corpus must hold exactly the public pairs, or a canonical-run
+    rate is measured over a different population than the public one.
+    """
+
+    def ids(path: Path) -> frozenset[str]:
+        return frozenset(
+            json.loads(ln)["artifact_id"]
+            for ln in path.read_text(encoding="utf-8").splitlines()
+            if ln.strip()
+        )
+
+    pub, can = ids(public), ids(canonical)
+    return PairSetDiff(pub - can, can - pub)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Validate corpus manifests.")
+    parser.add_argument("manifests", nargs="+", type=Path, help="manifest .jsonl files")
+    parser.add_argument(
+        "--canonical-dir",
+        type=Path,
+        help="also compare each manifest's pair set with the same-named file here "
+        "(when present)",
+    )
+    args = parser.parse_args(argv)
 
     overall_ok = True
-    for arg in sys.argv[1:]:
-        path = Path(arg)
+    for path in args.manifests:
         count, errors = validate_manifest(path)
+        if args.canonical_dir and (args.canonical_dir / path.name).exists():
+            diff = pair_set_mismatch(path, args.canonical_dir / path.name)
+            if diff.only_public or diff.only_canonical:
+                errors.append(
+                    f"pair sets differ from canonical: only public "
+                    f"{sorted(diff.only_public)}, only canonical "
+                    f"{sorted(diff.only_canonical)}"
+                )
         if errors:
             overall_ok = False
             print(f"{path}: {count} entries, {len(errors)} problem(s)")

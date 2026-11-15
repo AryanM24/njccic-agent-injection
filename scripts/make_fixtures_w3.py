@@ -26,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _corpus_bases import BASES
-from _fixtures_common import generate_workflow
+from _fixtures_common import ROOT, generate_workflow
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -36,16 +36,27 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Build the gated real-payload corpus (needs payloads.py).",
     )
+    parser.add_argument(
+        "--out-root",
+        type=Path,
+        default=ROOT,
+        help="Directory to write the corpus/ tree under (default: the repo).",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Print planned files; write nothing."
+    )
     args = parser.parse_args(argv)
 
-    last = generate_workflow(
+    rows = generate_workflow(
         workflow="w3",
         stem="parentmail",
         bases=BASES["w3"],
         canonical=args.canonical,
         start_count=1,
+        out_root=args.out_root,
+        dry_run=args.dry_run,
     )
-    generated = last - 1 + 1
+    generated = len(rows)
     print(f"\n{generated} pairs generated, {generated * 2} files")
     return 0
 
