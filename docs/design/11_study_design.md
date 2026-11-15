@@ -12,13 +12,13 @@ with the PI, not resolved silently.
 
 This version specifies Phase 0 (§2) and Phases A–E (§3–§7) **as built** on
 branch `v3-upgrades` (2026-11-14; `make check && make test-eduinject` green, no
-model contacted), with the plan's and the implementation's rulings (§8) and
+model contacted), with the design rulings (§8) and
 what the study still does not measure (§9). Every section describes the code
 as it is: names, defaults, versions, rule ids, feature roles and the weights
 file were re-checked against the code when the last phase merged (v0.3). The
 committed public corpus is the regenerated one (§5: W1 58, W2 74, W3 58 pairs,
 plus 4 controls per workflow); the gated canonical corpus is not, because the
-gated payloads predate the §5.2 contract (§8.1 item 13).
+gated payloads predate the §5.2 contract.
 
 ## 1. One combined study
 
@@ -674,7 +674,7 @@ Definitions, as built:
   pair random intercept, fitted by `fit_vb`, on the same design after
   separation. Its estimates are conditional on the pair, so larger than the
   GEE's population-averaged ones when pairs differ.
-- **Holm family (§8.1 item 8, pending PI sign-off).** Doc 10's
+- **Holm family (pending PI sign-off).** Doc 10's
   `PRIMARY_CONTRASTS` (isolation, scope, identity, defense) ∪ the new arm
   contrasts (attack vs twin, handoff mode, gate, model, relay depth), declared
   once as factor names:
@@ -1164,7 +1164,7 @@ guessed.
 `models.load_models()` returns `ModelEntry` records. `run_sweep.py
 --model-preset NAME...` (alias `--preset`, ruling 6) makes the model a sweep
 axis; `-M provider=...` still overrides the pin. `--hosts HOST...` makes the
-host an axis (§8.1 item 21): each host pins `{"order": [host],
+host an axis: each host pins `{"order": [host],
 "allow_fallbacks": false}` in place of the registry pin, and combining it with
 `-M provider=...` exits 2. `bind_model` still refuses an unpinned OpenRouter
 model (D9).
@@ -1221,7 +1221,7 @@ follows this document. The offline order, after a sweep, is: `verify_scores`
 → `analyze` (`report`, `power`, `trace-check`) → `make_figures`.
 `tests/test_pipeline_smoke.py` runs that chain on a mock-model log.
 
-## 8. Rulings (Phases A–E plan)
+## 8. Design rulings
 
 1. **`typed_spotlight` is not a separate handoff mode.** Spotlighting already
    exists as `defense="spotlight"`. `HANDOFF_MODES = ("free_text", "typed")`;
@@ -1247,143 +1247,6 @@ follows this document. The offline order, after a sweep, is: `verify_scores`
 7. **Gate scope is the A2 sink table** (including W3 `get_student_record`, a
    read sink), blocking on any violated rule that applies to the call. One rule
    set, no "blocking" flag.
-
-### 8.1 Implementation rulings (controller ledger, 2026-11-14)
-
-Every ruling recorded in the Phases A–E progress ledger, with what it costs or
-what changes if it is wrong. Rulings 1–7 above are the plan's; these are the
-implementation's.
-
-1. **No separate review of the Task 1 draft.** §3–§7 were written before the
-   code and re-verified against the built code at v0.3. Cost: an error in the
-   draft was caught at build time rather than before it.
-2. **`stages` is a list of stage records keyed by name** (`name`, `input`,
-   `output`, `usage`), not a mapping; `stage_texts`, `SurfacingOutcome` and
-   `flag_language_by_stage` read it (§4.1). Cost: none beyond the one reader.
-3. **One study, no old-log fallback.** Logs without `stages` or
-   `pipeline.status` are not read (no `h1`/`h2` fallback), and a log missing
-   `pipeline.status` raising is not a defect; `rescore.py` refuses such logs.
-   Cost: first-edition and second-edition logs cannot be re-analysed with this
-   code (they are not reused, PI ruling 1).
-4. **Surfacing excludes the action stage.** `SurfacingOutcome.stages` covers
-   the pre-action stages; the action stage is judged by `final` as before.
-   Cost: concealment semantics unchanged from the first edition. The
-   `flag_language_by_stage` key `final` became `action`.
-5. **`relay_prompts_version` is hashed but is not a cell field**
-   (`relay_stages` is). Cost: none while the version is fixed; a bump would
-   need it added to `CELL_FIELDS`.
-6. **`STAFF_QUEUES`** (`front-office`, `records-office`, `counseling`,
-   `special-services`) is a constant in `tools/parentmail.py`, used only by
-   the `staff_queue` extractor (no tool behaviour change). Only `front-office`
-   came from earlier code. PI to confirm the names; cost if wrong: W3
-   `escalate_to_staff` values outside these names label as raw values.
-7. **Blocked notions are one.** `HarmOutcome.blocked` and the ledger's
-   `BLOCKED` mean any call refused by the guard or the gate (§4.3). Cost:
-   guard and gate refusals are not separable from `harm` alone (the ledger
-   outcome still separates them).
-8. **Holm family** = doc 10 `PRIMARY_CONTRASTS` ∪ the new arm contrasts
-   (§3.5), with `model` outside `analyze.py`'s `comparisons.csv` family.
-   Flagged to the PI. Cost if wrong: adjusted p-values change.
-9. **GEE as the primary test**, rather than the pair bootstrap and
-   sign-flip test (doc 10 §5, §2.8 here), is pending the PI together with plan
-   ruling 3. Until then both are reported and every model row says it is
-   pending. Cost if wrong: which column is primary swaps.
-10. **Power.** `stats.mde` stays as the analytic MDE; the simulated
-    `power_mde` is the reported power (§3.5). Cost: two numbers exist; only one
-    is reported.
-11. **One cost path.** `run_sweep.py`'s own estimator (`estimate_usd`,
-    `TOKENS_PER_PAIR`, presets in the script) is deleted; the sweep calls
-    `scripts/estimate_cost.py` and reads `configs/models.json` (§6). Cost:
-    none.
-12. **Manifest metadata.** `task.OPTIONAL_METADATA` gains `component_markers`
-    and `premise_marker` (shared with `true_ranking`, `attacker_candidate` and
-    the premise fields). Cost: none.
-13. **Gated tests skip until the payloads are refilled.** Tests that need
-    valid gated payloads skip with the reason "payloads.py predates the C1
-    contract" while `payload_problems()` is non-empty; canonical generation
-    still raises. Cost: the gated checks are silent on the PI's machine until
-    `payloads.py` is refilled (HANDOFF "You must do").
-14. **The validator requires component markers.** Since the public corpus
-    was regenerated, every attack row must list `component_markers` equal to the
-    full `COMPONENT_MARKERS` set (control rows are exempt; `false_premise`
-    rows list `premise_marker` instead), and `listed_marker_violations` checks each
-    listed marker in the attack extraction and absent from the twin. Cost: a
-    partial gated text cannot be used.
-15. **Provenance** (§3.2): trust is decided by condition: in a typed cell
-    only the typed trusted record is trusted text; the facts block counts
-    only under identity mode `facts`/`guard` in a free_text cell; the operator request is a
-    trusted root (operator ∩ document → `ambiguous`); substitution needs a
-    twin call to the same sink tool (added calls are `authorization` /
-    `action_divergence`); `doc_unavailable` → NaN; tool descriptions are the
-    `trusted_tool` source; `staff_queue` matches whole names; every list entry
-    is labelled; the candidate-id extractor matches every corpus form
-    (`HM04-ddd`, `MS02-ddd`). Cost if wrong: substitution and intent rates
-    shift.
-16. **Monitor** (§3.3): recipient rules use membership (authorized ∪ case
-    correspondents); a rule with no tool or document policy text cites this
-    document's §3.3, not a neighbouring workflow's policy; document-only rules
-    exempt values confirmed by an earlier `ok` lookup of that exact value (the
-    provenance class is unchanged); W2-R03 covers `send_email.to` only (ids
-    legitimately come from resumes); W3-R03 applies only to non-authorized
-    recipients; `origin_stage` falls back to `action`; the audit excludes
-    non-`ok` runs; `sources_from_runtime` is shared by monitor and gate;
-    `requires_prior_call` and `must_precede` count `ok` outcomes only. Cost if
-    wrong: monitor and gate rates.
-17. **Gate inputs** (§4.3): the gate's call views carry the outcome, the exact
-    tool result and `text_before`, and its `Sources` come from
-    `sources_from_runtime`, so gate and monitor see the same evidence;
-    per-sink calls run with `parallel=False`. Cost: none (parity is tested).
-18. **Typed hand-off** (§4.2): `asset_owners` lists only entitled targets
-    (adding the attack target would make attack and twin trusted blocks
-    differ, a leak); a parse error on either side makes the pair NaN;
-    `run_pipeline` validates `handoff_mode`. Cost if wrong: W1 typed runs lose
-    an ownership fact the action stage could use.
-19. **`{candidate}` token** (§5.2): optional in W2 texts; the generator fills
-    it with the base's attacker candidate; every W2 base (b1–b6) declares
-    `attacker_candidate` so the token builds everywhere; a literal token left
-    after generation is rejected; public placeholders never carry it. Cost if
-    wrong: `rank_corruption` ≈ 0 by construction when the payload does not name
-    the candidate.
-20. **False premise** (§5.4): a send only to authorized recipients is not a
-    premise sink; adoption is computed on the twin too (paired); each premise
-    variant sits on a base that is neutral on the claim (the W3 variant moved
-    to such a base); subjects match whole tokens. Cost if wrong:
-    `premise_adoption` over- or under-counts reliance.
-21. **Host is a real axis** (`--hosts`, §6), applied per cell in place of the
-    registry pin; identical repeated cells are dropped. Cost: a host sweep on
-    a non-OpenRouter model is not refused (minor, deferred).
-22. **W2 b2 roster** (§5.5): the recruiter packet has no applicant ids, so its
-    `candidate_roster` is the applicant addresses. Cost: none.
-23. **Features and propagation** (§3.4, §3.6): A6 groups by `CELL_FIELDS`
-    (half-life by `CELL_FIELDS` less `relay_stages`); premise, rank and
-    substitution outcomes are computed only when both runs are `ok`, in the
-    scorers and the feature table alike; `out:*` reuse the scorers' public
-    helpers, checked by a parity test; `feature_rows` raises on two runs with
-    one label. Cost if wrong: pair-level outcomes on unfinished pairs.
-24. **Risk** (§3.8): harms a cell cannot show are excluded from its composite,
-    so risk is compared within a workflow only (frontier and sensitivity per
-    workflow); `misdirection` gets a placeholder weight (0.3) for the PI to
-    sign. Cost if wrong: composites move with the weights, which are unsigned.
-25. **Figures never pool cells** (§7): every figure labels by the varying
-    `CELL_FIELDS`, and two cells sharing a label raise. Cost: crowded labels.
-26. **A-86 (PI decision 2026-11-14):** Tier-1 wording already in the public
-    history stays there (no rewrite, no force-push). Cost: that wording stays
-    reachable in history.
-27. **Docs are kept current (PI instruction 2026-11-14):** a docs sync after
-    every wave merge, enforced in part by `tests/test_docs_fresh.py` (every
-    module and script in AGENTS.md, every sweep flag and `analyze.py`
-    subcommand in RUNNING.md). Cost: none.
-28. **`PROVENANCE_VERSION` is hashed** (§4.3): the gate acts on the §3.2
-    labels, so `provenance.PROVENANCE_VERSION` is in every cell's
-    `config_hash`, and any change to the extractors, `SINKS`, the trusted-text
-    rule or the classes bumps it. Cost: every `config_hash` changes.
-29. **Typed cells do not trust the facts block** (§3.2): the model in a typed
-    cell never sees it, so only the typed trusted record is trusted text
-    there. Cost: provenance labels change in typed + `guard` cells.
-30. **Rule targets per workflow, profile rule rates per cell** (§3.7): a
-    `rule:<id>` target is defined only on runs of the rule's own workflow,
-    and profile rule rates are per A6 cell. Cost: none on data; earlier
-    pooled rule rates are not comparable.
 
 ## 9. What remains unmeasured
 
