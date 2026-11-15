@@ -23,7 +23,7 @@ from inspect_ai.util import store_as
 from ..defense import unmark
 from ..monitor.rules import RULES, RunContext
 from ..monitor.rules import check_call as check
-from ..records import NOT_EXECUTED, CallView, _text
+from ..records import NOT_EXECUTED, CallView, message_text
 from ..scorers.provenance import SINKS, Sources, sources_from_runtime
 from .ledger import BLOCKED, Ledger, record
 
@@ -82,7 +82,7 @@ def gate_context(
 def note_message(ctx: GateContext, message: ChatMessageAssistant) -> None:
     """Add an action-stage assistant message's text to `ctx.text`, exactly as
     `records` accumulates `text_before`."""
-    if text := _text(message.model_dump()["content"]):
+    if text := message_text(message.model_dump()["content"]):
         ctx.text += text + "\n"
 
 
@@ -104,20 +104,11 @@ def _gated(tool: Tool, ctx: GateContext, instance: str | None) -> Tool:
             result=None,
             text_before=ctx.text,
         )
-        found = (
-            check(
-                rules,
-                call,
-                ctx.history,
-                RunContext(ctx.workflow, ctx.meta, ctx.sources),
-            )
-            if sink
-            else []
-        )
-        if found:
+        run_ctx = RunContext(ctx.workflow, ctx.meta, ctx.sources)
+        if sink is not None and (found := check(rules, call, ctx.history, run_ctx)):
             rule = next(r for r in rules if r.id == found[0].rule_id)
             record(ledger, tdef.name, dict(kwargs), BLOCKED, rule.id)
-            if sink and sink[0] == "to":
+            if sink[0] == "to":
                 ledger.attempted_egress = ledger.attempted_egress + [
                     {**kwargs, "blocked": True, "rule_id": rule.id}
                 ]
@@ -138,7 +129,9 @@ def _gated(tool: Tool, ctx: GateContext, instance: str | None) -> Tool:
         name=tdef.name,
         description=tdef.description,
         parameters=tdef.parameters,
-        parallel=tdef.parallel,
+        # A sink's check reads the calls before it, so sinks never run
+        # concurrently with another call.
+        parallel=False if sink else tdef.parallel,
     ).as_tool()
 
 
