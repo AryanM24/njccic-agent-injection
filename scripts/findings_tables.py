@@ -6,7 +6,9 @@ headers for token usage and wall clock. Prints Markdown to stdout.
 
 `--restricted` prints only the breakdowns by concealment channel, file type and
 goal. Those are payload effectiveness by technique, Tier 1 under doc 05 §6:
-write them under `logs/` (gitignored), never into a committed file.
+write them under `logs/` (gitignored), never into a committed file. They pool
+scope deliberately, as a reading aid, and say so in their heading; they are not
+reportable cells (`analyze.py report`'s `rates.csv` is).
 """
 
 import argparse
@@ -237,12 +239,16 @@ def section_comparisons(dirs: list[str]) -> None:
 def section_breakdowns(rows: list[dict[str, Any]], fields: tuple[str, ...]) -> None:
     attack = [r for r in rows if kind(r) == "attack"]
     for field in fields:
-        print(f"### Attack runs by `{field}`\n")
         print(
-            "Each line is one cell (`FLOOR_FIELDS`) with scope pooled: propagation "
-            "and surfacing over the three scopes (scope has no effect on"
+            f"### Attack runs by `{field}` (reading aid: scope deliberately pooled)\n"
         )
-        print("them); exfiltration and authorization at read_write only.\n")
+        print(
+            "**Not a reportable cell.** Each line is a `FLOOR_FIELDS` cell with "
+            "scope pooled on purpose, as a reading aid: propagation and surfacing "
+            "over the three scopes (scope grants tools, not text), exfiltration "
+            "and authorization at read_write only. Reportable rates are per scope "
+            "in `rates.csv`.\n"
+        )
         print(f"| {CELL_HEADER} | {field} | Metric | Iso off | Iso on |")
         print("|" + " --- |" * 11)
         groups: dict[tuple[Any, ...], list[dict[str, Any]]] = defaultdict(list)

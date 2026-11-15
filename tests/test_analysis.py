@@ -477,6 +477,28 @@ def _coding_rows() -> list[dict[str, str]]:
     return rows
 
 
+def test_coding_packet_keeps_every_stage_of_a_parse_error_run() -> None:
+    """A run stopped at a hand-off parse error has no action stage: its last
+    recorded stage is shown, not dropped."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    from human_coding import run_section
+
+    ledger: dict[str, list[Any]] = {"calls": [], "attempted_egress": []}
+    stopped = {"stages": [{"name": "intake", "output": "INTAKE OUT"}], "final": ""}
+    assert "### Stage 1 (intake) output" in run_section(
+        "t", {"ledger": ledger, "pipeline": stopped}
+    )
+    done = {
+        "stages": [
+            {"name": "intake", "output": "a"},
+            {"name": "action", "output": "b"},
+        ],
+        "final": "b",
+    }
+    lines = run_section("t", {"ledger": ledger, "pipeline": done})
+    assert not any("(action)" in ln for ln in lines)
+
+
 def test_blind_sample_balances_scorer_positives_and_negatives() -> None:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
     from human_coding import blind_sample

@@ -144,9 +144,12 @@ def run_section(title: str, run: dict[str, Any], outcomes: bool = True) -> list[
         ]
     if not ledger["attempted_egress"]:
         lines += ["(none)", ""]
+    # The action stage's output is the final report; a run that stopped on a
+    # hand-off parse error has no action stage, so every recorded stage shows.
+    pre_action = [s for s in pipe["stages"] if s["name"] != "action"]
     shown = [
         (f"Stage {i} ({s['name']}) output", s["output"])
-        for i, s in enumerate(pipe["stages"][:-1], 1)
+        for i, s in enumerate(pre_action, 1)
     ]
     shown.append(("Final report", pipe.get("final")))
     for label, text in shown:

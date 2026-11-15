@@ -37,6 +37,11 @@
     analyze.py kappa CODER_A.csv CODER_B.csv [--key answer_key.csv]
         Cohen's kappa per coded column, coder vs coder and coder vs automated.
 
+    analyze.py trace-check LOG_DIR... [--out FILE]
+        Per W1 cell and run label (doc 11 §2.10, A-19): unauthorized action
+        attempts, and how many had or lacked an ownership lookup of the same
+        target before them. Default out logs/analysis/trace_check.csv.
+
     analyze.py export-pairs LOG_DIR... --salt SECRET [--out FILE]
         Pair-level aggregates for reproducing the analyses (doc 10, plan WS12):
         per cell, pair and metric, the run count and mean. Pair ids are salted
