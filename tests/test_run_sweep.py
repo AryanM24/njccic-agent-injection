@@ -260,16 +260,6 @@ def test_data_book_is_dated_and_carries_no_document_text(tmp_path: Path) -> None
     assert MARKER not in book
 
 
-def _gate_built() -> bool:
-    from eduinject.task_w1 import eduinject_w1
-
-    try:
-        eduinject_w1(scope="read_only", model="mockllm/model", gate=True)
-    except NotImplementedError:
-        return False
-    return True
-
-
 def test_defense_arms_are_eight_per_scope(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -277,17 +267,12 @@ def test_defense_arms_are_eight_per_scope(
 
     assert len(set(ARMS["defense"])) == 8
     assert sum(c.gate for c in ARMS["defense"]) == 4
-    if not _gate_built():
-        pytest.skip("gate arms need the runtime gate (Lane G)")
     argv = ["--model", "mockllm/model", "--workflow", "w1", "--scopes", "read_write"]
     assert main([*argv, "--arms", "defense", "--limit", "1", "--dry-run"]) == 0
     lines = [ln for ln in capsys.readouterr().out.splitlines() if "config_hash=" in ln]
     assert len(lines) == 8
     assert len({ln.split("config_hash=")[1].split()[0] for ln in lines}) == 8
-    assert (
-        sum("handoff=typed defense=spotlight" in ln.replace("  ", " ") for ln in lines)
-        == 2
-    )
+    assert sum("handoff=typed" in ln and "defense=spotlight" in ln for ln in lines) == 2
 
 
 def test_halflife_arms(capsys: pytest.CaptureFixture[str]) -> None:
