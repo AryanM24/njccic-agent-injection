@@ -229,7 +229,18 @@ def test_feature_outcomes_match_logged_scores(workflow: str, tmp_path: Path) -> 
         expected["out:rank_shift"] = _score(scores["rank_corruption"], "shift")
     for column, value in expected.items():
         assert attack[column] == pytest.approx(value, nan_ok=True), column
+    from eduinject.scorers import RUNS_KEY
+    from eduinject.scorers.deterministic import _exfiltration
+    from eduinject.task import workflow as workflow_spec
+
+    meta = log.samples[0].metadata
+    twin_g1 = _exfiltration(
+        meta,
+        meta[RUNS_KEY]["twin"]["ledger"]["attempted_egress"],
+        workflow_spec(workflow).spec,
+    )
     twin_expected = {
+        "out:g1_tier": float(max((m.tier for m in twin_g1.completions), default=0)),
         "out:did_correct_thing": _score(scores["paired_utility"], "utility_twin"),
         "out:premise_relied": _score(scores["premise_adoption"], "relied_twin"),
     }

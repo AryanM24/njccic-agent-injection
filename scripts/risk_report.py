@@ -8,7 +8,11 @@ Per experimental cell (`analysis.CELL_FIELDS`, never pooled) writes
 `risk.csv` (composite risk with its pair-bootstrap 95% interval, every ΔP_h
 and every weight beside it, twin utility), `sensitivity.csv` (Kendall τ of
 the cell ranking per Dirichlet weight draw) and `frontier.csv` (risk, utility
-and whether the cell is Pareto-optimal). Refuses an OUT outside the
+and whether the cell is Pareto-optimal). A composite is a weighted share over
+the harms its cell can exhibit, which differ by workflow, so composites are
+comparable only within a workflow: the frontier and the sensitivity ranking
+are computed per workflow, and `risk.csv` lists each cell's `harms_defined`.
+Refuses an OUT outside the
 repository's `logs/` (exit 2) and a feature table whose `<name>.roles.json`
 is missing or names another `FEATURES_VERSION` (stale; exit 4). Nothing here
 contacts a model.
@@ -17,8 +21,10 @@ contacts a model.
 import argparse
 import csv
 import json
+import math
 import statistics
 import sys
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -83,7 +89,16 @@ def main(argv: list[str] | None = None) -> int:
         cell: cell_risk(cell_rows, weights.weights, args.n_boot)
         for cell, cell_rows in group_rows(rows, CELL_FIELDS).items()
     }
-    front = pareto_front({c: (r.risk, r.utility) for c, r in risks.items()})
+    wf = CELL_FIELDS.index("workflow")
+    by_workflow: dict[str, list[tuple[str, ...]]] = defaultdict(list)
+    for cell in risks:
+        by_workflow[cell[wf]].append(cell)
+    front = set().union(
+        *(
+            pareto_front({c: (risks[c].risk, risks[c].utility) for c in cells})
+            for cells in by_workflow.values()
+        )
+    )
     risk_rows, frontier_rows = [], []
     for cell, r in risks.items():
         key = dict(zip(CELL_FIELDS, cell, strict=True))
@@ -95,7 +110,11 @@ def main(argv: list[str] | None = None) -> int:
                 "risk": r.risk,
                 "risk_lo": r.lo,
                 "risk_hi": r.hi,
+                "n_boot_kept": r.n_boot_kept,
                 "utility": r.utility,
+                "harms_defined": ";".join(
+                    h for h, d in r.delta.items() if not math.isnan(d)
+                ),
             }
             | {f"delta:{h}": d for h, d in r.delta.items()}
             | {f"weight:{h}": w for h, w in r.weights.items()}
@@ -106,22 +125,39 @@ def main(argv: list[str] | None = None) -> int:
         )
     _write(out / "risk.csv", risk_rows, list(CELL_FIELDS))
     _write(out / "frontier.csv", frontier_rows, list(CELL_FIELDS))
-    taus = weight_sensitivity(
-        {c: r.delta for c, r in risks.items()},
-        weights.weights,
-        n_draws=args.n_draws,
-        kappa=args.kappa,
-    )
+    sens_rows: list[dict[str, Any]] = []
+    for workflow, cells in sorted(by_workflow.items()):
+        n_cells = sum(not math.isnan(risks[c].risk) for c in cells)
+        taus = weight_sensitivity(
+            {c: risks[c].delta for c in cells},
+            weights.weights,
+            n_draws=args.n_draws,
+            kappa=args.kappa,
+        )
+        sens_rows += [
+            {
+                "workflow": workflow,
+                "draw": i,
+                "kappa": args.kappa,
+                "n_cells": n_cells,
+                "kendall_tau": t,
+            }
+            for i, t in enumerate(taus)
+        ]
+        if taus:
+            print(
+                f"{workflow}: Kendall tau median {statistics.median(taus):.3f}, "
+                f"min {min(taus):.3f} over {n_cells} cells"
+            )
     _write(
         out / "sensitivity.csv",
-        [
-            {"draw": i, "kappa": args.kappa, "n_cells": len(risks), "kendall_tau": t}
-            for i, t in enumerate(taus)
-        ],
-        ["draw", "kappa", "n_cells", "kendall_tau"],
+        sens_rows,
+        ["workflow", "draw", "kappa", "n_cells", "kendall_tau"],
     )
-    if taus:
-        print(f"Kendall tau median {statistics.median(taus):.3f}, min {min(taus):.3f}")
+    print(
+        "composites are comparable only within a workflow "
+        "(frontier and sensitivity are per workflow)"
+    )
     return 0
 
 
