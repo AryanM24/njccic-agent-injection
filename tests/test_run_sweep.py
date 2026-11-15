@@ -258,3 +258,70 @@ def test_data_book_is_dated_and_carries_no_document_text(tmp_path: Path) -> None
     assert "run w1 baseline scope=read_write" in book and "samples=1" in book
     assert all(line.startswith(("#", "- ", "")) for line in book.splitlines())
     assert MARKER not in book
+
+
+def _gate_built() -> bool:
+    from eduinject.task_w1 import eduinject_w1
+
+    try:
+        eduinject_w1(scope="read_only", model="mockllm/model", gate=True)
+    except NotImplementedError:
+        return False
+    return True
+
+
+def test_defense_arms_are_eight_per_scope(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from run_sweep import ARMS, main
+
+    assert len(set(ARMS["defense"])) == 8
+    assert sum(c.gate for c in ARMS["defense"]) == 4
+    if not _gate_built():
+        pytest.skip("gate arms need the runtime gate (Lane G)")
+    argv = ["--model", "mockllm/model", "--workflow", "w1", "--scopes", "read_write"]
+    assert main([*argv, "--arms", "defense", "--limit", "1", "--dry-run"]) == 0
+    lines = [ln for ln in capsys.readouterr().out.splitlines() if "config_hash=" in ln]
+    assert len(lines) == 8
+    assert len({ln.split("config_hash=")[1].split()[0] for ln in lines}) == 8
+    assert (
+        sum("handoff=typed defense=spotlight" in ln.replace("  ", " ") for ln in lines)
+        == 2
+    )
+
+
+def test_halflife_arms(capsys: pytest.CaptureFixture[str]) -> None:
+    from run_sweep import main
+
+    argv = ["--model", "mockllm/model", "--workflow", "w3", "--scopes", "read_write"]
+    assert main([*argv, "--arms", "halflife", "--limit", "1", "--dry-run"]) == 0
+    lines = [ln for ln in capsys.readouterr().out.splitlines() if "config_hash=" in ln]
+    assert [f"relay={n}" in ln for n, ln in enumerate(lines)] == [True] * 4
+    assert all("isolated=True" in ln and "gate=False" in ln for ln in lines)
+
+
+@pytest.mark.parametrize(
+    "flag", ["--isolation", "--handoff-modes", "--gate", "--relay-stages", "--defense"]
+)
+def test_arms_conflict_with_axis_flags(flag: str) -> None:
+    value = {"--isolation": "both", "--relay-stages": "1", "--gate": "off"}.get(
+        flag, "none" if flag == "--defense" else "typed"
+    )
+    with pytest.raises(SystemExit) as exc:
+        parse_args(["--model", "mockllm/model", "--arms", "halflife", flag, value])
+    assert exc.value.code == 2
+
+
+def test_dry_run_prints_cost_per_cell(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    from run_sweep import main
+
+    argv = ["--preset", "gemini-3.8-flash", "--workflow", "w1", "--limit", "1"]
+    argv += ["--scopes", "read_write", "--arms", "halflife", "--dry-run"]
+    argv += ["--log-dir", str(tmp_path / "none")]
+    assert main(argv) == 0
+    out = capsys.readouterr().out
+    cells = [ln for ln in out.splitlines() if "config_hash=" in ln]
+    assert len(cells) == 4 and all(" est=$" in ln for ln in cells)
+    assert "total: " in out

@@ -56,6 +56,31 @@ class Cell(NamedTuple):
     entry: ModelEntry | None
 
 
+class Condition(NamedTuple):
+    """The five axes a named arm fixes together."""
+
+    isolated: bool
+    handoff_mode: str
+    defense: str
+    relay_stages: int
+    gate: bool
+
+
+ARMS = {
+    "defense": [
+        Condition(iso, hand, defense, 0, gate)
+        for gate in (False, True)
+        for iso, hand, defense in [
+            (False, "free_text", "none"),
+            (True, "free_text", "none"),
+            (True, "typed", "none"),
+            (True, "typed", "spotlight"),
+        ]
+    ],
+    "halflife": [Condition(True, "free_text", "none", n, False) for n in range(4)],
+}
+
+
 def parse_model_arg(text: str) -> tuple[str, Any]:
     """Parse one `-M key=value`; the value is JSON if it parses, else a string."""
     key, sep, raw = text.partition("=")
@@ -123,9 +148,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--isolation",
-        default="both",
+        default=None,
         choices=sorted(ISOLATION_CHOICES),
-        help="Isolation conditions to sweep ('both' includes the negative control).",
+        help="Isolation conditions to sweep (default both; 'both' includes the "
+        "negative control).",
     )
     parser.add_argument(
         "--identity",
@@ -138,7 +164,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--defense",
         nargs="+",
-        default=["none"],
+        default=None,
         choices=list(DEFENSES),
         help="Prompt-level defense cells to sweep (spotlight = datamarking, "
         "doc 10 §4).",
@@ -147,22 +173,31 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--relay-stages",
         nargs="+",
         type=int,
-        default=[0],
+        default=None,
         help="relay_stages cells to sweep (extra relay stages, 0..3).",
     )
     parser.add_argument(
         "--handoff-modes",
         nargs="+",
-        default=["free_text"],
+        default=None,
         choices=list(HANDOFF_MODES),
         help="handoff_mode cells to sweep.",
     )
     parser.add_argument(
         "--gate",
         nargs="+",
-        default=["off"],
+        default=None,
         choices=["off", "on"],
         help="gate cells to sweep.",
+    )
+    parser.add_argument(
+        "--arms",
+        choices=sorted(ARMS),
+        default=None,
+        help="Named comparison replacing the isolation/handoff/gate/relay/defense "
+        "axes (those flags then exit 2). defense: isolation off; on; typed; "
+        "typed + spotlight, each without and with the gate (8 arms per scope). "
+        "halflife: relay depths 0-3, isolated, free_text, gate off. doc 11 §4.",
     )
     parser.add_argument(
         "--verification-tools",
@@ -218,6 +253,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "stop before contacting the model.",
     )
     args = parser.parse_args(argv)
+    axes = ("isolation", "handoff_modes", "gate", "relay_stages", "defense")
+    if args.arms:
+        clash = [a for a in axes if getattr(args, a) is not None]
+        if clash:
+            flags = ", ".join("--" + a.replace("_", "-") for a in clash)
+            parser.exit(2, f"--arms conflicts with {flags}\n")
+        args.conditions = ARMS[args.arms]
+    else:
+        args.conditions = [
+            Condition(iso, hand, defense, relay, gate == "on")
+            for iso in ISOLATION_CHOICES[args.isolation or "both"]
+            for hand in args.handoff_modes or ["free_text"]
+            for defense in args.defense or ["none"]
+            for relay in args.relay_stages or [0]
+            for gate in args.gate or ["off"]
+        ]
     args.cells = []
     for name in args.model_presets or [None]:
         entry = load_models()[name] if name else None
@@ -257,13 +308,12 @@ def main(argv: list[str] | None = None) -> int:
     task_fn, default_manifest = WORKFLOWS[args.workflow]
     manifest = args.manifest or default_manifest
 
-    isolation = ISOLATION_CHOICES[args.isolation]
     cells = [
         (
             cell,
             task_fn(
                 scope=scope,
-                isolated=isolated,
+                isolated=cond.isolated,
                 manifest=manifest,
                 epochs=args.epochs,
                 benign_only=args.benign_only,
@@ -272,21 +322,17 @@ def main(argv: list[str] | None = None) -> int:
                 model_args=dict(cell.model_args) or None,
                 reasoning_effort=cell.reasoning_effort,  # type: ignore[arg-type]
                 identity_mode=identity,
-                defense=defense,
-                relay_stages=relay,
-                handoff_mode=handoff,
-                gate=gate == "on",
+                defense=cond.defense,
+                relay_stages=cond.relay_stages,
+                handoff_mode=cond.handoff_mode,
+                gate=cond.gate,
                 verification_tools=verify == "on",
             ),
         )
         for cell in args.cells
         for scope in args.scopes
-        for isolated in isolation
+        for cond in args.conditions
         for identity in args.identity
-        for defense in args.defense
-        for relay in args.relay_stages
-        for handoff in args.handoff_modes
-        for gate in args.gate
         for verify in args.verification_tools
     ]
     tasks = [task for _, task in cells]
@@ -308,14 +354,14 @@ def main(argv: list[str] | None = None) -> int:
             samples = min(samples, args.limit)
         runs = samples * (task.epochs or 1)
         total += runs
-        line = ""
+        line = " est=n/a"
         if cell.entry:
             stats = token_stats([args.log_dir], {"config_hash": meta["config_hash"]})
             usd = estimate_usd(runs, twin_only, meta["relay_stages"], cell.entry, stats)
             fallback |= stats is None
             unknown |= usd is None
             usd_total += usd or 0.0
-            line = f" cost={'price unknown (TODO)' if usd is None else f'${usd:,.2f}'}"
+            line = f" est={'n/a' if usd is None else f'${usd:,.2f}'}"
         print(
             f"  model={cell.model} effort={cell.reasoning_effort} "
             f"provider={dict(cell.model_args).get('provider')} "

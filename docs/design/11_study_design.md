@@ -588,47 +588,85 @@ Carry columns use §2.2's carry states; component columns use §5.1.
 
 - **GEE.** `gee_fit(rows, outcome, factors, group="artifact_id",
   cov="exchangeable") -> GeeFit | None`: logistic, robust standard errors,
-  `GeeFit(terms, n_groups, cov)` with `GeeTerm(log_odds, se, p, lo, hi)`.
-  `None` under separation or with fewer than `MIN_GEE_EVENTS` (5) events or
-  non-events. `gee_contrast` keeps its signature and calls `gee_fit` with
-  `factors=["arm"]`. `long_rows(rows, outcome_pair)` gives one row per run
-  with `arm` in {attack, twin}.
+  `GeeFit(terms, n_groups, cov, separated)` with `GeeTerm(log_odds, se, p, lo,
+  hi)`. `None` with fewer than `MIN_GEE_EVENTS` (5) events or non-events
+  overall, without statsmodels, or when the fit fails or is not finite.
+  `long_rows(rows, outcome_pair)` gives one row per run with `arm` in
+  {attack, twin}. `gee_contrast` keeps its signature and calls `gee_fit` with
+  `factors=["arm"]`; its covariance therefore changed from doc 10 §5's
+  independence + bias-reduced to the primary exchangeable + robust (the
+  `--gee` column of `comparisons.csv`).
 - **Working correlation (ruling 3, pending PI sign-off).** Exchangeable
   correlation with robust standard errors is the primary GEE fit (brief A5);
   independence with bias-reduced standard errors (doc 10 §5) is reported
   beside it as a sensitivity column (`gee_independence.csv`). Doc 10 §5 chose
   independence; this disagreement is open until the PI signs.
+- **Separation.** A factor level whose runs are all events or all
+  non-events would send its estimate to infinity. It is dropped (its rows
+  leave the fit, repeated until no level is separated), the remaining levels
+  are fitted on the remaining rows, and the level is reported as a
+  `SeparatedLevel`: its events / runs, the rest of the factor's events / runs,
+  and the exact one-sided 95% bound over its pairs (`zero_upper_bound`; an
+  upper bound at 0 events, 1 − bound at all events). In the tables it is a
+  row with a `separated: ...` note and no estimate. So `gate=True` with no
+  harm still leaves `arm` estimated, and an all-zero twin arm reports the
+  attack-vs-twin contrast as its separated row (twin 0/n against attack k/m),
+  never as "no fit". When nothing is left to fit, `terms` is empty.
 - **Mixed model (sensitivity).** `mixed_fit(rows, outcome, factors,
   group="artifact_id") -> MixedFit | None`: `BinomialBayesMixedGLM` with a
-  pair random intercept, fitted by `fit_vb`.
+  pair random intercept, fitted by `fit_vb`, on the same design after
+  separation. Its estimates are conditional on the pair, so larger than the
+  GEE's population-averaged ones when pairs differ.
 - **Holm family (§8.1 ruling 5, pending PI sign-off).** Doc 10's
   `PRIMARY_CONTRASTS` (isolation, scope, identity, defense) ∪ the new arm
   contrasts (attack vs twin, handoff mode, gate, model, relay depth), declared
   once as factor names:
   `CONTRAST_FAMILY = ("arm", "isolated", "scope", "identity_mode", "defense", "handoff_mode", "gate", "model", "relay_stages")`.
-  `analyze.py`'s `PRIMARY_CONTRASTS` is derived from it, so `model` contrasts
-  in `comparisons.csv` are now primary. Holm is applied across the primary GEE
-  fit's terms within each family (`holm.csv`); everything else is exploratory
-  and labelled so.
+  The primary Holm correction for the family is `holm.csv`: Holm across the
+  primary (exchangeable) GEE fit's terms within each family; separated levels
+  have no p-value and are not in it. `analyze.py`'s `PRIMARY_CONTRASTS`
+  (the primary rows of `comparisons.csv`, Holm within model and workflow as
+  before) is derived from `CONTRAST_FAMILY` but excludes `model`: a model's
+  primary test is its GEE term, so its `comparisons.csv` rows stay
+  exploratory rather than entering two Holm families. Everything else is
+  exploratory and labelled so.
 - **Families and terms.** A family is the attack rows that agree on every cell
   field outside `CONTRAST_FAMILY` (host and effort travel with `model`, the
   model as served). Its outcome is the in-pair harm
   (`paired_utility.harm_attack` / `_twin` through `long_rows`), regressed on
-  `arm` and every family factor that varies in it, treatment-coded against
-  the reference level (`twin`, then the first sorted level: `False`,
-  `free_text`, 0). Any level with only events or only non-events is
-  separation: no fit, and the table says so in a `note` row.
+  `arm` and every family factor that varies in it. Terms are **main effects
+  pooled over both arms**: arm × factor interactions are not modelled, so a
+  factor's term is its average effect on harm across attack and twin runs.
+  Each factor is treatment-coded against its reference (`stats.REFERENCE`):
+  `arm` "twin", `isolated` False, `scope` "read_write", `identity_mode` "off",
+  `defense` "none", `handoff_mode` "free_text", `gate` False, `relay_stages`
+  0. `model` has no fixed reference: it is the alphabetically first model
+  level. Other levels follow in `factor_levels` order (numbers numerically, so
+  relay depth 0 < 2 < 10; anything else as text). A reference absent from the
+  data falls back to the first level in that order.
 - **Robustness.** §2.8's `noise_floor` and `verdict` are kept as a column in
-  every table; for a GEE term, the paired raw difference between its level
-  and the reference against the largest floor of the family's cells.
+  every table. For a GEE term the raw difference is paired by document: for
+  `arm`, attack minus twin; for any other factor, its level minus the
+  reference **on the attack runs only** (its effect on harm under attack).
+  The floor is the largest `noise_floor` of the family's cells.
 - **Power.** `power_mde(base_rate, n_pairs, epochs, *, alpha=0.05, power=0.8,
-  n_sim=500, seed=0, step=0.01) -> float | None`: the smallest difference whose
-  simulated paired test rejects in at least 80% of draws. The simulation
-  draws runs independently within a pair and uses a z-test on per-pair
-  differences; `stats.mde` stays as the analytic approximation.
+  n_sim=500, seed=0, step=0.01, icc=0.2, effect_concentration=0.5,
+  n_perm=999) -> float | None`: the smallest mean attack-minus-twin
+  difference on the `step` grid whose simulated test rejects in at least
+  80% of draws; `power_at(delta, ...)` gives the power at one difference.
+  Each simulated pair has its own twin rate (`base_rate` on the logit scale
+  plus a normal pair intercept with intra-class correlation `icc`); a random
+  `effect_concentration` share of pairs carries the effect, raised by
+  `delta / effect_concentration` (capped at 1); each arm runs `epochs` times.
+  The test is the study's paired sign-flip test on per-pair differences,
+  vectorised with 999 fixed sign patterns. The defaults (ICC 0.2, effect in
+  half the pairs) are planning assumptions to replace with pilot estimates.
+  `stats.mde` stays as the analytic approximation; `power_mde` is the
+  reported power.
 - `analyze.py report` adds `gee.csv`, `gee_independence.csv`, `mixed.csv` and
   `holm.csv` under `logs/analysis-*/`; `analyze.py power --base-rate R --pairs
-  N --epochs E`.
+  N --epochs E [--icc --effect-concentration]` prints the MDE and every
+  assumption behind it.
 
 ### 3.6 Stage propagation and half-life (A6, `behavior/propagation_model.py`)
 
@@ -796,13 +834,14 @@ naming the parameter), is recorded in task metadata, is folded into
 | `gate` | `bool` | `False` | a `bool`, not a truthy int; `True` raises `NotImplementedError` until Task 12 | `gate` (`monitor_rules_version` when built) | `--gate {off,on}...` |
 | `verification_tools` | `bool` | `False` | a `bool`; refused on a workflow with no verification tools | `verification_tools`, `tool_surface` | `--verification-tools {off,on}...` |
 
-The sweep crosses the axes. *Planned (Task 19):* `--arms defense` runs the eight arms
+The sweep crosses the axes. `--arms defense` runs the eight arms
 (isolated=False, free_text, none), (True, free_text, none), (True, typed,
 none), (True, typed, spotlight), each with gate off and on, per scope;
 `--arms halflife` runs `relay_stages` 0..3, isolated, free_text, gate off.
 `--arms` with any of `--isolation`, `--handoff-modes`, `--gate`,
 `--relay-stages` or `--defense` exits 2. `--dry-run` prints each cell's
-conditions, runs, `config_hash` and estimated cost (§6), then the total.
+conditions, runs, `config_hash` and `est=$X` (`est=n/a` when the model has no
+priced preset, §6), then the total.
 
 ## 5. Phase C: corpus
 

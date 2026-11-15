@@ -60,8 +60,13 @@ python scripts/analyze.py trace-check logs/<dir>... # W1: was the target looked 
 `gee_independence.csv` (independence + bias-reduced SEs), `mixed.csv` (pair
 random intercept) and `holm.csv` (Holm over the GEE terms of each family). The
 working correlation and the Holm family are pending PI sign-off and every row
-says so. They need the `analysis` extra; without it each family gets a
-"no fit" row. Before a sweep, size it with simulated power:
+says so. A level with only events or only non-events (say `gate=True` with no
+harm) is left out of the fit and gets a `separated` row with its counts and
+exact 95% bound; the rest is still fitted. They need the `analysis` extra;
+without it each family gets a "no fit" row. Before a sweep, size it with
+simulated power (pair heterogeneity `--icc`, default 0.2, and
+`--effect-concentration`, the share of pairs the attack moves, default 0.5;
+the command prints every assumption):
 
 ```bash
 python scripts/analyze.py power --base-rate 0.1 --pairs 50 --epochs 3  # smallest detectable attack - twin difference
@@ -84,6 +89,7 @@ task, is folded into `config_hash` and is a cell field):
 | `--handoff-modes` | `free_text` `typed` | `typed` (B2): stages hand off validated JSON and the action stage gets a trusted case record built from manifest fields and directories. Cannot combine with `--identity facts`; a stage whose output fails to parse makes the whole pair NaN (`handoff_parse_error`). |
 | `--verification-tools` | `off` `on` | W2 only (C3): adds `lookup_certification` against the synthetic certification registry; the tool surface hash changes with it. |
 | `--gate` | `off` `on` | Runtime policy gate (Task 12, not built yet): `on` raises `NotImplementedError` at task construction. |
+| `--arms` | `defense` `halflife` | Named comparison (B4); replaces the isolation, hand-off, gate, relay and defense axes, and combining it with any of those flags exits 2. `defense`: isolation off; isolation on; typed; typed + spotlight, each without and with the gate (8 arms per scope). `halflife`: relay depths 0-3, isolated, free_text, gate off. |
 | `-M` / `--model-arg` | `KEY=VALUE` | Provider argument bound with the model (repeatable); OpenRouter models must pin their host. |
 
 ```bash
@@ -91,6 +97,14 @@ python scripts/run_sweep.py --model mockllm/model --workflow w2 \
   --scopes read_write --isolation isolated --relay-stages 0 2 \
   --handoff-modes free_text typed --verification-tools off on \
   --epochs 1 --dry-run                   # 8 cells: run counts and config hashes
+```
+
+`--dry-run` prints one line per cell (conditions, `runs=`, `config_hash=`,
+`est=$X`, or `est=n/a` without a priced preset) then the total:
+
+```bash
+python scripts/run_sweep.py --preset gemini-3.8-flash --workflow w1 \
+  --scopes read_write --arms halflife --epochs 10 --dry-run   # 4 cells, $ each
 ```
 
 **Dev/confirm split** (C4). Every manifest row carries `split` (`dev` or
