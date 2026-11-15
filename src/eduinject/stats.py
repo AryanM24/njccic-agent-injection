@@ -27,10 +27,11 @@ Everything is deterministic under its seed. Nothing here contacts a model.
 """
 
 import itertools
+import math
 import random
 import warnings
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from statistics import NormalDist, mean, stdev
 from typing import Any, Literal, NamedTuple
 
@@ -206,9 +207,21 @@ contrasts (isolation, scope, identity, defense) and the new arm contrasts
 (attack vs twin, handoff mode, gate, model, relay depth), as the factor names
 the fits take. Every other test is exploratory."""
 
-REFERENCE = {"arm": "twin"}
-"""Reference level per factor; any other factor's reference is its first
-level in sorted order (False, `free_text`, 0)."""
+REFERENCE: dict[str, Any] = {
+    "arm": "twin",
+    "identity_mode": "off",
+    "defense": "none",
+    "scope": "read_write",
+    "handoff_mode": "free_text",
+    "gate": False,
+    "relay_stages": 0,
+    "isolated": False,
+}
+"""Each factor's reference level: the undefended or baseline setting, so a term
+reads as "this level against the plain pipeline". `model` has none: its
+reference is the alphabetically first model level (doc 11 §3.5). A factor
+whose reference is absent from the data falls back to its first level in
+`factor_levels` order."""
 
 GeeCov = Literal["exchangeable", "independence_bias_reduced"]
 """Exchangeable working correlation with robust errors is the primary fit;
@@ -226,12 +239,35 @@ class GeeTerm(NamedTuple):
     hi: float
 
 
+class SeparatedLevel(NamedTuple):
+    """A factor level with only events or only non-events, left out of a fit.
+
+    `bound` is the exact one-sided 95% bound on its rate over `n_pairs`
+    (`zero_upper_bound`): an upper bound when `events` is 0, a lower bound
+    (1 − bound) when every run is an event. `other_*` count the rest of the
+    factor's runs, so the contrast is still readable.
+    """
+
+    term: str
+    n_runs: int
+    n_pairs: int
+    events: int
+    bound: float
+    other_runs: int
+    other_events: int
+
+
 class GeeFit(NamedTuple):
-    """A pair-clustered logistic GEE; `terms` are named `factor=level`."""
+    """A pair-clustered logistic GEE; `terms` are named `factor=level`.
+
+    `terms` is empty when separation left nothing to fit; `separated` lists
+    the levels that were left out.
+    """
 
     terms: dict[str, GeeTerm]
     n_groups: int
     cov: GeeCov
+    separated: tuple[SeparatedLevel, ...] = ()
 
 
 class MixedFit(NamedTuple):
@@ -270,11 +306,70 @@ def long_rows(
     return out
 
 
+def factor_levels(factor: str, values: Iterable[Any]) -> list[Any]:
+    """Distinct levels, reference first (`REFERENCE`), the rest in order:
+    numbers numerically (relay depth 0 < 2 < 10), anything else as text."""
+
+    def order(v: Any) -> tuple[bool, int, float, str]:
+        number = isinstance(v, int | float)
+        return (
+            v != REFERENCE.get(factor, object()),
+            not number,
+            v if number else 0,
+            str(v),
+        )
+
+    return sorted(set(values), key=order)
+
+
 class _Design(NamedTuple):
     y: list[float]
     columns: list[list[float]]
     names: list[str]
     groups: list[str]
+    separated: tuple[SeparatedLevel, ...]
+
+
+def _separate(
+    data: list[Mapping[str, Any]], y: list[float], factors: Sequence[str], group: str
+) -> tuple[list[Mapping[str, Any]], list[float], list[SeparatedLevel]]:
+    """Drop every factor level with only events or only non-events, repeating
+    until none is left (dropping rows can separate another level)."""
+    separated: list[SeparatedLevel] = []
+    while True:
+        found = None
+        for factor in factors:
+            values = [r.get(factor) for r in data]
+            if len(set(values)) < 2:
+                continue
+            for level in factor_levels(factor, values):
+                hits = [v for v, x in zip(y, values, strict=True) if x == level]
+                if sum(hits) in (0, len(hits)):
+                    found = (factor, level, hits, values)
+                    break
+            if found:
+                break
+        if found is None:
+            return data, y, separated
+        factor, level, hits, values = found
+        inside = [x == level for x in values]
+        pairs = {r[group] for r, keep in zip(data, inside, strict=True) if keep}
+        events = int(sum(hits))
+        bound = zero_upper_bound(len(pairs))
+        others = [v for v, keep in zip(y, inside, strict=True) if not keep]
+        separated.append(
+            SeparatedLevel(
+                term=f"{factor}={level}",
+                n_runs=len(hits),
+                n_pairs=len(pairs),
+                events=events,
+                bound=bound if events == 0 else 1 - bound,
+                other_runs=len(others),
+                other_events=int(sum(others)),
+            )
+        )
+        data = [r for r, keep in zip(data, inside, strict=True) if not keep]
+        y = others
 
 
 def _design(
@@ -283,32 +378,28 @@ def _design(
     factors: Sequence[str],
     group: str,
 ) -> _Design | None:
-    """Treatment-coded main effects, or None when a fit would be meaningless.
+    """Treatment-coded main effects (no interactions), after separation.
 
-    None with fewer than `MIN_GEE_EVENTS` events or non-events, or when any
-    level of any factor has only events or only non-events: under that
-    (quasi-)separation the estimate runs off to infinity and a robust p-value
-    is meaningless (the first-edition recompute gave p≈0 for a single event).
-    A factor with one level carries no contrast and is left out.
+    None with fewer than `MIN_GEE_EVENTS` events or non-events overall. A
+    level with only events or only non-events would send its estimate to
+    infinity (the first-edition recompute gave p≈0 for a single event), so it
+    is dropped and reported in `separated`, and the remaining levels are fitted
+    on the remaining rows. A factor left with one level carries no term.
     """
-    data = _scored(rows, outcome)
+    data = list(_scored(rows, outcome))
     y = [float(r[f"score:{outcome}"]) for r in data]
     if sum(y) < MIN_GEE_EVENTS or len(y) - sum(y) < MIN_GEE_EVENTS:
         return None
+    data, y, separated = _separate(data, y, factors, group)
     columns: list[list[float]] = []
     names: list[str] = []
-    for factor in factors:
-        values = [r.get(factor) for r in data]
-        ref = REFERENCE.get(factor)
-        levels = sorted(set(values), key=lambda v: (v != ref, str(v)))
-        for level in levels:
-            hits = [v for v, x in zip(y, values, strict=True) if x == level]
-            if sum(hits) in (0, len(hits)):
-                return None
-        for level in levels[1:]:
-            columns.append([float(v == level) for v in values])
-            names.append(f"{factor}={level}")
-    return _Design(y, columns, names, [str(r[group]) for r in data])
+    if sum(y) >= MIN_GEE_EVENTS and len(y) - sum(y) >= MIN_GEE_EVENTS:
+        for factor in factors:
+            values = [r.get(factor) for r in data]
+            for level in factor_levels(factor, values)[1:]:
+                columns.append([float(v == level) for v in values])
+                names.append(f"{factor}={level}")
+    return _Design(y, columns, names, [str(r[group]) for r in data], tuple(separated))
 
 
 def gee_fit(
@@ -323,9 +414,11 @@ def gee_fit(
     `cov` "exchangeable" uses exchangeable working correlation and robust
     (sandwich) errors; "independence_bias_reduced" uses independence and the
     bias-reduced robust covariance, which suits few clusters (doc 10 §5).
-    Returns None without statsmodels (the optional `analysis` extra), under
-    separation or too few events (`_design`), or if the fit fails or is not
-    finite: never a crash or a fake number (doc 11 §3.5).
+    Separated levels are left out and listed (`_design`); if nothing is left
+    to fit, `terms` is empty. Returns None without statsmodels (the optional
+    `analysis` extra), with too few events, when there is neither a term nor a
+    separated level, or if the fit fails or is not finite: never a crash or a
+    fake number (doc 11 §3.5).
     """
     if cov not in ("exchangeable", "independence_bias_reduced"):
         raise ValueError(
@@ -341,8 +434,11 @@ def gee_fit(
     except ImportError:
         return None
     design = _design(rows, outcome, factors, group)
-    if design is None or not design.names:
+    if design is None or not (design.names or design.separated):
         return None
+    n_groups = len(set(design.groups))
+    if not design.names:
+        return GeeFit({}, n_groups, cov, design.separated)
     exog = np.column_stack([np.ones(len(design.y)), *map(np.asarray, design.columns)])
     exchangeable = cov == "exchangeable"
     model = sm.GEE(
@@ -374,8 +470,9 @@ def gee_fit(
             name: GeeTerm(*(float(v) for v in values[i + 1]))
             for i, name in enumerate(design.names)
         },
-        n_groups=len(set(design.groups)),
+        n_groups=n_groups,
         cov=cov,
+        separated=design.separated,
     )
 
 
@@ -388,9 +485,10 @@ def mixed_fit(
     """Mixed-effects logistic sensitivity fit: a random intercept per pair.
 
     statsmodels' `BinomialBayesMixedGLM` fitted by variational Bayes
-    (`fit_vb`). Its estimates are conditional on the pair, so they run larger
-    than the GEE's population-averaged ones when pairs differ. None on the
-    same conditions as `gee_fit`.
+    (`fit_vb`), on the same design as `gee_fit` (separated levels left out).
+    Its estimates are conditional on the pair, so they run larger than the
+    GEE's population-averaged ones when pairs differ. None when there is no
+    term to fit or the fit fails.
     """
     try:
         import numpy as np
@@ -411,10 +509,7 @@ def mixed_fit(
         shape=(n, len(index)),
     )
     model = BinomialBayesMixedGLM(
-        np.asarray(design.y),
-        exog,
-        exog_vc,
-        np.zeros(len(index), dtype=int),
+        np.asarray(design.y), exog, exog_vc, np.zeros(len(index), dtype=int)
     )
     try:
         result = model.fit_vb()
@@ -439,7 +534,8 @@ def gee_contrast(
     """Logistic GEE of `metric` on A-vs-B, clustered by pair.
 
     `gee_fit` with `factors=["arm"]`, A as "attack" and B as the "twin"
-    reference, at the primary covariance. None when `gee_fit` gives none.
+    reference, at the primary (exchangeable) covariance. None when there is
+    no `arm` term, including when either side is separated.
     """
     rows = [
         {**row, "arm": arm}
@@ -453,6 +549,105 @@ def gee_contrast(
     return GeeResult(term.log_odds, term.se, term.p, fit.n_groups)
 
 
+POWER_ICC = 0.2
+"""Planning default: share of latent (logit-scale) variance in harm between
+pairs. Some documents are far easier to act on than others; replace it with a
+pilot estimate when one exists."""
+
+POWER_EFFECT_CONCENTRATION = 0.5
+"""Planning default: share of pairs the attack moves at all. The first edition
+saw harm concentrated in a few artifacts (`pair_concentration`)."""
+
+
+class _PowerDraws(NamedTuple):
+    base: Any
+    """Per-pair twin probability, (n_sim, n_pairs)."""
+    affected: Any
+    """Whether the attack moves the pair, (n_sim, n_pairs)."""
+    twin: Any
+    """Per-pair twin rate over its epochs, (n_sim, n_pairs)."""
+    u_attack: Any
+    """Uniforms for the attack runs, (n_sim, n_pairs, epochs)."""
+    flips: Any
+    """Fixed sign-flip patterns, (n_perm, n_pairs)."""
+
+
+def _power_draws(
+    base_rate: float,
+    n_pairs: int,
+    epochs: int,
+    icc: float,
+    effect_concentration: float,
+    n_sim: int,
+    n_perm: int,
+    seed: int,
+) -> _PowerDraws:
+    import numpy as np
+
+    if not (0 < base_rate < 1 and n_pairs >= 2 and epochs >= 1):
+        raise ValueError("need 0 < base_rate < 1, n_pairs >= 2, epochs >= 1")
+    if not (0 <= icc < 1 and 0 < effect_concentration <= 1):
+        raise ValueError("need 0 <= icc < 1 and 0 < effect_concentration <= 1")
+    rng = np.random.default_rng(seed)
+    sigma = math.sqrt(icc / (1 - icc) * math.pi**2 / 3)
+    logit = math.log(base_rate / (1 - base_rate)) + sigma * rng.standard_normal(
+        (n_sim, n_pairs)
+    )
+    base = 1 / (1 + np.exp(-logit))
+    affected = rng.random((n_sim, n_pairs)) < effect_concentration
+    twin = (rng.random((n_sim, n_pairs, epochs)) < base[..., None]).mean(axis=2)
+    u_attack = rng.random((n_sim, n_pairs, epochs))
+    flips = rng.choice(np.array([-1.0, 1.0]), size=(n_perm, n_pairs))
+    return _PowerDraws(base, affected, twin, u_attack, flips)
+
+
+def _power(
+    draws: _PowerDraws, delta: float, effect_concentration: float, alpha: float
+) -> float:
+    import numpy as np
+
+    shift = np.where(draws.affected, delta / effect_concentration, 0.0)
+    attack_p = np.minimum(1.0, draws.base + shift)
+    d = (draws.u_attack < attack_p[..., None]).mean(axis=2) - draws.twin
+    observed = np.abs(d.sum(axis=1))
+    permuted = np.abs(d @ draws.flips.T)
+    p = ((permuted >= observed[:, None] - 1e-12).sum(axis=1) + 1) / (
+        draws.flips.shape[0] + 1
+    )
+    return float((p <= alpha).mean())
+
+
+def power_at(
+    delta: float,
+    base_rate: float,
+    n_pairs: int,
+    epochs: int,
+    *,
+    icc: float = POWER_ICC,
+    effect_concentration: float = POWER_EFFECT_CONCENTRATION,
+    alpha: float = 0.05,
+    n_sim: int = 500,
+    n_perm: int = 999,
+    seed: int = 0,
+) -> float:
+    """Simulated power of the study's paired test at a mean attack-minus-twin
+    difference `delta`.
+
+    Each simulated pair has its own twin probability: `base_rate` on the logit
+    scale plus a normal pair intercept with intra-class correlation `icc`. A
+    random `effect_concentration` share of pairs carries the effect, raised
+    by `delta / effect_concentration` (capped at 1, so the realised mean can
+    fall short of `delta` near the ceiling), so the mean shift over pairs is
+    `delta`. Each pair runs `epochs` attack and `epochs` twin runs. The test
+    is `sign_flip_test` on per-pair differences, vectorised with `n_perm`
+    fixed Monte Carlo sign patterns (exact enumeration is not used here).
+    """
+    draws = _power_draws(
+        base_rate, n_pairs, epochs, icc, effect_concentration, n_sim, n_perm, seed
+    )
+    return _power(draws, delta, effect_concentration, alpha)
+
+
 def power_mde(
     base_rate: float,
     n_pairs: int,
@@ -463,34 +658,34 @@ def power_mde(
     n_sim: int = 500,
     seed: int = 0,
     step: float = 0.01,
+    icc: float = POWER_ICC,
+    effect_concentration: float = POWER_EFFECT_CONCENTRATION,
+    n_perm: int = 999,
 ) -> float | None:
-    """Simulated minimum detectable attack-minus-twin difference.
+    """Simulated minimum detectable mean attack-minus-twin difference.
 
-    Each simulated pair runs `epochs` twin runs at `base_rate` and `epochs`
-    attack runs at `base_rate + Δ`; the paired test is a two-sided z-test on
-    the per-pair mean differences. Returns the smallest Δ on a `step` grid
-    whose test rejects at `alpha` in at least `power` of `n_sim` draws, or None
-    if no Δ up to 1 − `base_rate` does. The same uniforms are reused for every
-    Δ, so the answer is deterministic under `seed` and power rises with Δ.
-    `mde` stays as the analytic approximation; this is the reported power.
+    The smallest `delta` on a `step` grid whose `power_at` simulation rejects
+    at `alpha` in at least `power` of `n_sim` draws, or None if no `delta` up
+    to 1 − `base_rate` does. All grid points share one set of draws (common
+    random numbers), so power rises with `delta` up to Monte Carlo noise and
+    the grid is searched by bisection; the answer is deterministic under
+    `seed`. `mde` stays as the analytic approximation; this is the reported
+    power (doc 11 §3.5).
     """
-    # shortcut: runs are independent within a pair (no pair random effect) and the
-    # test is a z-test, not the sign-flip test; add an ICC if pilot data show one.
-    import numpy as np
+    if step <= 0:
+        raise ValueError("step must be positive")
+    draws = _power_draws(
+        base_rate, n_pairs, epochs, icc, effect_concentration, n_sim, n_perm, seed
+    )
+    top = int((1 - base_rate) / step + 1e-9)
 
-    if not 0 <= base_rate < 1 or n_pairs < 2 or epochs < 1 or step <= 0:
-        raise ValueError("need 0 <= base_rate < 1, n_pairs >= 2, epochs >= 1, step > 0")
-    rng = np.random.default_rng(seed)
-    twin = (rng.random((n_sim, n_pairs, epochs)) < base_rate).mean(axis=2)
-    u_attack = rng.random((n_sim, n_pairs, epochs))
-    z = NormalDist().inv_cdf(1 - alpha / 2)
-    k = 1
-    while (delta := round(k * step, 10)) <= 1 - base_rate + 1e-12:
-        d = (u_attack < base_rate + delta).mean(axis=2) - twin
-        m, s = d.mean(axis=1), d.std(axis=1, ddof=1)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            reject = np.where(s > 0, np.abs(m) * n_pairs**0.5 / s > z, m != 0)
-        if reject.mean() >= power:
-            return delta
-        k += 1
-    return None
+    def enough(k: int) -> bool:
+        return _power(draws, k * step, effect_concentration, alpha) >= power
+
+    if top < 1 or not enough(top):
+        return None
+    lo, hi = 0, top  # enough(hi) holds; lo is below the grid
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        lo, hi = (lo, mid) if enough(mid) else (mid, hi)
+    return round(hi * step, 10)

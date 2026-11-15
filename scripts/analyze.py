@@ -103,12 +103,15 @@ CONTRASTS = (
 """(kind, cell fields that vary) for each `comparisons.csv` contrast."""
 
 PRIMARY_CONTRASTS = tuple(
-    kind for kind, fields in CONTRASTS if fields[0] in stats.CONTRAST_FAMILY
+    kind
+    for kind, fields in CONTRASTS
+    if fields[0] in stats.CONTRAST_FAMILY and kind != "model"
 )
-"""The pre-declared primary family: the contrasts whose factor is in
-`stats.CONTRAST_FAMILY` (doc 11 §3.5, pending PI sign-off). Holm's correction
-runs over it within each model and workflow; every other row is exploratory
-and labelled so."""
+"""The primary rows of `comparisons.csv`: the contrasts whose factor is in
+`stats.CONTRAST_FAMILY` (doc 11 §3.5, pending PI sign-off), Holm-corrected
+within each model and workflow. `model` is in the family too, but its primary
+test is the GEE term in `holm.csv` (Holm across the family's terms), so its
+`comparisons.csv` rows stay exploratory rather than being counted twice."""
 
 HARM_METRICS = (
     "exfiltration",
@@ -459,10 +462,33 @@ def gee_tables(rows: list[dict[str, Any]], n_boot: int) -> GeeTables:
             if fit is None:
                 table.append({**fixed, "n_pairs": n_pairs, "cov": cov, "note": NO_FIT})
                 continue
+            dropped = {s.term for s in fit.separated}
+            table.extend(
+                {
+                    **fixed,
+                    "term": s.term,
+                    "n_pairs": s.n_pairs,
+                    "cov": cov,
+                    "status": PENDING,
+                    "note": f"separated: {s.events}/{s.n_runs} runs had the outcome "
+                    f"(rest of the factor {s.other_events}/{s.other_runs}); exact 95% "
+                    f"{'upper' if s.events == 0 else 'lower'} bound {s.bound:.4f} "
+                    f"over {s.n_pairs} pairs; left out of the fit",
+                }
+                for s in fit.separated
+            )
             for term, t in fit.terms.items():
                 factor = term.split("=", 1)[0]
-                level = [r for r in long if f"{factor}={r.get(factor)}" == term]
-                ref = [r for r in long if f"{factor}={r.get(factor)}" not in fit.terms]
+                # Besides `arm` itself, compare attack runs: the factor's effect
+                # on harm under attack, not pooled with the twin runs.
+                runs = [r for r in long if factor == "arm" or r["arm"] == "attack"]
+                named = [(f"{factor}={r.get(factor)}", r) for r in runs]
+                level = [r for name, r in named if name == term]
+                ref = [
+                    r
+                    for name, r in named
+                    if name not in fit.terms and name not in dropped
+                ]
                 diff = paired_difference(level, ref, outcome, n_boot=n_boot)
                 table.append(
                     {
@@ -847,14 +873,24 @@ def cmd_trace_check(args: argparse.Namespace) -> int:
 
 def cmd_power(args: argparse.Namespace) -> int:
     delta = stats.power_mde(
-        args.base_rate, args.pairs, args.epochs, n_sim=args.n_sim, seed=args.seed
-    )
-    design = (
-        f"base rate {args.base_rate}, {args.pairs} pairs x {args.epochs} epochs, "
-        f"alpha 0.05, 80% power, {args.n_sim} simulations"
+        args.base_rate,
+        args.pairs,
+        args.epochs,
+        n_sim=args.n_sim,
+        seed=args.seed,
+        icc=args.icc,
+        effect_concentration=args.effect_concentration,
     )
     found = f"{delta:.2f}" if delta is not None else "none (not reachable)"
-    print(f"minimum detectable attack - twin difference: {found} ({design})")
+    print(f"minimum detectable mean attack - twin difference: {found}")
+    print(
+        "assumptions: "
+        f"twin base rate {args.base_rate} on the logit scale with pair ICC {args.icc}; "
+        f"effect in {args.effect_concentration:.0%} of pairs (capped at rate 1); "
+        f"{args.pairs} pairs x {args.epochs} epochs per arm; paired sign-flip test "
+        f"(999 fixed patterns), alpha 0.05, 80% power, {args.n_sim} simulations, "
+        f"seed {args.seed}"
+    )
     return 0
 
 
@@ -941,6 +977,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     power.add_argument("--base-rate", type=float, required=True)
     power.add_argument("--pairs", type=int, required=True)
     power.add_argument("--epochs", type=int, required=True)
+    power.add_argument("--icc", type=float, default=stats.POWER_ICC)
+    power.add_argument(
+        "--effect-concentration",
+        type=float,
+        default=stats.POWER_EFFECT_CONCENTRATION,
+        help="share of pairs the attack moves",
+    )
     power.add_argument("--n-sim", type=int, default=500)
     power.add_argument("--seed", type=int, default=0)
     power.set_defaults(func=cmd_power)
