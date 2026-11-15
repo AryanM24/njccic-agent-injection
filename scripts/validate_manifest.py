@@ -21,7 +21,8 @@ Checks, in order:
      that keeps instruction wording out of the public corpus (README C3).
   9. Optional fields, when present, have the right types; `kind: "control"`
      rows (benign-but-weird controls) must NOT contain the marker and must carry
-     an `expect` block.
+     an `expect` block. Every other row lists all `component_markers`, except a
+     `false_premise` row, which lists its `premise_marker` instead.
  10. `correct` declares at least one well-formed correct-handling alternative
      (see `correct_errors`).
  11. `canaries` equals `eduinject.corpus.CANARIES`.
@@ -57,7 +58,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from eduinject.agents.task_facts import on_file_addresses
-from eduinject.corpus import CANARIES, CANDIDATE_TOKEN, MARKERS, split_for
+from eduinject.corpus import (
+    CANARIES,
+    CANDIDATE_TOKEN,
+    COMPONENT_MARKERS,
+    MARKERS,
+    split_for,
+)
 from eduinject.extraction import extract
 from eduinject.task import workflow as workflow_for
 from eduinject.tools.ats import POSTINGS
@@ -350,6 +357,13 @@ def validate_entry(
             for field in ("premise_marker", "premise_subject", "verification_tool")
             if not entry.get(field)
         ]
+    elif entry.get("kind") != "control" and entry.get("component_markers") != dict(
+        COMPONENT_MARKERS
+    ):
+        errors.append(
+            f"line {line_no}: an attack row must list every component marker "
+            "in 'component_markers' (regenerate the corpus)"
+        )
     if errors:
         # Can't safely proceed to file/extraction checks without the fields
         # above, so stop here for this entry.

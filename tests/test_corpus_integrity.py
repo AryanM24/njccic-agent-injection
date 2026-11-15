@@ -36,6 +36,7 @@ from validate_manifest import (
     listed_marker_violations,
     marker_only_violations,
     pair_set_mismatch,
+    validate_entry,
     validate_manifest,
 )
 from validate_manifest import (
@@ -507,7 +508,6 @@ def test_public_and_canonical_pair_sets_match(workflow: str) -> None:
     assert not diff.only_public and not diff.only_canonical
 
 
-@pytest.mark.xfail(strict=True, reason="regenerated in Task 20")
 def test_committed_corpus_matches_the_generators(generated_corpus: Path) -> None:
     """The committed corpus is exactly what the generators produce: every
     manifest row (JSON-equal) and every artifact file (byte-equal)."""
@@ -754,6 +754,13 @@ def test_validator_checks_component_markers(generated_corpus: Path) -> None:
                 assert "component_markers" not in row
             else:
                 assert row["component_markers"] == COMPONENT_MARKERS
+    attack_row = _rows(_generated(generated_corpus, "w1"))[0]
+    for partial in (None, {"target": COMPONENT_MARKERS["target"]}):
+        attack_row["component_markers"] = partial
+        assert any(
+            "every component marker" in e
+            for e in validate_entry(attack_row, 1, set(), generated_corpus)
+        )
     # Extra wording beside component markers is still wording.
     assert marker_only_violations(f"{attack} filler", "", MARKER) == [
         f"{attack} filler"
