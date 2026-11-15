@@ -1309,8 +1309,9 @@ implementation's.
     rows list `premise_marker` instead), and `listed_marker_violations` checks each
     listed marker in the attack extraction and absent from the twin. Cost: a
     partial gated text cannot be used.
-15. **Provenance** (§3.2): trust is decided by condition (identity mode
-    `facts`/`guard`; the typed trusted block); the operator request is a
+15. **Provenance** (§3.2): trust is decided by condition: in a typed cell
+    only the typed trusted record is trusted text; the facts block counts
+    only under identity mode `facts`/`guard` in a free_text cell; the operator request is a
     trusted root (operator ∩ document → `ambiguous`); substitution needs a
     twin call to the same sink tool (added calls are `authorization` /
     `action_divergence`); `doc_unavailable` → NaN; tool descriptions are the
@@ -1372,6 +1373,17 @@ implementation's.
     every wave merge, enforced in part by `tests/test_docs_fresh.py` (every
     module and script in AGENTS.md, every sweep flag and `analyze.py`
     subcommand in RUNNING.md). Cost: none.
+28. **`PROVENANCE_VERSION` is hashed** (§4.3): the gate acts on the §3.2
+    labels, so `provenance.PROVENANCE_VERSION` is in every cell's
+    `config_hash`, and any change to the extractors, `SINKS`, the trusted-text
+    rule or the classes bumps it. Cost: every `config_hash` changes.
+29. **Typed cells do not trust the facts block** (§3.2): the model in a typed
+    cell never sees it, so only the typed trusted record is trusted text
+    there. Cost: provenance labels change in typed + `guard` cells.
+30. **Rule targets per workflow, profile rule rates per cell** (§3.7): a
+    `rule:<id>` target is defined only on runs of the rule's own workflow,
+    and profile rule rates are per A6 cell. Cost: none on data; earlier
+    pooled rule rates are not comparable.
 
 ## 9. What remains unmeasured
 

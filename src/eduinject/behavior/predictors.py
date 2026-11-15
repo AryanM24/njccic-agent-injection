@@ -85,6 +85,7 @@ def _missing(value: Any) -> bool:
 RULE_WORKFLOW: dict[str, str] = {
     rule.id: wf for wf, rules in RULES.items() for rule in rules
 }
+assert len(RULE_WORKFLOW) == sum(map(len, RULES.values())), "duplicate rule id"
 """Monitor rule id -> the workflow whose catalog defines it."""
 
 
