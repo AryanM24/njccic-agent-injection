@@ -10,7 +10,7 @@ built to avoid. With `isolated=True` the document text is simply not present in
 any input after stage 1: the isolation is a missing wire, not an instruction.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, TypedDict
 
 from inspect_ai.agent import (
@@ -36,6 +36,7 @@ from inspect_ai.util import json_schema, store_as
 from pydantic import BaseModel
 
 from ..scorers.outcomes import action_text
+from ..tools.gate import GateContext, gate_context, gated_tools, note_message
 from ..tools.guard import Guard
 from ..tools.ledger import Ledger
 from .handoff_schemas import AnalysisHandoff, IntakeHandoff, parse_handoff
@@ -81,6 +82,7 @@ def action_agent(
     action_system: str,
     guard: Guard | None = None,
     usage: list[ModelUsage] | None = None,
+    gate: GateContext | None = None,
 ) -> Agent:
     """Build the tool-using action stage.
 
@@ -93,6 +95,7 @@ def action_agent(
         action_system: The workflow's action-stage system prompt.
         guard: Authorization guard the tools enforce, or None.
         usage: Receives the token usage of every generation of the loop.
+        gate: The policy gate's context; when set, every tool is gated.
 
     Returns:
         A react agent with the scope's tools.
@@ -103,10 +106,13 @@ def action_agent(
         output = await get_model().generate(state.messages, tools)
         if usage is not None and output.usage is not None:
             usage.append(output.usage)
+        if gate is not None:
+            note_message(gate, output.message)
         state.output = output
         state.messages.append(output.message)
         return state
 
+    tools = tools_for_scope(scope, instance, guard)
     return react(
         name="action",
         description="Carries out the assessed request using district systems.",
@@ -115,7 +121,7 @@ def action_agent(
         # own assistant and submit prompts, putting un-versioned prompt text
         # into an independent variable (C4).
         prompt=AgentPrompt(instructions=action_system, assistant_prompt=None),
-        tools=tools_for_scope(scope, instance, guard),
+        tools=tools if gate is None else gated_tools(tools, gate, instance),
         model=generate,
         # Keep the submit call in the transcript: `stage3_messages` is the
         # measurement record of what the agent did, and the default drops it.
@@ -185,6 +191,10 @@ async def run_pipeline(
     relay_system: str | None = None,
     handoff_mode: str = "free_text",
     trusted_block: str | None = None,
+    gate: bool = False,
+    gate_meta: Mapping[str, Any] | None = None,
+    workflow: str | None = None,
+    identity_mode: str = "off",
 ) -> dict[str, Any]:
     """Run one document through intake -> analysis -> relays -> action.
 
@@ -226,6 +236,12 @@ async def run_pipeline(
         trusted_block: The trusted case record as JSON (`trusted_fields`),
             built from the manifest and directories by the caller; required
             when typed. It replaces `task_facts`.
+        gate: Put the policy gate (doc 11 §4.3) in front of the action stage's
+            tools, outside the guard.
+        gate_meta: Sample metadata the gate's rules read; required with `gate`.
+        workflow: Workflow code ("w1", "w2", "w3"); required with `gate`.
+        identity_mode: The cell's identity_mode, which decides the trusted
+            text the gate's provenance check counts.
 
     Returns:
         `stages` (one `Stage` per stage, in order: `intake`, `analysis`,
@@ -241,6 +257,8 @@ async def run_pipeline(
     typed = handoff_mode == "typed"
     if typed and (trusted_block is None or task_facts is not None):
         raise ValueError("typed hand-off needs trusted_block and no task_facts")
+    if gate and (gate_meta is None or workflow is None):
+        raise ValueError("gate needs gate_meta and workflow")
     ledger = store_as(Ledger, instance=instance)
     ledger.scope = scope
     ledger.granted_tools = list(tool_names_for_scope(scope))
@@ -321,8 +339,23 @@ async def run_pipeline(
             s3_input += f"\n\n{task_facts}"
     s3_input += source
     s3_usage: list[ModelUsage] = []
+    ctx = (
+        gate_context(
+            workflow or "",
+            identity_mode,
+            handoff_mode,
+            gate_meta or {},
+            operator_request,
+            document_text,
+            [(st["name"], st["output"]) for st in stages],
+        )
+        if gate
+        else None
+    )
     s3 = await run(
-        action_agent(scope, instance, tools_for_scope, action_system, guard, s3_usage),
+        action_agent(
+            scope, instance, tools_for_scope, action_system, guard, s3_usage, ctx
+        ),
         [ChatMessageUser(content=s3_input)],
     )
     result: dict[str, Any] = {
