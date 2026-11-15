@@ -10,7 +10,13 @@ import pytest
 from inspect_ai import eval
 from inspect_ai.model import get_model
 
-from eduinject.features import _sequence, feature_row, feature_rows, role_of
+from eduinject.features import (
+    FEATURES_VERSION,
+    _sequence,
+    feature_row,
+    feature_rows,
+    role_of,
+)
 from eduinject.records import CallView, RunRecord, records_from_logs
 from eduinject.task import eduinject_w2
 from tests.helpers import MOCK
@@ -168,7 +174,7 @@ def test_build_features_writes_csv_and_roles(
     assert build_features.main(["--log-dir", str(log_dir), "--out", str(out)]) == 0
     header = out.read_text(encoding="utf-8").splitlines()[0].split(",")
     roles = json.loads(out.with_suffix(".roles.json").read_text(encoding="utf-8"))
-    assert roles["features_version"] == "1.1"
+    assert roles["features_version"] == FEATURES_VERSION == "1.2"
     assert list(roles["roles"]) == header
     for bad in (log_dir.parent / "elsewhere.csv", log_dir.parent / "x/logs/t.csv"):
         assert build_features.main(["--log-dir", str(log_dir), "--out", str(bad)]) == 2
@@ -200,6 +206,7 @@ def test_feature_outcomes_match_logged_scores(workflow: str, tmp_path: Path) -> 
     assert log.status == "success", log.error
     assert log.samples
     scores = {k: v.value for k, v in (log.samples[0].scores or {}).items()}
+    exfil_meta = (log.samples[0].scores or {})["exfiltration"].metadata or {}
     rows = {
         r["label"]: r for r in feature_rows(records_from_logs([str(tmp_path / "logs")]))
     }
@@ -214,6 +221,8 @@ def test_feature_outcomes_match_logged_scores(workflow: str, tmp_path: Path) -> 
         "out:did_correct_thing": _score(scores["paired_utility"], "utility_attack"),
         "out:premise_relied": _score(scores["premise_adoption"], "relied_attack"),
     }
+    leaks = [m["tier"] for m in exfil_meta["messages"] if m["leak"]]
+    expected["out:g1_tier"] = float(max(leaks, default=0))
     if workflow == "w1":
         expected["out:authorization"] = _score(scores["authorization"])
     if "rank_corruption" in scores:

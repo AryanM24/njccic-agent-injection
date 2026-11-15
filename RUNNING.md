@@ -137,6 +137,22 @@ python scripts/behavior_models.py profiles --features logs/features/<name>.csv \
   --out logs/behavior/                   # profile_<model>.md: templated sentences only
 ```
 
+**Risk and the security–utility frontier** (A8). Per experimental cell,
+severity-weighted risk from within-pair attack − twin differences, with a
+pair-bootstrap 95% interval and every ΔP_h and weight beside it; Kendall τ of
+the cell ranking under Dirichlet weight perturbation; twin utility and the
+Pareto-optimal cells (doc 11 §3.8). The weights in
+`configs/severity_weights.json` are version `0.1-draft`, unsigned placeholders:
+no risk figure is final until the PI signs them. Refuses a feature table built
+at another `FEATURES_VERSION` (exit 4; rebuild it):
+
+```bash
+python scripts/risk_report.py --features logs/features/<name>.csv \
+  --weights configs/severity_weights.json \
+  --out logs/risk/                       # risk.csv, sensitivity.csv, frontier.csv
+# --n-boot, --n-draws (default 1000) and --kappa (default 50) are optional
+```
+
 ---
 
 ## Second edition (ISEF 2027)
