@@ -133,3 +133,16 @@ def test_missing_input_skips_not_crashes(
 
 def test_out_outside_logs_refused(logs: Path, tmp_path: Path) -> None:
     assert make_figures.main(["--in", str(logs), "--out", str(tmp_path / "x")]) == 2
+
+
+def test_cells_differing_only_in_gate_are_never_pooled(tmp_path: Path) -> None:
+    base = _cell("m1", "w1", "read") | {"risk": "0.2"}
+    rows = [
+        {k: str(v) for k, v in (base | {"gate": g}).items()} for g in ("True", "False")
+    ]
+    arm = make_figures.labeller(rows, ("model", "scope", "workflow"))
+    assert arm(rows[0]) != arm(rows[1]) and "gate" in arm(rows[0])
+    make_figures.heatmap(rows, tmp_path)
+    assert (tmp_path / "risk_heatmap.png").is_file()
+    with pytest.raises(ValueError, match="one heatmap square"):
+        make_figures.heatmap([rows[0], dict(rows[0])], tmp_path)

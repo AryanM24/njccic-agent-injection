@@ -33,7 +33,6 @@ from eduinject.analysis import CELL_FIELDS
 
 ROOT = Path(__file__).resolve().parents[1]
 LOGS = ROOT / "logs"
-CELL = ("model", "workflow", "scope", "isolated", "defense")
 # Okabe-Ito: distinguishable under the common colour-vision deficiencies.
 PALETTE = (
     "#0072B2",
@@ -89,8 +88,21 @@ def find_features(dirs: list[Path]) -> list[Row] | None:
     return None
 
 
-def label(row: Row, fields: tuple[str, ...] = CELL) -> str:
+def label(row: Row, fields: tuple[str, ...]) -> str:
     return " | ".join(row.get(f, "") for f in fields if row.get(f, ""))
+
+
+def labeller(rows: list[Row], skip: tuple[str, ...] = ("model",)) -> Any:
+    """Row -> label naming every CELL_FIELD that varies across `rows` (bar `skip`).
+
+    Cells differing in any field are never pooled, so each must get its own label.
+    """
+    varying = [
+        f
+        for f in CELL_FIELDS
+        if f not in skip and len({r.get(f, "") for r in rows}) > 1
+    ]
+    return lambda r: ", ".join(f"{f}={r.get(f, '')}" for f in varying)
 
 
 def save(fig: Any, out: Path, name: str) -> Path:
@@ -114,10 +126,14 @@ def err(rows: list[Row], value: str, lo: str, hi: str) -> list[list[float]]:
 
 def stage_survival(feats: list[Row], out: Path) -> list[Path]:
     stages = [s for s in STAGES if any(f"carry:{s}" in r for r in feats[:1])]
+    attacks = [
+        r for r in feats if r.get("label") == "attack" and r.get("status") == "ok"
+    ]
+    arm = labeller(attacks, ())
     by_model: dict[str, dict[str, list[Row]]] = defaultdict(lambda: defaultdict(list))
     for r in feats:
         if r.get("label") == "attack" and r.get("status") == "ok":
-            by_model[r["model"]][label(r, ("workflow", "scope", "isolated"))].append(r)
+            by_model[r["model"]][arm(r)].append(r)
     paths = []
     for model, cells in sorted(by_model.items()):
         fig, ax = plt.subplots(figsize=(6, 4))
@@ -139,14 +155,17 @@ def stage_survival(feats: list[Row], out: Path) -> list[Path]:
 
 
 def halflife(rows: list[Row], out: Path) -> Path:
-    cells = sorted({label(r) for r in rows})
+    name = labeller(rows, ())
+    cells = sorted({name(r) for r in rows})
     fams = sorted({r["family"] for r in rows}, key=lambda f: (f != "warning", f))
     fig, ax = plt.subplots(figsize=(max(6, 1.2 * len(cells)), 4.5))
     w = 0.8 / max(len(fams), 1)
     for j, fam in enumerate(fams):
-        mine = {label(r): r for r in rows if r["family"] == fam}
+        mine = {name(r): r for r in rows if r["family"] == fam}
+        if len(mine) != sum(r["family"] == fam for r in rows):
+            raise ValueError(f"two cells share a half-life label: {fam}")
         sel = [mine[c] for c in cells if c in mine]
-        xs = [cells.index(label(r)) + j * w for r in sel]
+        xs = [cells.index(name(r)) + j * w for r in sel]
         ax.bar(
             xs,
             [num(r["half_life"]) for r in sel],
@@ -170,9 +189,10 @@ def halflife(rows: list[Row], out: Path) -> Path:
 
 def transitions(rows: list[Row], out: Path) -> list[Path]:
     cells: dict[str, list[Row]] = defaultdict(list)
+    rows = [r for r in rows if r.get("kind") == "transition"]
+    name = labeller(rows, ())
     for r in rows:
-        if r.get("kind") == "transition":
-            cells[label(r)].append(r)
+        cells[name(r) or "all"].append(r)
     paths = []
     for cell, rs in sorted(cells.items()):
         frm = sorted({r["from"] for r in rs})
@@ -253,21 +273,19 @@ def heatmap(risk: list[Row], out: Path) -> Path:
         1, len(groups), figsize=(6 * len(groups), 4.5), squeeze=False
     )
     for ax, (wf, rows) in zip(axes[0], groups.items(), strict=True):
-        acc: dict[tuple[str, str], list[float]] = defaultdict(list)
+        arm = labeller(rows, ("model", "scope", "workflow"))
+        acc: dict[tuple[str, str], float] = {}
         for r in rows:
             v = num(r["risk"])
-            if not math.isnan(v):
-                arm = f"iso={r.get('isolated', '')}, {r.get('defense', '') or 'no defense'}"
-                acc[(r["model"], f"{r.get('scope', '')} / {arm}")].append(v)
+            if math.isnan(v):
+                continue
+            key = (r["model"], f"{r.get('scope', '')} / {arm(r)}")
+            if key in acc:
+                raise ValueError(f"two cells map to one heatmap square: {key}")
+            acc[key] = v
         models = sorted({m for m, _ in acc})
         cols = sorted({c for _, c in acc})
-        grid = [
-            [
-                sum(acc[(m, c)]) / len(acc[(m, c)]) if (m, c) in acc else math.nan
-                for c in cols
-            ]
-            for m in models
-        ]
+        grid = [[acc.get((m, c), math.nan) for c in cols] for m in models]
         im = ax.imshow(grid, cmap="cividis_r")
         ax.set_xticks(range(len(cols)), cols, rotation=40, ha="right", fontsize=7)
         ax.set_yticks(range(len(models)), models, fontsize=8)
