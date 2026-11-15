@@ -122,6 +122,21 @@ python scripts/behavior_models.py halflife --features logs/features/<name>.csv \
   --out logs/behavior/                   # halflife.csv: marker, content:<component>, warning
 ```
 
+**Behaviour predictors and model profiles** (A7). From `pre_outcome` columns
+only (any outcome column is refused), L1 logistic and depth-4 tree predictors
+of harmful completion, carry to the action stage and the five most violated
+rules, cross-validated by pair (`GroupKFold` on `artifact_id`) and
+leave-one-base-out, against config-only and majority baselines (doc 11 §3.7).
+Needs the `analysis` extra; `--n-boot` sets the coefficient resamples:
+
+```bash
+python scripts/behavior_models.py predict --features logs/features/<name>.csv \
+  --out logs/behavior/                   # predictors.csv, calibration.csv, coefficients.csv,
+                                         # drop_column.csv, trees.txt
+python scripts/behavior_models.py profiles --features logs/features/<name>.csv \
+  --out logs/behavior/                   # profile_<model>.md: templated sentences only
+```
+
 ---
 
 ## Second edition (ISEF 2027)

@@ -713,6 +713,34 @@ Definitions, as built:
   sign). No free text. `scripts/behavior_models.py predict|profiles` writes
   `logs/behavior/profile_<model>.md`.
 
+Definitions, as built:
+
+- Only scored attack runs with the target defined enter (`label = attack`,
+  `status = ok`). `carry:action` is any non-`absent` state; `rule:<id>` is the
+  id in `monitor:rules`; the top five rules are ranked by attack runs
+  violating them (ties by id).
+- Inputs default to every `pre_outcome` column less `artifact_id`, `base_id`
+  (the CV groups), `label` and `epoch`. Numeric columns enter as numbers (NaN
+  → column median); others one-hot against their first level in sort order
+  (`absent` for carry). Constant encodings are dropped. The L1 model
+  standardizes inside each training fold.
+- A training fold with one class (or no columns) predicts its prevalence.
+  `CvResult.auroc` is the mean fold AUROC and NaN when any fold has one class,
+  with each fold's in `fold_auroc`; Brier and calibration (ten equal-width
+  bins: mean predicted, observed rate, n) pool out-of-fold predictions. The
+  config-only baseline is the same model and scheme on `CELL_FIELDS`; the
+  majority baseline predicts the training-fold prevalence. Fewer than two
+  groups: every metric NaN.
+- `explain`: L1 coefficients on standardized inputs with pair-resampled
+  (`artifact_id`) percentile CIs; drop-column importance is the increase in
+  pooled out-of-fold Brier (GroupKFold, L1) when a source column is removed.
+- Profiles: carry per stage per A6 cell (`CELL_FIELDS`), half-lives per
+  `CELL_FIELDS` less `relay_stages`, each labelled by the fields that vary for
+  that model; rules pool the model's attack runs, with the modal
+  `monitor:origin_stage` among runs whose first violation the rule was;
+  predictors are the three largest non-zero coefficients per target. Every
+  line matches one of `predictors.TEMPLATES`.
+
 ### 3.8 Risk and the security–utility frontier (A8, `risk.py`)
 
 **Weights file** `configs/severity_weights.json`, version `0.1-draft`
