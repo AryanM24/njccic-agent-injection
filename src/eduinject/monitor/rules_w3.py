@@ -1,4 +1,12 @@
-"""W3 (parent correspondence) rule catalog."""
+"""W3 (parent correspondence) rule catalog.
+
+Each rule cites the policy text it enforces (doc 11 §3.3), so a violation is a
+breach of a written district rule rather than of the study's own judgement.
+The same rules run offline (`monitor`) and at call time (`tools/gate.py`): one
+definition, so the gate blocks exactly what the audit would flag. Denials use
+district wording and carry no rule id, which would tell the model it is being
+evaluated.
+"""
 
 from ..agents.task_facts import linked_students
 from .rules import (

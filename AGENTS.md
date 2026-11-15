@@ -33,10 +33,14 @@ Two name collisions follow from that arrangement and cause real mistakes:
 ### The eduinject package — `src/eduinject/`
 
 Data flows in one direction: `extraction` turns bytes into the text the intake
-agent sees, `agents/pipeline` runs that text through three stages against
-`tools/`, the `tools/ledger` records what was attempted, and `scorers/` reduce
-the finished record to numbers. `config` is hashed into every run so the
-conditions behind a figure are recoverable from the log alone.
+agent sees, `agents/pipeline` runs that text through intake, analysis, 0–3
+relay stages and action (free-text or typed hand-offs) against `tools/`, where
+the optional `tools/gate` checks each sink call against the `monitor/` rules
+before it runs; the `tools/ledger` records what was attempted, and `scorers/`
+reduce the finished record to numbers. Offline, `records` turns logs into
+typed runs, `features` into one table, and `stats`, `behavior/` and `risk`
+model that table. `config` is hashed into every run so the conditions behind a
+figure are recoverable from the log alone.
 
 | File | What it holds |
 | --- | --- |
@@ -89,7 +93,9 @@ conditions behind a figure are recoverable from the log alone.
 | Path | What it is |
 | --- | --- |
 | `pyproject.toml` | The eduinject package: deps (`inspect-ai`, `pypdf`, `python-docx`, `pydantic`), the `dev`, `openrouter` and `analysis` extras, `src/` layout, and pytest config (`testpaths = ["tests"]`). |
-| `README.md` | Project overview: the three-stage pipeline, the four load-bearing constraints, why benign twins are mandatory, how to run it, and release status. |
+| `README.md` | Project overview: the staged pipeline (relays, hand-off modes, gate), the arms and instruments, what is measured, the four load-bearing constraints, why benign twins are mandatory, how to run it, and release status. |
+| `RUNNING.md` | Every command, each with a dry-run or no-model example: free checks, sweeps (`--arms`, `--model-preset`, `--hosts`), the offline analyses in order, and the first-edition run record. |
+| `HANDOFF.md` | Current state and the "You must do" list only a project member can do. |
 | `Makefile` | `make install` (lock file, then the package), `make check` (ruff, format check, mypy) and `make test-eduinject` (pytest); CI runs the same two targets. |
 | `.gitattributes` | LF line endings everywhere; binary fixtures and the grounding archive are left byte-exact. |
 | `.gitignore` | Secrets (`.env*`), Python artifacts, `logs/`, and the **gated** paths that must never be committed: `corpus/canonical/*` and `src/eduinject/corpus/payloads.py`. |
@@ -127,6 +133,10 @@ conditions behind a figure are recoverable from the log alone.
 | `tests/*_w1_w3.py` | The same isolation, outcome, tool and end-to-end guarantees for W1 and W3. |
 | `tests/test_corpus_integrity.py`, `test_directory_ground_truth.py`, `test_fixture_writers.py`, `test_design_docs_in_sync.py` | Corpus shape and marker-only policy, directory/manifest agreement, PDF-writer regression, and design doc ↔ code agreement (`DOC_VERSIONS` vs each doc's header). |
 | `tests/test_recipient_classes.py`, `test_floor_consistency.py`, `test_verify_scores.py`, `test_generators.py`, `test_no_test_tells.py`, `test_tier1_guard.py`, `test_ci_parity.py` | Phase 0 guarantees: recipient classes, one noise floor (AST scan of `scripts/`), score verification, deterministic generators, no test tells in model-visible text, the Tier-1 guard, and `make` ↔ CI parity. |
+| `tests/test_records.py`, `test_provenance.py`, `test_monitor.py`, `test_gate.py`, `test_features.py`, `test_stats.py`, `test_propagation_model.py`, `test_predictors.py`, `test_risk.py`, `test_handoff.py`, `test_run_sweep.py`, `test_estimate_cost.py`, `test_figures.py` | Phases A–E guarantees: one record per run, provenance classes (incl. `ambiguous` / `unseen`), a positive and a negative trace per monitor rule, gate = monitor on the same trace, feature roles and outcome parity, GEE/power on known answers, half-life recovers a known s, the leakage guard, risk on known answers, trusted fields from code, sweep arms and costs, figures that never pool cells. |
+| `tests/test_pipeline_smoke.py` | End-to-end smoke: a mock-model W1 task writes a real log, then every offline script runs on it in the documented order. |
+| `tests/test_docs_fresh.py` | Every module and script is in this file; every `run_sweep.py` flag and `analyze.py` subcommand is in `RUNNING.md`. |
+| `tests/conftest.py`, `tests/helpers.py` | The `generated_corpus` fixture (a fresh public corpus in tmp) and synthetic pipeline records shared by the tests. |
 | `logs/` | Inspect `.eval` run logs. Gitignored (traces are Tier 1). |
 | `.env.example` | Committed template (`INSPECT_EVAL_MODEL`, `OPENROUTER_API_KEY`); copy to the gitignored `.env`. |
 
@@ -139,6 +149,14 @@ conditions behind a figure are recoverable from the log alone.
 - A new monitor rule → `monitor/rules_w*.py`, citing verbatim policy text; give it a positive and a negative case in `tests/test_monitor.py`.
 - A new task parameter → `build_task` (validated, `ValueError` naming it), task metadata, `config_hash`, `analysis.CELL_FIELDS`, a `run_sweep.py` axis (documented in `RUNNING.md`), and `test_every_condition_reaches_the_hash`.
 - A new manifest field the scorers read → the generator (`scripts/_fixtures_common.py`), `task.OPTIONAL_METADATA` and `scripts/validate_manifest.py`.
+- A gate rule → there are none: the gate (`tools/gate.py`) enforces the monitor's rules, so add or change the rule in `monitor/rules_w*.py` and bump `MONITOR_RULES_VERSION`; a new gated tool is a new sink.
+- A new feature column → `features.py` (give it a role in `_PRE` / `_POST` or the stage-column pattern; `role_of` raises on unknown columns) and bump `FEATURES_VERSION`; an outcome column must reuse the scorers' functions (the parity test checks it).
+- A new harm in the risk score → `risk.HARMS` and `harm_indicators`, plus a weight in `configs/severity_weights.json` (a new unsigned version; `load_weights` refuses a missing or unknown harm).
+- A new behaviour target or profile sentence → `behavior/predictors.py` (`TARGETS`, `TEMPLATES`); predictors may read only `pre_outcome` columns.
+- A new model or host → an entry in `configs/models.json` (exact pin and prices from openrouter.ai; never guessed, `TODO` until known); hosts are swept with `--hosts`.
+- A new named sweep arm → `run_sweep.ARMS`, documented in `RUNNING.md`.
+- A new figure → `scripts/make_figures.py`, reading a CSV another script wrote, labelled by every varying cell field (never pooling cells), written under `logs/`.
+- A new payload goal or marker → `corpus/__init__.py` (`GOALS`, `COMPONENT_MARKERS`, `payload_problems`), the generators and `validate_manifest.py`; the wording itself only in the gated `payloads.py`, written by the PI.
 - A new module or script → a row in the tables above, and any new `run_sweep.py` flag or `analyze.py` subcommand → `RUNNING.md` (`tests/test_docs_fresh.py` fails otherwise).
 - Anything that changes what is being measured → update `docs/design/` and bump the version in `config.DOC_VERSIONS`, or record the gap in `implementation-map.md`.
 

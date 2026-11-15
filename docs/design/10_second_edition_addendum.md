@@ -1,6 +1,6 @@
 # Second-Edition Pre-Registration Addendum
 
-> **Superseded in part (2026-11-14):** absorbed into `11_study_design.md` §1.3; its `guarded_outcome` and `legit_task_completed` are replaced by `harm` and `did_correct_thing`.
+> **Superseded in part (2026-11-14):** absorbed into `11_study_design.md` §1.3; its `guarded_outcome` and `legit_task_completed` are replaced by `harm` and `did_correct_thing`, and its presets (§6, `run_sweep.py::PRESETS`) now live in `configs/models.json` (doc 11 §6).
 
 **STATUS: DRAFT v0.1 (2026-10-25). Not signed. Not in force.** Recorded in
 `config.DOC_VERSIONS` as `second_edition_addendum = "0.1-draft"`. While any
