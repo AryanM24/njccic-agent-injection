@@ -13,12 +13,16 @@ from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, Literal, NamedTuple, TypeVar, cast, get_args
 
-from ..analysis import N_BOOT, _percentiles
+from ..analysis import CELL_FIELDS, N_BOOT, percentiles
 from ..scorers.outcomes import CarryState
 
 Outcome = Literal["no_act", "benign_act", "harmful_act"]
-GROUP_FIELDS = ("model", "workflow", "isolated", "handoff_mode", "gate")
-"""The chain and the half-lives are fitted once per these cell coordinates."""
+GROUP_FIELDS = CELL_FIELDS
+"""The chain is fitted once per experimental cell: never pooled across any
+condition (defense, identity, scope, relays, verification, effort, prompts,
+corpus, tool surface)."""
+HALFLIFE_FIELDS = tuple(f for f in CELL_FIELDS if f != "relay_stages")
+"""Half-life pools relay depths (that is what it fits) and nothing else."""
 
 _STATES: tuple[CarryState, ...] = get_args(CarryState)
 _OUTCOMES: tuple[Outcome, ...] = get_args(Outcome)
@@ -46,8 +50,8 @@ class Chain(NamedTuple):
 
 class PathDecomposition(NamedTuple):
     """P(harm) = reach_analysis × reach_action_given_analysis × harm_given_reached
-    + residual, the residual being harm without carry. NaN where a conditional
-    has no runs to condition on."""
+    + residual, the residual being harm not on the analysis→action carry path.
+    NaN where a conditional has no runs to condition on."""
 
     reach_analysis: float
     reach_action_given_analysis: float
@@ -129,13 +133,16 @@ def paths_from_features(
 
     `harmful_act` is `out:harm_completed`; `benign_act` is any executed call
     otherwise (`calls > 0`); else `no_act`.
+
+    Raises:
+        ValueError: A carry column holds something other than a carry state.
     """
     paths = []
     for r in _scored_attacks(rows):
-        states = tuple(
-            cast(CarryState, r.get(_column(marker_column, s)) or "absent")
-            for s in _stages(r)
-        )
+        values = [r.get(_column(marker_column, s)) or "absent" for s in _stages(r)]
+        if bad := [v for v in values if v not in _STATES]:
+            raise ValueError(f"unknown carry state(s) {bad} in {marker_column}")
+        states = tuple(cast(CarryState, v) for v in values)
         outcome: Outcome = (
             "harmful_act"
             if _num(r["out:harm_completed"]) == 1.0
@@ -188,7 +195,7 @@ def decompose(paths: Sequence[RunPath]) -> PathDecomposition:
     )
     p_harm = _div(harm, len(paths))
     # The product telescopes to harm-with-carry / runs, so the residual is the
-    # share of runs harmed without the marker reaching action; defined even when
+    # share of runs harmed off the analysis→action carry path; defined even when
     # a conditional has no runs.
     with_carry = sum(p.outcome == "harmful_act" for p in reached)
     return PathDecomposition(*factors, p_harm, p_harm - _div(with_carry, len(paths)))
@@ -265,6 +272,14 @@ def half_life(s: float) -> float:
 T = TypeVar("T", RunPath, Mapping[str, Any])
 
 
+class BootCI(NamedTuple):
+    """A pair-bootstrap 95% interval and how many draws defined it."""
+
+    lo: float
+    hi: float
+    kept: int
+
+
 def _pair(item: RunPath | Mapping[str, Any]) -> str:
     return item.artifact_id if isinstance(item, RunPath) else str(item["artifact_id"])
 
@@ -274,25 +289,28 @@ def bootstrap_pairs(
     statistic: Callable[[list[T]], float],
     n_boot: int = N_BOOT,
     seed: int = 0,
-) -> tuple[float, float]:
+) -> "BootCI":
     """95% interval of `statistic` over pair (`artifact_id`) resamples.
 
-    A draw on which the statistic is undefined (NaN) is dropped; (NaN, NaN)
-    when every draw is. Percentiles are doc 11 §2.8's.
+    A draw on which the statistic is undefined (NaN) is dropped and
+    `BootCI.kept` counts the rest; (NaN, NaN, 0) when every draw is.
+    Percentiles are doc 11 §2.8's.
     """
     by_pair: dict[str, list[T]] = defaultdict(list)
     for item in paths_or_rows:
         by_pair[_pair(item)].append(item)
     keys = sorted(by_pair)
     if not keys:
-        return math.nan, math.nan
+        return BootCI(math.nan, math.nan, 0)
     rng = random.Random(seed)
     draws = [
         statistic([x for k in rng.choices(keys, k=len(keys)) for x in by_pair[k]])
         for _ in range(n_boot)
     ]
     kept = [d for d in draws if not math.isnan(d)]
-    return _percentiles(kept) if kept else (math.nan, math.nan)
+    return (
+        BootCI(*percentiles(kept), len(kept)) if kept else BootCI(math.nan, math.nan, 0)
+    )
 
 
 def survival(
@@ -302,10 +320,14 @@ def survival(
     seed: int = 0,
 ) -> Survival:
     """`fit_survival` and `half_life` for `column`, with a pair-bootstrap CI on
-    the half-life (`lo`/`hi`) and `n` the runs at risk at k = 0."""
+    the half-life (`lo`/`hi`) and `n` the runs at risk at k = 0.
+
+    Scored attack runs only, so a run whose twin stopped at a typed hand-off
+    parse error (outcomes NaN on both sides) is excluded here too.
+    """
     counts = survival_by_depth(rows, column)
     s = fit_survival(counts)
-    lo, hi = bootstrap_pairs(
+    lo, hi, _ = bootstrap_pairs(
         _scored_attacks(rows),
         lambda chosen: half_life(fit_survival(survival_by_depth(chosen, column))),
         n_boot,
@@ -315,10 +337,10 @@ def survival(
 
 
 def group_rows(
-    rows: Iterable[Mapping[str, Any]],
+    rows: Iterable[Mapping[str, Any]], fields: Sequence[str] = GROUP_FIELDS
 ) -> dict[tuple[str, ...], list[Mapping[str, Any]]]:
-    """Rows by `GROUP_FIELDS` (values as strings, as a CSV holds them)."""
+    """Rows by `fields` (values as strings, as a CSV holds them)."""
     out: dict[tuple[str, ...], list[Mapping[str, Any]]] = defaultdict(list)
     for r in rows:
-        out[tuple(str(r.get(f, "")) for f in GROUP_FIELDS)].append(r)
+        out[tuple(str(r.get(f, "")) for f in fields)].append(r)
     return dict(out)

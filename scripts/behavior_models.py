@@ -7,8 +7,9 @@
 `chain` writes `chain.csv` (transition and emission fractions) and
 `decomposition.csv`; `halflife` writes `halflife.csv` (whole marker, each
 component marker as content, flag language as the warning). Every estimate
-is per (model, workflow, isolated, handoff_mode, gate) with a pair-bootstrap
-95% interval. OUT must lie under the repository's `logs/`. Nothing here
+is per experimental cell (`analysis.CELL_FIELDS`; half-lives pool relay depths
+only) with a pair-bootstrap 95% interval and the count of bootstrap draws that
+defined it. OUT must lie under the repository's `logs/`. Nothing here
 contacts a model.
 """
 
@@ -22,6 +23,7 @@ from typing import Any
 
 from eduinject.behavior.propagation_model import (
     GROUP_FIELDS,
+    HALFLIFE_FIELDS,
     RunPath,
     bootstrap_pairs,
     decompose,
@@ -78,22 +80,22 @@ def _chain(
                         fitted = getattr(fit_chain(chosen), kind)
                         return float(fitted[frm][to]) if frm in fitted else float("nan")
 
-                    lo, hi = bootstrap_pairs(paths, stat)
+                    ci = bootstrap_pairs(paths, stat)
                     chain_rows.append(
                         cell
-                        | {"kind": kind, "from": frm, "to": to, "p": p, "lo": lo}
-                        | {"hi": hi, "n_runs": chain.n_runs}
+                        | {"kind": kind, "from": frm, "to": to, "p": p, "lo": ci.lo}
+                        | {"hi": ci.hi, "n_boot_kept": ci.kept, "n_runs": chain.n_runs}
                     )
         for i, (name, value) in enumerate(decompose(paths)._asdict().items()):
 
             def part(chosen: list[RunPath], i: int = i) -> float:
                 return float(decompose(chosen)[i])
 
-            lo, hi = bootstrap_pairs(paths, part)
+            ci = bootstrap_pairs(paths, part)
             decomp_rows.append(
                 cell
-                | {"quantity": name, "value": value, "lo": lo, "hi": hi}
-                | {"n_runs": len(paths)}
+                | {"quantity": name, "value": value, "lo": ci.lo, "hi": ci.hi}
+                | {"n_boot_kept": ci.kept, "n_runs": len(paths)}
             )
     return chain_rows, decomp_rows
 
@@ -113,7 +115,7 @@ def _halflife(
             fit = survival(rows, column)
             if fit.n:
                 out.append(
-                    dict(zip(GROUP_FIELDS, key)) | {"family": family} | fit._asdict()
+                    dict(zip(HALFLIFE_FIELDS, key)) | {"family": family} | fit._asdict()
                 )
     return out
 
@@ -125,14 +127,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"refused: --out {args.out} is not under {LOGS}", file=sys.stderr)
         return 2
     with open(args.features, newline="", encoding="utf-8") as f:
-        groups = group_rows(csv.DictReader(f))
+        rows = list(csv.DictReader(f))
     out.mkdir(parents=True, exist_ok=True)
     if args.command == "chain":
-        chain_rows, decomp_rows = _chain(groups)
+        chain_rows, decomp_rows = _chain(group_rows(rows))
         _write(out / "chain.csv", chain_rows)
         _write(out / "decomposition.csv", decomp_rows)
     else:
-        _write(out / "halflife.csv", _halflife(groups))
+        _write(out / "halflife.csv", _halflife(group_rows(rows, HALFLIFE_FIELDS)))
     return 0
 
 

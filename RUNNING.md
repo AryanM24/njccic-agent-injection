@@ -111,9 +111,9 @@ python scripts/build_features.py --log-dir logs/<dir> --out logs/features/<name>
   --split dev                            # <name>.csv and <name>.roles.json
 ```
 
-**Stage propagation and half-life** (A6). From a feature table, per (model,
-workflow, isolated, handoff_mode, gate) with pair-bootstrap 95% intervals
-(doc 11 §3.6). `--out` must lie under the repository's `logs/`:
+**Stage propagation and half-life** (A6). From a feature table, per
+experimental cell (half-lives pool relay depths only) with pair-bootstrap 95%
+intervals (doc 11 §3.6). `--out` must lie under the repository's `logs/`:
 
 ```bash
 python scripts/behavior_models.py chain --features logs/features/<name>.csv \

@@ -10,10 +10,12 @@ from typing import Any
 import pytest
 
 from eduinject.behavior.propagation_model import (
+    HALFLIFE_FIELDS,
     RunPath,
     decompose,
     fit_chain,
     fit_survival,
+    group_rows,
     half_life,
     paths_from_features,
     survival,
@@ -159,4 +161,20 @@ def test_behavior_models_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         families = {r["family"] for r in csv.DictReader(f)}
     assert families == {"marker", "warning", "content:recipient"}
     assert (out / "chain.csv").read_text().count("transition") > 0
+    assert "n_boot_kept" in (out / "chain.csv").read_text().splitlines()[0]
     assert "residual" in (out / "decomposition.csv").read_text()
+
+
+def test_unknown_carry_state_raises() -> None:
+    with pytest.raises(ValueError, match="carried"):
+        paths_from_features([_row("p1", [S, "carried", A], [0, 0, 0])])
+
+
+def test_groups_never_pool_across_conditions() -> None:
+    rows = [
+        _row("p1", [S, S, A], [0, 0, 0], defense="none", relay_stages=0),
+        _row("p2", [S, S, A], [0, 0, 0], defense="spotlight", relay_stages=0),
+        _row("p3", [S, S, S, A], [0, 0, 0, 0], defense="none", relay_stages=1),
+    ]
+    assert len(group_rows(rows)) == 3
+    assert len(group_rows(rows, HALFLIFE_FIELDS)) == 2

@@ -610,6 +610,9 @@ Definitions, as built:
   runs when either stopped at a typed hand-off parse error (§4.2).
 - `out:*` and the scorers share the public `outcomes.on_file`, `rank_of` and
   `premise_ranks`; a test checks `out:*` against the logged scores (W1–W3).
+- Pair-level comparisons (`out:rank_shift`, `out:substituted`, the premise
+  rank clause) need both runs at status `ok`, in the feature table and the
+  scorers alike; an unfinished side is NaN, never ranked last.
 - `artifact_id` is `pre_outcome` only as a group key (A7's `GroupKFold`); it
   is never a predictor.
 - `feature_rows` pairs the runs of a sample epoch by label and raises
@@ -656,15 +659,17 @@ Definitions, as built:
 - **Decomposition.** `decompose(paths) -> PathDecomposition(reach_analysis,
   reach_action_given_analysis, harm_given_reached, p_harm, residual)`, where
   `residual = p_harm − reach_analysis × reach_action_given_analysis ×
-  harm_given_reached` is harm without carry.
+  harm_given_reached` is harm not on the analysis→action carry path.
 - **Half-life.** `survival_by_depth` counts, among runs carried at analysis,
   those still carried at stage analysis + k (k = 0..`RELAY_MAX`). `fit_survival`
   is the binomial MLE of s for S(k) = s^k (golden-section search on (0, 1]);
   `half_life(s) = ln 0.5 / ln s`, infinite at s = 1. CIs by
   `bootstrap_pairs` (1000 pair resamples, seed 0, §2.8's percentiles).
-- Fitted per (model, workflow, isolated, handoff_mode, gate) and, for
-  half-life, separately for each component marker (content, §5.1) and for flag
-  language (warning).
+- Fitted per experimental cell (`analysis.CELL_FIELDS`: never pooled across
+  defense, identity mode, scope, relays, verification tools, effort, prompts,
+  corpus or tool surface); half-life groups by `CELL_FIELDS` less
+  `relay_stages`, the depth it fits. Half-life is fitted separately for each
+  component marker (content, §5.1) and for flag language (warning).
 - `scripts/behavior_models.py chain|halflife --features CSV --out
   logs/behavior/`.
 
@@ -677,6 +682,11 @@ Definitions, as built:
   `reach_analysis` is carry at the analysis stage; `reach_action_given_analysis`
   is carry at the last (action) stage among those, with relays inside it;
   conditionals with nothing to condition on are NaN.
+- Only scored attack runs enter the half-life too, so a run whose twin
+  stopped at a typed hand-off parse error (outcomes NaN on both sides, §3.4)
+  is excluded. A carry column holding anything but a §2.2 carry state raises.
+- `chain.csv` and `decomposition.csv` record `n_boot_kept`, the bootstrap
+  draws on which the statistic was defined.
 - Survival depth k runs over analysis and the relays only (not the action
   stage), so k ≤ `RELAY_MAX`. "Carried" is a non-`absent` carry state, or
   `flag:<stage> = 1` for the warning. `fit_survival` returns exactly 1.0 when

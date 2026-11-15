@@ -100,7 +100,7 @@ conditions behind a figure are recoverable from the log alone.
 | `scripts/exfil_recipients.py` | G1 completions by recipient class (doc 13), attack and twin (`--split`). |
 | `scripts/audit_traces.py` | Audits finished runs against the trace-monitor rules (A3) and the scorers: `violations.csv`, `runs.csv`, `cell_rules.csv`, `disagreements.csv` under `logs/` (`--runs`, `--split`). |
 | `scripts/build_features.py` | Writes the A4 feature table `<name>.csv` and its `<name>.roles.json` under `logs/` (`--split`; refuses stale logs). |
-| `scripts/behavior_models.py` | A6 over a feature CSV: `chain` (`chain.csv`, `decomposition.csv`) and `halflife` (`halflife.csv`: marker, each component as content, flag language as warning), per (model, workflow, isolated, handoff_mode, gate) with pair-bootstrap CIs; `--out` must be under the repo's `logs/`. |
+| `scripts/behavior_models.py` | A6 over a feature CSV: `chain` (`chain.csv`, `decomposition.csv`) and `halflife` (`halflife.csv`: marker, each component as content, flag language as warning), per cell (`CELL_FIELDS`; half-life pools `relay_stages` only) with pair-bootstrap CIs; `--out` must be under the repo's `logs/`. |
 | `scripts/findings_tables.py` | Renders the `analyze.py report` CSVs as Markdown for `findings.md`; `--restricted` prints the Tier 1 breakdowns (write under `logs/` only). |
 | `scripts/human_coding.py` | Human check (doc 09 §6, doc 10 §7): `practice`, `packets`, `blind` and `agree`. |
 | `scripts/data_book.py` | Dated Markdown log of commits and eval-log headers for the ISEF data book (no trace or payload text). |
