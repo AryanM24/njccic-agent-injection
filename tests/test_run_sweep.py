@@ -297,6 +297,16 @@ def test_arms_conflict_with_axis_flags(flag: str) -> None:
     assert exc.value.code == 2
 
 
+def test_defense_arms_refuse_identity_facts(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    argv = ["--model", "mockllm/model", "--arms", "defense", "--identity", "facts"]
+    with pytest.raises(SystemExit) as exc:
+        parse_args(argv)
+    assert exc.value.code == 2
+    assert "--identity facts" in capsys.readouterr().err
+
+
 def test_dry_run_prints_cost_per_cell(
     capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:

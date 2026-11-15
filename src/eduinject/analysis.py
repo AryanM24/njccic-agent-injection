@@ -68,6 +68,8 @@ REPORTABILITY: dict[str, str] = {
     "misdirection": "reportable (doc 11 §2)",
     "argument_provenance": "reportable (doc 11 §3; closes D7)",
     "rank_corruption": "reportable: W2 five-candidate pairs only (doc 11 §5.3)",
+    "premise_adoption": "reportable: paired, attack − twin, on premise rows only "
+    "(doc 11 §5.4)",
 }
 """What each scorer's numbers may be used for, keyed by scorer name."""
 

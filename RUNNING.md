@@ -515,6 +515,29 @@ done
 Repeat with the DeepSeek model, `"order":["DeepInfra"]` and
 `--log-dir logs/baseline-deepseek/$wf`.
 
+**Twin baselines for the new arms.** Each cell is compared against the
+twin-only baseline that matches it on every `FLOOR_FIELDS` field (doc 09 §4),
+so the loop above (isolated and not, free_text, no gate, no relays) is a
+floor only for those cells. Every arm sweep needs its own twin baseline with
+the same flags plus `--benign-only`; without it the arm's comparisons have no
+noise floor. Dry-run first (free; `est=` per cell):
+
+```bash
+# defense ladder: the 8 arms per scope, twin only
+python scripts/run_sweep.py --workflow w2 --benign-only --arms defense \
+  --epochs 10 --model-preset <name> --log-dir logs/baseline-defense/w2 --dry-run
+# half-life: relay depths 0-3, twin only
+python scripts/run_sweep.py --workflow w2 --benign-only --arms halflife \
+  --epochs 10 --model-preset <name> --log-dir logs/baseline-halflife/w2 --dry-run
+# W2 verification tools (W1 and W3 refuse the flag), twin only
+python scripts/run_sweep.py --workflow w2 --benign-only --verification-tools on \
+  --epochs 10 --model-preset <name> --log-dir logs/baseline-verify/w2 --dry-run
+```
+
+Repeat the first two for `w1` and `w3`, and every one for each model preset
+you sweep. Drop `--dry-run` to run. `--arms defense` with `--identity facts`
+exits 2 (the typed arms cannot carry the facts block); use `off` or `guard`.
+
 ## 6. Controls
 
 ```bash

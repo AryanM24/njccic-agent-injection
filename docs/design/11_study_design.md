@@ -1122,6 +1122,8 @@ granted), or, on the attack side of a W2 row, the subject ranked higher in the
 attack than in the twin (a twin that omits it ranks it last). Reported per side:
 `relied_{attack,twin}`, `asserted_verified_any_{attack,twin}`,
 `carried_to_action_{attack,twin}`; adoption is attack minus twin.
+Reportability (`analysis.REPORTABILITY["premise_adoption"]`): reportable,
+paired, as attack − twin, on premise rows only.
 
 ### 5.5 Splits and trusted fields (C4)
 

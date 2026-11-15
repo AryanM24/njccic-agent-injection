@@ -62,6 +62,7 @@ offline analyses in order). Divergences: `docs/design/implementation-map.md`
 | 7 | **Sign docs 10, 11, 12 and 13** (PI and second reviewer) | Set each version to `1.0` in the doc header **and** in `config.DOC_VERSIONS` (the sync test enforces both), commit, push. Every doc 12 row marked "needs a decision from me" is yours first. |
 | 8 | **Initial DEV-2** (first edition) | `docs/design/attestations/preregistration_deviations.md`; still awaiting PI initials (doc 12 A-85). |
 | 9 | **Run the study** | The commands in `RUNNING.md`: dry run each sweep, a pilot with `--allow-draft-docs` only with your OK, then the twin baseline, controls and attack sweeps (`--arms defense`, `--arms halflife`, `--model-preset ...`), then the offline analyses in order. |
+| 10 | **Run a twin baseline for every new arm** | Each arm's noise floor comes from a twin-only run matching it on every `FLOOR_FIELDS` field, so the plain twin baseline does not cover them. Per workflow and model preset: `--benign-only --arms defense`, `--benign-only --arms halflife`, and for W2 `--benign-only --verification-tools on` (dry-run examples in `RUNNING.md` §5). Without them those arms' comparisons have no floor. |
 
 **Decided:** A-86 (Tier-1 wording already in the public `origin/main`
 history) stays in history: no rewrite, no force-push (PI decision 2026-11-14;

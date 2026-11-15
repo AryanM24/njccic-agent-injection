@@ -269,6 +269,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         if clash:
             flags = ", ".join("--" + a.replace("_", "-") for a in clash)
             parser.exit(2, f"--arms conflicts with {flags}\n")
+        if args.arms == "defense" and "facts" in args.identity:
+            parser.exit(
+                2,
+                "--arms defense includes typed hand-off arms, which cannot run "
+                "with --identity facts (doc 11 §8 ruling 2); use off or guard\n",
+            )
         args.conditions = ARMS[args.arms]
     else:
         args.conditions = [

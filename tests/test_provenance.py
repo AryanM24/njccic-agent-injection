@@ -306,6 +306,7 @@ def test_intent_reads_text_accumulated_over_earlier_messages() -> None:
 
 def test_argument_provenance_in_scorer_set() -> None:
     assert REPORTABILITY["argument_provenance"] == "reportable (doc 11 §3; closes D7)"
+    assert "attack − twin" in REPORTABILITY["premise_adoption"]
     for code, workflow in WORKFLOWS.items():
         for benign in (False, True):
             names = {
