@@ -8,7 +8,10 @@ from typing import Any
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+from estimate_cost import estimate_usd
 from run_sweep import parse_args, parse_model_arg
+
+from eduinject.models import load_models
 
 
 def test_model_args_parse_json_values_and_fall_back_to_strings() -> None:
@@ -76,27 +79,129 @@ def test_dry_run_needs_no_api_key(
 
 
 def test_preset_supplies_model_pin_and_effort_and_flags_override() -> None:
-    args = parse_args(["--preset", "deepseek-v4.1"])
-    assert args.model == "openrouter/deepseek/deepseek-v4.1-flash-1017"
-    assert dict(args.model_args)["provider"]["allow_fallbacks"] is False
-    assert args.reasoning_effort == "low"
+    (cell,) = parse_args(["--preset", "deepseek-v4.1"]).cells
+    assert cell.model == "openrouter/deepseek/deepseek-v4.1-flash-1017"
+    assert dict(cell.model_args)["provider"]["allow_fallbacks"] is False
+    assert cell.reasoning_effort == "low"
+
+
+def test_model_arg_still_overrides_pin() -> None:
     pinned = '{"order":["Other"],"allow_fallbacks":false}'
-    over = parse_args(["--preset", "luna", "-M", f"provider={pinned}"])
+    (over,) = parse_args(["--preset", "luna", "-M", f"provider={pinned}"]).cells
     assert dict(over.model_args)["provider"]["order"] == ["Other"]
 
 
+def test_preset_alias_same_dest() -> None:
+    assert (
+        parse_args(["--preset", "luna"]).cells
+        == parse_args(["--model-preset", "luna"]).cells
+    )
+
+
+def test_registry_matches_recorded_models() -> None:
+    models = load_models()
+    pin = {"allow_fallbacks": False}
+    want = {
+        "luna": (
+            "openrouter/openai/gpt-6-luna",
+            {"order": ["OpenAI"], **pin},
+            0.10,
+            0.50,
+            False,
+        ),
+        "deepseek-v4": (
+            "openrouter/deepseek/deepseek-v4-flash-0731",
+            {"order": ["DeepInfra"], **pin},
+            0.06,
+            0.18,
+            True,
+        ),
+        "gemini-3.8-flash": (
+            "openrouter/google/gemini-3.8-flash",
+            {"order": ["Google AI Studio"], **pin},
+            0.75,
+            3.75,
+            False,
+        ),
+        "deepseek-v4.1": (
+            "openrouter/deepseek/deepseek-v4.1-flash-1017",
+            {"order": ["DeepInfra"], **pin, "quantizations": ["fp8"]},
+            0.098,
+            0.294,
+            True,
+        ),
+    }
+    for name, (model, provider, p_in, p_out, open_weight) in want.items():
+        e = models[name]
+        assert (e.model, e.provider, e.price_in, e.price_out, e.open_weight) == (
+            model,
+            provider,
+            p_in,
+            p_out,
+            open_weight,
+        )
+        assert e.reasoning_effort == "low" and not e.todo
+    assert "fp8" in models["deepseek-v4"].note
+
+
+def test_placeholders_are_todo_and_refused(capsys: pytest.CaptureFixture[str]) -> None:
+    for name in ("todo-closed-family", "todo-open-family"):
+        assert load_models()[name].todo
+        with pytest.raises(SystemExit) as exc:
+            parse_args(["--model-preset", name])
+        assert exc.value.code == 2
+        assert f"entry {name} has TODO fields" in capsys.readouterr().err
+
+
+def test_two_presets_double_cells(capsys: pytest.CaptureFixture[str]) -> None:
+    from run_sweep import main
+
+    argv = ["--workflow", "w1", "--scopes", "read_write", "--isolation", "isolated"]
+    argv += ["--benign-only", "--limit", "1", "--dry-run"]
+    assert main([*argv, "--model-preset", "luna"]) == 0
+    one = capsys.readouterr().out
+    assert (
+        main(
+            [
+                *argv,
+                "--model-preset",
+                "luna",
+                "deepseek-v4",
+                "--reasoning-effort",
+                "low",
+                "high",
+            ]
+        )
+        == 0
+    )
+    four = capsys.readouterr().out
+    assert one.count("config_hash=") == 1 and four.count("config_hash=") == 4
+    assert (
+        len(
+            {
+                ln.split("config_hash=")[1].split()[0]
+                for ln in four.splitlines()
+                if "config_hash=" in ln
+            }
+        )
+        == 4
+    )
+
+
 def test_dry_run_estimates_cost_and_crosses_the_new_axes(
-    capsys: pytest.CaptureFixture[str],
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    from run_sweep import PRESETS, estimate_usd, main
+    from run_sweep import main
 
     argv = ["--preset", "gemini-3.8-flash", "--workflow", "w1", "--limit", "2"]
     argv += ["--scopes", "read_write", "--identity", "off", "guard"]
     argv += ["--defense", "none", "spotlight", "--isolation", "isolated", "--dry-run"]
+    argv += ["--log-dir", str(tmp_path / "none")]
     assert main(argv) == 0
     out = capsys.readouterr().out
     assert out.count("config_hash=") == 4 and "total: 8 pairs" in out
-    assert f"${estimate_usd(8, False, PRESETS['gemini-3.8-flash']):,.2f}" in out
+    want = estimate_usd(8, False, 0, load_models()["gemini-3.8-flash"], None)
+    assert f"${want:,.2f}" in out and "default pilot tokens" in out
 
 
 def test_dry_run_crosses_new_axes(capsys: pytest.CaptureFixture[str]) -> None:

@@ -17,12 +17,16 @@ import sys
 from pathlib import Path
 from typing import Any, NamedTuple, get_args
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 from dotenv import find_dotenv, load_dotenv
+from estimate_cost import estimate_usd, token_stats
 from inspect_ai import eval_set
 
 from eduinject.agents.task_facts import IDENTITY_MODES
 from eduinject.config import draft_documents
 from eduinject.defense import DEFENSES
+from eduinject.models import ModelEntry, load_models
 from eduinject.task import DEFAULT_MANIFEST as W2_MANIFEST
 from eduinject.task import HANDOFF_MODES, ReasoningEffort, eduinject_w2
 from eduinject.task_w1 import DEFAULT_MANIFEST as W1_MANIFEST
@@ -43,52 +47,13 @@ WORKFLOWS = {
 }
 
 
-class Preset(NamedTuple):
-    """A model with its pinned host and list price (USD per 1M tokens)."""
+class Cell(NamedTuple):
+    """One model configuration of the sweep: model, bound args, effort, price."""
 
-    model: str
-    provider: dict[str, Any]
-    price_in: float
-    price_out: float
-
-
-def _pin(*hosts: str, **extra: Any) -> dict[str, Any]:
-    return {"order": list(hosts), "allow_fallbacks": False, **extra}
-
-
-PRESETS: dict[str, Preset] = {
-    # First edition (doc 06 §2). Luna is also a second-edition model (doc 10 §6).
-    "luna": Preset("openrouter/openai/gpt-6-luna", _pin("OpenAI"), 0.10, 0.50),
-    "deepseek-v4": Preset(
-        "openrouter/deepseek/deepseek-v4-flash-0731", _pin("DeepInfra"), 0.06, 0.18
-    ),
-    # Second edition (doc 10 §6). Prices are OpenRouter's list prices for the
-    # pinned host, read from openrouter.ai/api/v1 on 2026-10-25; re-check them
-    # before a run, since a dry run's estimate is only as good as these.
-    "gemini-3.8-flash": Preset(
-        "openrouter/google/gemini-3.8-flash", _pin("Google AI Studio"), 0.75, 3.75
-    ),
-    "deepseek-v4.1": Preset(
-        "openrouter/deepseek/deepseek-v4.1-flash-1017",
-        _pin("DeepInfra", quantizations=["fp8"]),
-        0.098,
-        0.294,
-    ),
-}
-"""Named models for `--preset`. A dated snapshot is used wherever one exists, so
-the same slug cannot silently serve a newer model mid-study."""
-
-TOKENS_PER_PAIR = (23_000, 9_500)
-"""(input, output) tokens for one attack+twin sample, from the first edition's
-pilot (RUNNING.md step 4). A twin-only sample is about half. Frontier models
-with thinking on may use more output: the pilot run checks this."""
-
-
-def estimate_usd(samples: int, twin_only: bool, preset: Preset) -> float:
-    """Rough cost of `samples` runs at the preset's prices."""
-    scale = 0.5 if twin_only else 1.0
-    tin, tout = (n * scale * samples / 1e6 for n in TOKENS_PER_PAIR)
-    return tin * preset.price_in + tout * preset.price_out
+    model: str | None
+    model_args: tuple[tuple[str, Any], ...]
+    reasoning_effort: str | None
+    entry: ModelEntry | None
 
 
 def parse_model_arg(text: str) -> tuple[str, Any]:
@@ -110,11 +75,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Model to evaluate (defaults to the preset's, else $INSPECT_EVAL_MODEL).",
     )
     parser.add_argument(
+        "--model-preset",
         "--preset",
-        choices=sorted(PRESETS),
-        default=None,
-        help="Named model with its host pin and price (see PRESETS). Explicit "
-        "--model / -M override it.",
+        dest="model_presets",
+        nargs="+",
+        choices=sorted(load_models()),
+        default=[],
+        help="Registry models (configs/models.json) with host pin and price. "
+        "Several names sweep the model axis; the same name may repeat. Explicit "
+        "--model / -M override the pin.",
     )
     parser.add_argument(
         "-M",
@@ -130,9 +99,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--reasoning-effort",
+        nargs="+",
         default=None,
         choices=get_args(ReasoningEffort),
-        help="Fixed reasoning effort for every stage (recorded in config_hash).",
+        help="Reasoning effort cells to sweep (recorded in config_hash); "
+        "defaults to the preset's.",
     )
     parser.add_argument(
         "--log-dir", default="logs/sweep", help="Directory for the eval set logs."
@@ -247,14 +218,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "stop before contacting the model.",
     )
     args = parser.parse_args(argv)
-    preset = PRESETS.get(args.preset) if args.preset else None
-    if preset:
-        args.model = args.model or preset.model
-        if not any(key == "provider" for key, _ in args.model_args):
-            args.model_args = [("provider", preset.provider), *args.model_args]
-        # Every reported run is pinned at low effort (doc 06 §2, doc 10 §6).
-        args.reasoning_effort = args.reasoning_effort or "low"
-    args.model = args.model or os.environ.get("INSPECT_EVAL_MODEL")
+    args.cells = []
+    for name in args.model_presets or [None]:
+        entry = load_models()[name] if name else None
+        if entry and entry.todo:
+            parser.exit(2, f"configs/models.json entry {name} has TODO fields\n")
+        model_args = list(args.model_args)
+        if entry and not any(key == "provider" for key, _ in model_args):
+            model_args = [("provider", entry.provider), *model_args]
+        model = args.model or (entry.model if entry else None)
+        model = model or os.environ.get("INSPECT_EVAL_MODEL")
+        for effort in args.reasoning_effort or [
+            entry.reasoning_effort if entry else None
+        ]:
+            args.cells.append(Cell(model, tuple(model_args), effort, entry))
     return args
 
 
@@ -263,7 +240,7 @@ def main(argv: list[str] | None = None) -> int:
     # (and need its API key) before that.
     load_dotenv(find_dotenv(usecwd=True))
     args = parse_args(argv)
-    if not args.model:
+    if not args.cells[0].model:
         print(
             "no model: pass --model or set INSPECT_EVAL_MODEL (see .env.example)",
             file=sys.stderr,
@@ -281,24 +258,28 @@ def main(argv: list[str] | None = None) -> int:
     manifest = args.manifest or default_manifest
 
     isolation = ISOLATION_CHOICES[args.isolation]
-    tasks = [
-        task_fn(
-            scope=scope,
-            isolated=isolated,
-            manifest=manifest,
-            epochs=args.epochs,
-            benign_only=args.benign_only,
-            controls=args.controls,
-            model=args.model,
-            model_args=dict(args.model_args) or None,
-            reasoning_effort=args.reasoning_effort,
-            identity_mode=identity,
-            defense=defense,
-            relay_stages=relay,
-            handoff_mode=handoff,
-            gate=gate == "on",
-            verification_tools=verify == "on",
+    cells = [
+        (
+            cell,
+            task_fn(
+                scope=scope,
+                isolated=isolated,
+                manifest=manifest,
+                epochs=args.epochs,
+                benign_only=args.benign_only,
+                controls=args.controls,
+                model=cell.model,
+                model_args=dict(cell.model_args) or None,
+                reasoning_effort=cell.reasoning_effort,  # type: ignore[arg-type]
+                identity_mode=identity,
+                defense=defense,
+                relay_stages=relay,
+                handoff_mode=handoff,
+                gate=gate == "on",
+                verification_tools=verify == "on",
+            ),
         )
+        for cell in args.cells
         for scope in args.scopes
         for isolated in isolation
         for identity in args.identity
@@ -308,23 +289,37 @@ def main(argv: list[str] | None = None) -> int:
         for gate in args.gate
         for verify in args.verification_tools
     ]
+    tasks = [task for _, task in cells]
 
     print(
-        f"sweeping {len(tasks)} cell(s) of {args.workflow} on {args.model} "
+        f"sweeping {len(tasks)} cell(s) of {args.workflow} on "
+        f"{len({c.model for c, _ in cells})} model(s) "
         f"(epochs={args.epochs}, benign_only={args.benign_only}, "
-        f"controls={args.controls}, model_args={dict(args.model_args)}, "
-        f"reasoning_effort={args.reasoning_effort})"
+        f"controls={args.controls})"
     )
+    twin_only = args.benign_only or args.controls
     total = 0
-    for task in tasks:
+    usd_total = 0.0
+    unknown = fallback = False
+    for cell, task in cells:
         meta = task.metadata or {}
         samples = len(task.dataset)
         if args.limit is not None:
             samples = min(samples, args.limit)
         runs = samples * (task.epochs or 1)
         total += runs
+        line = ""
+        if cell.entry:
+            stats = token_stats([args.log_dir], {"config_hash": meta["config_hash"]})
+            usd = estimate_usd(runs, twin_only, meta["relay_stages"], cell.entry, stats)
+            fallback |= stats is None
+            unknown |= usd is None
+            usd_total += usd or 0.0
+            line = f" cost={'price unknown (TODO)' if usd is None else f'${usd:,.2f}'}"
         print(
-            f"  scope={meta['scope']:<10} "
+            f"  model={cell.model} effort={cell.reasoning_effort} "
+            f"provider={dict(cell.model_args).get('provider')} "
+            f"scope={meta['scope']:<10} "
             f"isolated={meta['isolated']!s:<5} "
             f"identity={meta['identity_mode']:<5} "
             f"defense={meta['defense']:<9} "
@@ -333,20 +328,24 @@ def main(argv: list[str] | None = None) -> int:
             f"gate={meta['gate']} "
             f"verify={meta['verification_tools']} "
             f"runs={runs:<6} "
-            f"config_hash={meta['config_hash']}"
+            f"config_hash={meta['config_hash']}{line}"
         )
-    twin_only = args.benign_only or args.controls
     unit = "twin runs" if twin_only else "pairs"
     print(f"total: {total} {unit}")
-    if args.preset:
-        usd = estimate_usd(total, twin_only, PRESETS[args.preset])
-        print(f"estimated cost: ${usd:,.2f} (+~20% retries; list prices, see PRESETS)")
+    if any(c.entry for c, _ in cells):
+        basis = (
+            "default pilot tokens (no logs found in --log-dir)"
+            if fallback
+            else "tokens measured from existing logs"
+        )
+        text = "price unknown (TODO)" if unknown else f"${usd_total:,.2f}"
+        print(f"estimated cost: {text} (+~20% retries; list prices; {basis})")
     drafts = draft_documents()
     if drafts:
         print(f"governing documents still in draft: {', '.join(drafts)}")
     if args.dry_run:
         return 0
-    paid = not str(args.model).startswith("mockllm/")
+    paid = not all(str(c.model).startswith("mockllm/") for c, _ in cells)
     if drafts and paid and not args.allow_draft_docs:
         print(
             "refusing a paid run while governing documents are drafts: sign and "
@@ -358,7 +357,7 @@ def main(argv: list[str] | None = None) -> int:
     success, logs = eval_set(
         tasks,
         log_dir=args.log_dir,
-        model=args.model,
+        model=args.cells[0].model if len({c.model for c in args.cells}) == 1 else None,
         limit=args.limit,
         max_connections=args.max_connections,
     )
