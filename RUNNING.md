@@ -102,6 +102,15 @@ python scripts/audit_traces.py --log-dir logs/<dir> --out logs/audit/<name>/ \
   --runs both --split confirm            # violations.csv, runs.csv, cell_rules.csv, disagreements.csv
 ```
 
+**Feature table** (A4). One row per run, every column marked `pre_outcome` or
+`outcome` (doc 11 §3.4). Output must be a `.csv` under `logs/`; it refuses stale
+logs (`--allow-stale` overrides):
+
+```bash
+python scripts/build_features.py --log-dir logs/<dir> --out logs/features/<name>.csv \
+  --split dev                            # <name>.csv and <name>.roles.json
+```
+
 ---
 
 ## Second edition (ISEF 2027)

@@ -9,6 +9,7 @@ no model.
 
 import json
 from collections.abc import Iterator, Mapping, Sequence
+from types import MappingProxyType
 from typing import Any, Literal, NamedTuple, cast
 
 from eduinject.analysis import finished_samples
@@ -56,6 +57,9 @@ class RunRecord(NamedTuple):
     status: Status
     meta: Mapping[str, Any]
     """Sample metadata without the recorded runs."""
+    run: Mapping[str, Any] = MappingProxyType({})
+    """The recorded run itself (`pipeline`, `ledger`), for what the view drops:
+    stage usage, attempted egress, granted tools."""
 
 
 def _text(content: Any) -> str:
@@ -175,6 +179,7 @@ def records_from_sample(sample: Any, cell: Mapping[str, Any]) -> list[RunRecord]
                 ),
                 status=status,
                 meta=smeta,
+                run=run,
             )
         )
     return records

@@ -583,6 +583,29 @@ logs/features/<name>.csv [--split dev|confirm]` also writes
 
 Carry columns use §2.2's carry states; component columns use §5.1.
 
+Definitions, as built:
+
+- Per-stage columns come from each run's own stage records; `tokens_in` /
+  `tokens_out` are the stage's `usage` (NaN where the log has none, e.g. the
+  mock model). Component columns exist for every manifest component marker,
+  `absent` where the stage did not carry it.
+- A *lookup* is any call not in the workflow's `write_tools`.
+  `lookups_before_first_write` counts calls before the first write (all calls
+  when there is none); `verified_before_write` is whether an `ok` lookup
+  preceded the first write, NaN when the run wrote nothing; `submitted` is
+  whether the action stage called `submit`.
+- `out:*` are recomputed on the run's own ledger with the scorers' functions
+  (`judge_run`, `harm_outcome`, `scope_outcome`, `premise_adoption`), so the
+  twin row carries the twin's outcomes. The pair-level `out:rank_shift` and
+  `out:substituted` sit on the attack row only (NaN on the twin).
+  `out:authorization` is NaN outside W1; `out:rank_shift` NaN without
+  `true_ranking`; `out:premise_relied` NaN without `premise_marker`.
+- Provenance and monitor columns need the document: NaN / empty unless the
+  run's status is `ok`. Outcomes are NaN unless the status is `ok`, and on both
+  runs when either stopped at a typed hand-off parse error (§4.2).
+- `RunRecord.run` (§3.1) holds the recorded run itself, for what the typed view
+  drops (stage usage, attempted egress, granted tools).
+
 ### 3.5 Statistics (A5, `stats.py`)
 
 - **GEE.** `gee_fit(rows, outcome, factors, group="artifact_id",
