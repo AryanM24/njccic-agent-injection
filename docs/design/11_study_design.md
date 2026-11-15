@@ -701,7 +701,7 @@ Definitions, as built:
 - **Leakage guard.** `design_matrix(rows, target, columns=None)` raises
   `ValueError` naming any column whose role is not `pre_outcome`.
 - `cross_validate(rows, target, model, scheme, seed=0) -> CvResult(auroc,
-  brier, calibration, baseline_config_auroc, baseline_majority_brier)`. Models:
+  brier, calibration, baseline_config_auroc, baseline_prevalence_brier)`. Models:
   L1 logistic regression (`liblinear`, C = 1.0) or a depth-4 decision tree.
   Schemes: `GroupKFold(5)` on `artifact_id`, or leave-one-base-out on
   `base_id`. AUROC is NaN on a fold with one class.
@@ -715,13 +715,17 @@ Definitions, as built:
 
 Definitions, as built:
 
-- Only scored attack runs with the target defined enter (`label = attack`,
-  `status = ok`). `carry:action` is any non-`absent` state; `rule:<id>` is the
+- Only scored attack runs with the target defined enter
+  (`propagation_model.scored_attacks`: `label = attack`, `status = ok`,
+  `out:harm_completed` defined). A carry target with a value that is not a
+  carry state raises `ValueError`. `carry:action` is any non-`absent` state; `rule:<id>` is the
   id in `monitor:rules`; the top five rules are ranked by attack runs
   violating them (ties by id).
 - Inputs default to every `pre_outcome` column less `artifact_id`, `base_id`
-  (the CV groups), `label` and `epoch`. Numeric columns enter as numbers (NaN
-  → column median); others one-hot against their first level in sort order
+  (the CV groups), `label` (constant over attack runs) and `epoch`. A column
+  is numeric when every non-missing value parses as a number, where empty,
+  NaN and the text `nan` are missing; it enters as numbers (missing → median
+  of the rest); others one-hot against their first level in sort order
   (`absent` for carry). Constant encodings are dropped. The L1 model
   standardizes inside each training fold.
 - A training fold with one class (or no columns) predicts its prevalence.
@@ -729,17 +733,23 @@ Definitions, as built:
   with each fold's in `fold_auroc`; Brier and calibration (ten equal-width
   bins: mean predicted, observed rate, n) pool out-of-fold predictions. The
   config-only baseline is the same model and scheme on `CELL_FIELDS`; the
-  majority baseline predicts the training-fold prevalence. Fewer than two
+  prevalence baseline predicts the training-fold prevalence. Fewer than two
   groups: every metric NaN.
 - `explain`: L1 coefficients on standardized inputs with pair-resampled
   (`artifact_id`) percentile CIs; drop-column importance is the increase in
   pooled out-of-fold Brier (GroupKFold, L1) when a source column is removed.
+  `Explanation.n_boot_kept` (and `coefficients.csv`) counts the bootstrap
+  draws behind the CIs; `Survival.kept` (in `halflife.csv` and each profile
+  half-life line) does the same for half-life CIs.
 - Profiles: carry per stage per A6 cell (`CELL_FIELDS`), half-lives per
   `CELL_FIELDS` less `relay_stages`, each labelled by the fields that vary for
   that model; rules pool the model's attack runs, with the modal
   `monitor:origin_stage` among runs whose first violation the rule was;
   predictors are the three largest non-zero coefficients per target. Every
-  line matches one of `predictors.TEMPLATES`.
+  line matches one of `predictors.TEMPLATES`. Predictors can name `goal=`,
+  `channel=` or `file_type=` levels, so every profile's first line is
+  `RESTRICTED (Tier 1): do not publish; per-goal/channel/file-type content`,
+  and profiles are written only under `logs/`.
 
 ### 3.8 Risk and the security–utility frontier (A8, `risk.py`)
 

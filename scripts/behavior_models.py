@@ -166,7 +166,10 @@ def _predict(rows: list[dict[str, Any]], out: Path, n_boot: int) -> None:
                     for p, o, n in cv.calibration
                 ]
         expl = explain(rows, target, n_boot)
-        coefs += [{"target": target} | c._asdict() for c in expl.std_coefs]
+        coefs += [
+            {"target": target} | c._asdict() | {"n_boot_kept": expl.n_boot_kept}
+            for c in expl.std_coefs
+        ]
         drops += [
             {"target": target, "column": c, "brier_increase": v}
             for c, v in expl.drop_column.items()

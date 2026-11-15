@@ -11,6 +11,7 @@ import pytest
 
 from eduinject.behavior.predictors import (
     LINE_PATTERNS,
+    RESTRICTED_HEADER,
     TARGETS,
     cross_validate,
     default_columns,
@@ -88,7 +89,7 @@ def test_l1_recovers_signal() -> None:
     for scheme in ("group_kfold", "leave_one_base_out"):
         cv = cross_validate(_rows(), "out:harm_completed", "l1", scheme)  # type: ignore[arg-type]
         assert cv.auroc > 0.9, scheme
-        assert cv.brier < cv.baseline_majority_brier
+        assert cv.brier < cv.baseline_prevalence_brier
         assert sum(n for _, _, n in cv.calibration) == 200
     tree = cross_validate(_rows(), "out:harm_completed", "tree", "group_kfold")
     assert tree.auroc > 0.9
@@ -129,6 +130,7 @@ def test_profile_has_no_free_text(tmp_path: Path) -> None:
     path = tmp_path / "profile_m0.md"
     write_profile("m0", profile_stats(rows, n_boot=20), path)
     lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln]
+    assert lines[0] == RESTRICTED_HEADER
     assert len(lines) > 6
     for line in lines:
         assert any(p.fullmatch(line) for p in LINE_PATTERNS), line
@@ -166,3 +168,27 @@ def test_behavior_models_predict_and_profiles(
         "profile_m0.md",
         "profile_m1.md",
     ]
+
+
+def test_nan_tokens_stay_numeric() -> None:
+    """NaN (float or CSV text) is missing, so a token column is median-imputed."""
+    rows = _rows()
+    for i, r in enumerate(rows):
+        r["tokens_in:intake"] = (math.nan, "nan", "", 10.0, 30.0)[i % 5]
+    _, _, names = design_matrix(rows, "out:harm_completed")
+    assert "tokens_in:intake" in names
+    assert not any(n.startswith("tokens_in:intake=") for n in names)
+
+
+def test_unrecognised_carry_target_raises() -> None:
+    rows = _rows()
+    rows[0]["carry:action"] = "maybe"
+    with pytest.raises(ValueError, match="maybe"):
+        design_matrix(rows, "carry:action")
+
+
+def test_not_features_name_their_reason() -> None:
+    with pytest.raises(ValueError, match=r"epoch \(epoch index\)"):
+        design_matrix(_rows(), "out:harm_completed", columns=["epoch"])
+    with pytest.raises(ValueError, match=r"artifact_id \(CV group key\)"):
+        design_matrix(_rows(), "out:harm_completed", columns=["artifact_id"])

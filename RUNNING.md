@@ -126,7 +126,7 @@ python scripts/behavior_models.py halflife --features logs/features/<name>.csv \
 only (any outcome column is refused), L1 logistic and depth-4 tree predictors
 of harmful completion, carry to the action stage and the five most violated
 rules, cross-validated by pair (`GroupKFold` on `artifact_id`) and
-leave-one-base-out, against config-only and majority baselines (doc 11 §3.7).
+leave-one-base-out, against config-only and prevalence baselines (doc 11 §3.7).
 Needs the `analysis` extra; `--n-boot` sets the coefficient resamples:
 
 ```bash

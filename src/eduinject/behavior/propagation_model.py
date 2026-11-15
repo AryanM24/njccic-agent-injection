@@ -61,16 +61,19 @@ class PathDecomposition(NamedTuple):
 
 
 class Survival(NamedTuple):
-    """Fitted per-hop survival `s`, `half_life`, its 95% CI and the runs at risk."""
+    """Fitted per-hop survival `s`, `half_life`, its 95% CI, the runs at risk,
+    and the bootstrap draws that defined the CI."""
 
     s: float
     half_life: float
     lo: float
     hi: float
     n: int
+    kept: int
 
 
-def _stage_order(stage: str) -> int:
+def stage_order(stage: str) -> int:
+    """Sort key putting stages in pipeline order (intake, analysis, relays, action)."""
     if stage == "intake":
         return 0
     if stage == "analysis":
@@ -80,14 +83,14 @@ def _stage_order(stage: str) -> int:
     return 1 + int(stage.removeprefix("relay_"))
 
 
-def _stages(row: Mapping[str, Any]) -> list[str]:
+def stages_of(row: Mapping[str, Any]) -> list[str]:
     """The stages this run had, in pipeline order (a CSV pads absent ones with "")."""
     found = {
         m[1]
         for k, v in row.items()
         if (m := _STAGE.fullmatch(k)) and v not in ("", None)
     }
-    return sorted(found, key=_stage_order)
+    return sorted(found, key=stage_order)
 
 
 def _column(column: str, stage: str) -> str:
@@ -104,14 +107,15 @@ def _num(value: Any) -> float:
         return math.nan
 
 
-def _on(value: Any) -> bool:
+def is_on(value: Any) -> bool:
     """Carried (any carry state but `absent`) or, for a flag column, flagged."""
     if value in _STATES:
         return bool(value != "absent")
     return _num(value) == 1.0
 
 
-def _scored_attacks(rows: Iterable[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+def scored_attacks(rows: Iterable[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """Attack runs at status `ok` whose `out:harm_completed` is defined."""
     return [
         r
         for r in rows
@@ -138,8 +142,8 @@ def paths_from_features(
         ValueError: A carry column holds something other than a carry state.
     """
     paths = []
-    for r in _scored_attacks(rows):
-        values = [r.get(_column(marker_column, s)) or "absent" for s in _stages(r)]
+    for r in scored_attacks(rows):
+        values = [r.get(_column(marker_column, s)) or "absent" for s in stages_of(r)]
         if bad := [v for v in values if v not in _STATES]:
             raise ValueError(f"unknown carry state(s) {bad} in {marker_column}")
         states = tuple(cast(CarryState, v) for v in values)
@@ -214,16 +218,16 @@ def survival_by_depth(
         column: `carry`, `carry:<component>` (content) or `flag` (warning).
     """
     counts: dict[int, list[int]] = defaultdict(lambda: [0, 0])
-    for r in _scored_attacks(rows):
-        stages = [s for s in _stages(r) if s != "action"]
+    for r in scored_attacks(rows):
+        stages = [s for s in stages_of(r) if s != "action"]
         if "analysis" not in stages:
             continue
         i = stages.index("analysis")
-        if not _on(r.get(_column(column, "analysis"))):
+        if not is_on(r.get(_column(column, "analysis"))):
             continue
         for k, stage in enumerate(stages[i:]):
             counts[k][0] += 1
-            counts[k][1] += _on(r.get(_column(column, stage)))
+            counts[k][1] += is_on(r.get(_column(column, stage)))
     return {k: (n, y) for k, (n, y) in sorted(counts.items())}
 
 
@@ -327,13 +331,13 @@ def survival(
     """
     counts = survival_by_depth(rows, column)
     s = fit_survival(counts)
-    lo, hi, _ = bootstrap_pairs(
-        _scored_attacks(rows),
+    lo, hi, kept = bootstrap_pairs(
+        scored_attacks(rows),
         lambda chosen: half_life(fit_survival(survival_by_depth(chosen, column))),
         n_boot,
         seed,
     )
-    return Survival(s, half_life(s), lo, hi, counts.get(0, (0, 0))[0])
+    return Survival(s, half_life(s), lo, hi, counts.get(0, (0, 0))[0], kept)
 
 
 def group_rows(

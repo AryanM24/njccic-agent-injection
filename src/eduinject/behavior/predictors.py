@@ -14,7 +14,7 @@ import re
 from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Any, Literal, NamedTuple
+from typing import Any, Literal, NamedTuple, get_args
 
 import numpy as np
 from numpy.typing import NDArray
@@ -33,21 +33,32 @@ from sklearn.tree import (  # type: ignore[import-untyped]
 
 from ..analysis import CELL_FIELDS, N_BOOT, percentiles
 from ..features import role_of
+from ..scorers.outcomes import CarryState
 from .propagation_model import (
     GROUP_FIELDS,
     HALFLIFE_FIELDS,
-    _on,
-    _stage_order,
-    _stages,
     bootstrap_pairs,
     group_rows,
+    is_on,
+    scored_attacks,
+    stage_order,
+    stages_of,
     survival,
 )
 
 TARGETS = ("out:harm_completed", "carry:action")
-NOT_FEATURES = frozenset(("artifact_id", "base_id", "label", "epoch"))
-"""Pre-outcome columns that are never predictors: the CV group keys, the label
-(constant over attack runs) and the epoch index."""
+NOT_FEATURES = {
+    "artifact_id": "CV group key",
+    "base_id": "CV group key",
+    "label": "constant over attack runs",
+    "epoch": "epoch index",
+}
+"""Pre-outcome columns that are never predictors, with the reason."""
+RESTRICTED_HEADER = (
+    "RESTRICTED (Tier 1): do not publish; per-goal/channel/file-type content"
+)
+"""First line of every profile: predictors may name goal=, channel= or
+file_type= levels, which the release policy keeps out of public outputs."""
 N_BINS = 10
 TOP_PREDICTORS = 3
 
@@ -63,6 +74,13 @@ def _num(value: Any) -> float:
         return math.nan
 
 
+def _missing(value: Any) -> bool:
+    """Empty, None, or a NaN (float or the CSV text "nan")."""
+    if value in ("", None):
+        return True
+    return isinstance(value, float | str) and str(value).strip().lower() == "nan"
+
+
 def _rules(row: Mapping[str, Any]) -> list[str]:
     return [r for r in str(row.get("monitor:rules") or "").split(";") if r]
 
@@ -73,18 +91,16 @@ def _y(row: Mapping[str, Any], target: str) -> float:
         return float(target.removeprefix("rule:") in _rules(row))
     if target.startswith("carry:"):
         value = row.get(target)
-        return math.nan if value in ("", None) else float(_on(value))
+        if value in ("", None):
+            return math.nan
+        if value not in get_args(CarryState):
+            raise ValueError(f"{target}: unrecognised carry state {value!r}")
+        return float(is_on(value))
     return _num(row.get(target))
 
 
 def _scored(rows: Sequence[Mapping[str, Any]], target: str) -> list[Mapping[str, Any]]:
-    return [
-        r
-        for r in rows
-        if r.get("label") == "attack"
-        and r.get("status") == "ok"
-        and not math.isnan(_y(r, target))
-    ]
+    return [r for r in scored_attacks(rows) if not math.isnan(_y(r, target))]
 
 
 def top_rule_targets(rows: Sequence[Mapping[str, Any]], n: int = 5) -> list[str]:
@@ -119,8 +135,10 @@ def _check(columns: Sequence[str]) -> None:
             role = role_of(column)
         except KeyError:
             role = "unknown"
-        if role != "pre_outcome" or column in NOT_FEATURES:
-            bad.append(f"{column} ({role if role != 'pre_outcome' else 'group key'})")
+        if role != "pre_outcome":
+            bad.append(f"{column} ({role})")
+        elif column in NOT_FEATURES:
+            bad.append(f"{column} ({NOT_FEATURES[column]})")
     if bad:
         raise ValueError(f"not admissible as predictors: {', '.join(bad)}")
 
@@ -137,7 +155,7 @@ def _encode(
     sources: list[str] = []
     for column in columns:
         values = [r.get(column) for r in rows]
-        present = [v for v in values if v not in ("", None)]
+        present = [v for v in values if not _missing(v)]
         nums = [_num(v) for v in present]
         if present and not any(math.isnan(x) for x in nums):
             col = np.array([_num(v) for v in values], dtype=float)
@@ -217,7 +235,7 @@ class CvResult(NamedTuple):
     brier: float
     calibration: list[tuple[float, float, int]]
     baseline_config_auroc: float
-    baseline_majority_brier: float
+    baseline_prevalence_brier: float
     fold_auroc: list[float]
 
 
@@ -295,13 +313,13 @@ def cross_validate(
         return CvResult(math.nan, math.nan, [], math.nan, math.nan, [])
     pred, aurocs = _oof(model, x, y, folds, seed)
     _, cfg_aurocs = _oof(model, x_cfg, y, folds, seed)
-    majority, _ = _oof(model, x[:, :0], y, folds, seed)
+    prevalence, _ = _oof(model, x[:, :0], y, folds, seed)
     return CvResult(
         auroc=_mean_auroc(aurocs),
         brier=float(np.mean((pred - y) ** 2)),
         calibration=_calibration(pred, y),
         baseline_config_auroc=_mean_auroc(cfg_aurocs),
-        baseline_majority_brier=float(np.mean((majority - y) ** 2)),
+        baseline_prevalence_brier=float(np.mean((prevalence - y) ** 2)),
         fold_auroc=aurocs,
     )
 
@@ -321,12 +339,14 @@ class Explanation(NamedTuple):
     depth-4 tree as text, and drop-column importance per source column: the
     pooled out-of-fold Brier (GroupKFold, L1) without the column minus with
     it, so positive means the column helps. Empty when the target has one
-    class."""
+    class. `n_boot_kept` counts the bootstrap draws behind the CIs (a
+    resample with one class is dropped)."""
 
     std_coefs: list[Coef]
     tree_text: str
     drop_column: dict[str, float]
     n: int
+    n_boot_kept: int = 0
 
 
 def explain(
@@ -380,7 +400,9 @@ def explain(
             keep = [j for j, s in enumerate(sources) if s != source]
             without, _ = _oof("l1", x[:, keep], y, folds, seed)
             drop[source] = float(np.mean((without - y) ** 2)) - base
-    return Explanation(std_coefs, export_text(tree, feature_names=names), drop, len(y))
+    return Explanation(
+        std_coefs, export_text(tree, feature_names=names), drop, len(y), len(draws)
+    )
 
 
 # --- profiles -----------------------------------------------------------------
@@ -402,6 +424,7 @@ class HalfLife(NamedTuple):
     lo: float
     hi: float
     n: int
+    kept: int
 
 
 class RuleRate(NamedTuple):
@@ -450,7 +473,7 @@ def _cells(
 
 
 def _carried_at(stage: str) -> Callable[[Mapping[str, Any]], bool]:
-    return lambda r: _on(r[f"carry:{stage}"])
+    return lambda r: is_on(r[f"carry:{stage}"])
 
 
 def _violated(rule: str) -> Callable[[Mapping[str, Any]], bool]:
@@ -483,7 +506,7 @@ def profile_stats(
     attacks = _scored(rows, "out:harm_completed")
     carry, half_lives = [], []
     for cell, cell_rows in _cells(attacks, GROUP_FIELDS).items():
-        stages = sorted({s for r in cell_rows for s in _stages(r)}, key=_stage_order)
+        stages = sorted({s for r in cell_rows for s in stages_of(r)}, key=stage_order)
         for stage in stages:
             at = [r for r in cell_rows if r.get(f"carry:{stage}") not in ("", None)]
             rate, lo, hi = _rate(at, _carried_at(stage), n_boot, seed)
@@ -493,7 +516,9 @@ def profile_stats(
             fit = survival(cell_rows, column, n_boot, seed)
             if fit.n:
                 half_lives.append(
-                    HalfLife(cell, family, fit.half_life, fit.lo, fit.hi, fit.n)
+                    HalfLife(
+                        cell, family, fit.half_life, fit.lo, fit.hi, fit.n, fit.kept
+                    )
                 )
     rules = []
     for target in top_rule_targets(rows, n_rules):
@@ -520,10 +545,11 @@ def profile_stats(
 
 
 TEMPLATES = {
+    "restricted": RESTRICTED_HEADER,
     "title": "# Behaviour profile: {model}",
     "heading": "## {heading}",
     "carry": "- {cell}: carry at {stage} {rate} (95% CI {lo} to {hi}; n = {n} attack runs).",
-    "half_life": "- {cell}: {family} half-life {value} stages (95% CI {lo} to {hi}; n = {n} runs at risk).",
+    "half_life": "- {cell}: {family} half-life {value} stages (95% CI {lo} to {hi} from {kept} bootstrap draws; n = {n} runs at risk).",
     "rule": "- Rule {rule} violated in {rate} of attack runs (95% CI {lo} to {hi}; n = {n}); first violation originating at {stage} in {k} of {m}.",
     "rule_never_first": "- Rule {rule} violated in {rate} of attack runs (95% CI {lo} to {hi}; n = {n}); never the first violation.",
     "predictor": "- {target}: {feature} {direction} the odds (standardized coefficient {coef}, 95% CI {lo} to {hi}).",
@@ -550,7 +576,7 @@ def _fmt(x: float) -> str:
 def write_profile(model_label: str, stats: ProfileStats, path: Path) -> None:
     """Render a model profile from `TEMPLATES` only (doc 11 §3.7)."""
     t = TEMPLATES
-    lines = [t["title"].format(model=model_label)]
+    lines = [t["restricted"], t["title"].format(model=model_label)]
     sections: list[list[str]] = [
         [
             t["carry"].format(
@@ -571,6 +597,7 @@ def write_profile(model_label: str, stats: ProfileStats, path: Path) -> None:
                 lo=_fmt(h.lo),
                 hi=_fmt(h.hi),
                 n=h.n,
+                kept=h.kept,
             )
             for h in stats.half_lives
         ],

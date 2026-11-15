@@ -125,6 +125,7 @@ def test_survival_by_depth_and_paths() -> None:
     assert paths[0].states == (S, S, S, A, A)
     fit = survival(rows, "carry", n_boot=50)
     assert fit.n == 2 and 0 < fit.s < 1 and fit.lo <= fit.hi
+    assert 0 < fit.kept <= 50
 
 
 def test_behavior_models_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -160,6 +161,7 @@ def test_behavior_models_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     with (out / "halflife.csv").open(encoding="utf-8") as f:
         families = {r["family"] for r in csv.DictReader(f)}
     assert families == {"marker", "warning", "content:recipient"}
+    assert "kept" in (out / "halflife.csv").read_text().splitlines()[0]
     assert (out / "chain.csv").read_text().count("transition") > 0
     assert "n_boot_kept" in (out / "chain.csv").read_text().splitlines()[0]
     assert "residual" in (out / "decomposition.csv").read_text()
