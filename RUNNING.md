@@ -142,10 +142,12 @@ the doc *and* in `src/eduinject/config.py::DOC_VERSIONS`, commit, push, then run
 **Models.** Use `--model-preset` (`--preset` is an alias). Models live in
 `configs/models.json`; a preset sets the dated model, its pinned host (fallbacks
 off) and its reasoning effort (`low`), and lets a dry run print a cost estimate.
-Several names (or the same name repeated, with `-M provider=...` overrides)
-sweep the model and host axes; `--reasoning-effort low high` sweeps effort.
-Each is a separate cell with its own `config_hash`. `-M provider=...` still
-overrides the pin. An entry with `TODO` fields (the `todo-*` placeholders)
+Several names sweep the model axis; `--hosts DeepInfra Together` sweeps the
+host axis (each pins `{"order":[host],"allow_fallbacks":false}`, overriding the
+registry pin; it cannot combine with `-M provider=...`); `--reasoning-effort
+low high` sweeps effort. Each is a separate cell with its own `config_hash`; an
+identical repeated cell is dropped with a warning. `-M provider=...` alone
+still overrides the pin. An entry with `TODO` fields (the `todo-*` placeholders)
 is refused with exit 2: fill its model, pin and prices first, never guess.
 
 | Preset | Model | Host | $/1M in / out (2026-10-25) |
@@ -159,8 +161,15 @@ Prices change. Re-read them on openrouter.ai before a run and update
 `configs/models.json` if they moved. `--dry-run` prices each cell with
 `scripts/estimate_cost.py`, from token means in existing logs under `--log-dir`
 (matched by `config_hash`); with no such logs it says it used the default pilot
-tokens. A TODO-priced model prints "price unknown (TODO)". Standalone:
-`python scripts/estimate_cost.py --model-preset luna --log-dir logs/sweep --samples 100`.
+tokens. Without a preset the est column reads `est=n/a`. Standalone:
+`python scripts/estimate_cost.py --model-preset luna --log-dir logs/sweep --samples 100`,
+plus `--twin-only` (price a twin-only run: half the pair tokens in the fallback)
+and `--relay-stages N` (each relay adds to the fallback by (3+N)/3).
+
+```bash
+python scripts/run_sweep.py --preset luna --hosts DeepInfra Together \
+  --workflow w1 --scopes read_write --epochs 10 --dry-run   # 2 cells, 2 hashes
+```
 
 **New conditions** (doc 10 §2–4), crossed with scope and isolation:
 

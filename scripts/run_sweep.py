@@ -111,6 +111,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--model / -M override the pin.",
     )
     parser.add_argument(
+        "--hosts",
+        nargs="+",
+        default=None,
+        metavar="PROVIDER",
+        help="OpenRouter hosts to sweep: each pins "
+        '{"order":[PROVIDER],"allow_fallbacks":false} per cell, crossed with '
+        "models and effort, overriding the registry pin (default: the pin). "
+        "Cannot combine with -M provider=....",
+    )
+    parser.add_argument(
         "-M",
         "--model-arg",
         dest="model_args",
@@ -274,15 +284,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         entry = load_models()[name] if name else None
         if entry and entry.todo:
             parser.exit(2, f"configs/models.json entry {name} has TODO fields\n")
-        model_args = list(args.model_args)
-        if entry and not any(key == "provider" for key, _ in model_args):
-            model_args = [("provider", entry.provider), *model_args]
+        base = list(args.model_args)
         model = args.model or (entry.model if entry else None)
         model = model or os.environ.get("INSPECT_EVAL_MODEL")
-        for effort in args.reasoning_effort or [
-            entry.reasoning_effort if entry else None
-        ]:
-            args.cells.append(Cell(model, tuple(model_args), effort, entry))
+        if args.hosts and any(key == "provider" for key, _ in base):
+            parser.exit(2, "--hosts conflicts with -M provider=...\n")
+        providers: list[Any] = [
+            {"order": [host], "allow_fallbacks": False} for host in args.hosts or []
+        ] or [entry.provider if entry else None]
+        for provider in providers:
+            model_args = list(base)
+            if provider is not None and not any(k == "provider" for k, _ in base):
+                model_args = [("provider", provider), *model_args]
+            for effort in args.reasoning_effort or [
+                entry.reasoning_effort if entry else None
+            ]:
+                cell = Cell(model, tuple(model_args), effort, entry)
+                if cell in args.cells:
+                    print(f"warning: duplicate cell dropped: {cell}", file=sys.stderr)
+                else:
+                    args.cells.append(cell)
     return args
 
 
@@ -346,7 +367,7 @@ def main(argv: list[str] | None = None) -> int:
     twin_only = args.benign_only or args.controls
     total = 0
     usd_total = 0.0
-    unknown = fallback = False
+    fallback = False
     for cell, task in cells:
         meta = task.metadata or {}
         samples = len(task.dataset)
@@ -359,9 +380,9 @@ def main(argv: list[str] | None = None) -> int:
             stats = token_stats([args.log_dir], {"config_hash": meta["config_hash"]})
             usd = estimate_usd(runs, twin_only, meta["relay_stages"], cell.entry, stats)
             fallback |= stats is None
-            unknown |= usd is None
-            usd_total += usd or 0.0
-            line = f" est={'n/a' if usd is None else f'${usd:,.2f}'}"
+            assert usd is not None  # TODO-priced entries are refused in parse_args
+            usd_total += usd
+            line = f" est=${usd:,.2f}"
         print(
             f"  model={cell.model} effort={cell.reasoning_effort} "
             f"provider={dict(cell.model_args).get('provider')} "
@@ -384,8 +405,9 @@ def main(argv: list[str] | None = None) -> int:
             if fallback
             else "tokens measured from existing logs"
         )
-        text = "price unknown (TODO)" if unknown else f"${usd_total:,.2f}"
-        print(f"estimated cost: {text} (+~20% retries; list prices; {basis})")
+        print(
+            f"estimated cost: ${usd_total:,.2f} (+~20% retries; list prices; {basis})"
+        )
     drafts = draft_documents()
     if drafts:
         print(f"governing documents still in draft: {', '.join(drafts)}")

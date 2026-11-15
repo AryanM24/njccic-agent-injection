@@ -325,3 +325,21 @@ def test_dry_run_prints_cost_per_cell(
     cells = [ln for ln in out.splitlines() if "config_hash=" in ln]
     assert len(cells) == 4 and all(" est=$" in ln for ln in cells)
     assert "total: " in out
+
+
+def test_hosts_are_a_real_axis_and_duplicates_dedupe(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from run_sweep import main
+
+    name = "gemini-3.8-flash"
+    argv = ["--preset", name, "--workflow", "w1", "--scopes", "read_write"]
+    argv += ["--isolation", "isolated", "--limit", "1", "--dry-run"]
+    assert main([*argv, "--hosts", "DeepInfra", "Together", "DeepInfra"]) == 0
+    captured = capsys.readouterr()
+    lines = [ln for ln in captured.out.splitlines() if "config_hash=" in ln]
+    assert len(lines) == 2 and "duplicate cell dropped" in captured.err
+    assert len({ln.split("config_hash=")[1].split()[0] for ln in lines}) == 2
+    with pytest.raises(SystemExit) as exc:
+        parse_args(["--model", "m", "--hosts", "X", "-M", "provider=Y"])
+    assert exc.value.code == 2
