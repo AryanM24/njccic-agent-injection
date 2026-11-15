@@ -47,8 +47,7 @@ CELL_FIELDS: tuple[str, ...] = (
 """Fields that identify one experimental condition. Rows that differ in any of
 these are never pooled: `corpus_digest`, `tool_surface` and `prompts_version`
 keep runs over different corpus bytes, tool behaviour or prompt wording apart
-even when the corpus label matches. First-edition logs predate `identity_mode`
-and `defense` and read as "off" and "none", which is what they ran."""
+even when the corpus label matches."""
 
 FLOOR_FIELDS: tuple[str, ...] = tuple(
     f for f in CELL_FIELDS if f not in ("benign_only", "controls")
@@ -164,8 +163,8 @@ def cell_from_log(log: Any) -> dict[str, Any]:
         "controls": bool(meta.get("controls")),
         "scope": meta.get("scope"),
         "isolated": bool(meta.get("isolated")),
-        "identity_mode": meta.get("identity_mode", "off"),
-        "defense": meta.get("defense", "none"),
+        "identity_mode": meta["identity_mode"],
+        "defense": meta["defense"],
         "relay_stages": meta.get("relay_stages"),
         "handoff_mode": meta.get("handoff_mode"),
         "gate": meta.get("gate"),
@@ -358,8 +357,9 @@ def rescored_scores(sample: Any, task_metadata: Mapping[str, Any]) -> dict[str, 
     scorers = task.scorers_for(
         task.WORKFLOWS[task_metadata["workflow"]],
         bool(task_metadata.get("benign_only")),
-        int(task_metadata.get("relay_stages") or 0),
+        int(task_metadata["relay_stages"]),
         str(task_metadata["identity_mode"]),
+        str(task_metadata["handoff_mode"]),
     )
     state = SimpleNamespace(
         metadata=sample.metadata or {},

@@ -87,7 +87,13 @@ def test_cell_from_log_reads_versions() -> None:
 
     from eduinject.analysis import CELL_FIELDS, cell_from_log
 
-    meta = {"corpus_digest": "abc", "tool_surface": "w1-x", "prompts_version": "9"}
+    meta = {
+        "corpus_digest": "abc",
+        "tool_surface": "w1-x",
+        "prompts_version": "9",
+        "identity_mode": "off",
+        "defense": "none",
+    }
     log = SimpleNamespace(eval=SimpleNamespace(metadata=meta, model="m"))
     cell = cell_from_log(log)
     assert set(cell) == set(CELL_FIELDS)

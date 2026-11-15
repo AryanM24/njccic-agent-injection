@@ -643,6 +643,8 @@ def test_cell_fields_include_new_conditions() -> None:
         eval=SimpleNamespace(
             model="m",
             metadata={
+                "identity_mode": "off",
+                "defense": "none",
                 "relay_stages": 2,
                 "handoff_mode": "typed",
                 "gate": True,

@@ -220,16 +220,17 @@ def runtime_trusted_texts(
 ) -> tuple[str, ...]:
     """The trusted text a condition gives the action stage.
 
-    Decided by condition, not by where text sits in the stage input: the
-    task-facts block under identity_mode "facts" or "guard", and the typed
-    trusted case record (as the pipeline renders it) under handoff_mode "typed".
+    Decided by condition, not by where text sits in the stage input: the typed
+    trusted case record (as the pipeline renders it) under handoff_mode
+    "typed", otherwise the task-facts block under identity_mode "facts" or
+    "guard". A typed cell never shows the model the facts block, so it is not
+    counted there.
     """
-    texts: tuple[str, ...] = ()
-    if identity_mode in ("facts", "guard"):
-        texts += (_FACTS[workflow](meta),)
     if handoff_mode == "typed":
-        texts += (trusted_fields(workflow, meta).model_dump_json(),)
-    return texts
+        return (trusted_fields(workflow, meta).model_dump_json(),)
+    if identity_mode in ("facts", "guard"):
+        return (_FACTS[workflow](meta),)
+    return ()
 
 
 def trusted_texts(record: RunRecord) -> tuple[str, ...]:

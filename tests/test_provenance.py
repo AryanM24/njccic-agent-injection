@@ -362,3 +362,6 @@ def test_typed_handoff_trusted_block_is_trusted() -> None:
     assert block == trusted_fields("w2", meta).model_dump_json()
     sources = sources_from_runtime("w2", "off", "typed", meta, "", None, [])
     assert "HM04-133" in sources.trusted
+    # The model never sees the facts block in a typed cell: not trusted there.
+    guard = typed._replace(cell={**typed.cell, "identity_mode": "guard"})
+    assert trusted_texts(guard) == (block,)
