@@ -32,7 +32,7 @@ DOC_VERSIONS: dict[str, str] = {
     "analysis_plan": "1.2",
     "second_edition_addendum": "0.1-draft",
     "study_design": "0.3-draft",
-    "v1_audit": "0.1-draft",
+    "v1_audit": "0.2-draft",
     "recipient_policy": "0.1-draft",
 }
 """Versions of the design documents in force, mirroring `docs/design/`.
