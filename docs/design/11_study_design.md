@@ -1179,14 +1179,18 @@ name under each `--in` directory: the feature table, `chain.csv`,
 `halflife.csv`, `risk.csv`, `frontier.csv`, `violations.csv`) and writes, with
 matplotlib `Agg`:
 
-1. `stage_survival_<model>.png`: carry survival by stage.
+1. `stage_survival_<model>.png`: carry survival by stage, one line per
+   cell, over every stage the runs had (relays in pipeline order,
+   `stages_of`/`stage_order`); each point's denominator is the runs that had
+   that stage.
 2. `halflife_content_vs_warning.png`: component-marker versus flag-language
    half-life.
 3. `transitions_<cell>.png`: the fitted chain.
 4. `pareto_frontier.png`: risk against utility.
 5. `risk_heatmap.png`: model × scope × arm.
-6. `rank_shift.png`: W2 rank corruption.
-7. `violations_by_origin_stage.png`: monitor violations by origin stage.
+6. `rank_shift.png`: W2 rank corruption, one box per cell.
+7. `violations_by_origin_stage.png`: monitor violations by origin stage,
+   one panel per cell.
 
 Definitions, as built:
 
@@ -1197,9 +1201,12 @@ Definitions, as built:
   label.
 - Pareto frontier and risk heatmap draw one panel per workflow (composites are
   comparable only within a workflow, §3.8).
-- A figure whose CSV is absent is skipped with a printed note.
+- A figure whose CSV is absent is skipped with a printed note. The feature
+  table is the one CSV carrying `out:rank_shift`; its path is printed, and two
+  candidates under `--in` are refused (exit 2) rather than one being picked.
 - `--in` and `--out` must resolve under the repository's `logs/`. `--by`
-  writes `rank_shift_RESTRICTED_by_<field>.png`, titled RESTRICTED (Tier 1).
+  writes `rank_shift_RESTRICTED_by_<field>.png`, titled RESTRICTED (Tier 1),
+  one box per (cell, field value).
 
 Documentation (AGENTS.md, README, RUNNING.md, HANDOFF.md, implementation map)
 follows this document. The offline order, after a sweep, is: `verify_scores`

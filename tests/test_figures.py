@@ -146,3 +146,63 @@ def test_cells_differing_only_in_gate_are_never_pooled(tmp_path: Path) -> None:
     assert (tmp_path / "risk_heatmap.png").is_file()
     with pytest.raises(ValueError, match="one heatmap square"):
         make_figures.heatmap([rows[0], dict(rows[0])], tmp_path)
+
+
+def _captured(monkeypatch: pytest.MonkeyPatch) -> list[object]:
+    figs: list[object] = []
+    monkeypatch.setattr(make_figures, "save", lambda fig, out, name: figs.append(fig))
+    return figs
+
+
+def test_rank_shift_and_violations_keep_cells_apart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """I3: two cells differing only in gate get two boxes and two panels."""
+    figs = _captured(monkeypatch)
+    rows = [
+        {
+            k: str(v)
+            for k, v in (
+                _cell("m1", "w2", "read")
+                | {"gate": g, "label": "attack", "out:rank_shift": "1"}
+                | {"origin_stage": "intake", "goal": "g"}
+            ).items()
+        }
+        for g in ("True", "False")
+    ]
+    make_figures.rank_shift(rows, tmp_path, None)
+    make_figures.rank_shift(rows, tmp_path, "goal")
+    make_figures.violations(rows, tmp_path)
+    shift, restricted, viol = figs
+    ticks = [t.get_text() for t in shift.axes[0].get_xticklabels()]  # type: ignore[attr-defined]
+    assert ticks == ["gate=False", "gate=True"]
+    ticks = [t.get_text() for t in restricted.axes[0].get_xticklabels()]  # type: ignore[attr-defined]
+    assert ticks == ["gate=False | goal=g", "gate=True | goal=g"]
+    assert [a.get_title() for a in viol.axes] == ["gate=False", "gate=True"]  # type: ignore[attr-defined]
+
+
+def test_stage_survival_shows_relays(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    figs = _captured(monkeypatch)
+    row = {
+        "model": "m1",
+        "label": "attack",
+        "status": "ok",
+        "carry:intake": "carried_silent",
+        "carry:analysis": "carried_silent",
+        "carry:relay_1": "absent",
+        "carry:action": "absent",
+    }
+    make_figures.stage_survival([row], tmp_path)
+    (fig,) = figs
+    ticks = [t.get_text() for t in fig.axes[0].get_xticklabels()]  # type: ignore[attr-defined]
+    assert ticks == ["intake", "analysis", "relay_1", "action"]
+
+
+def test_two_feature_tables_refused(logs: Path) -> None:
+    import shutil
+
+    shutil.copy(logs / "features" / "f.csv", logs / "features" / "g.csv")
+    out = logs / "figures"
+    assert make_figures.main(["--in", str(logs / "features"), "--out", str(out)]) == 2

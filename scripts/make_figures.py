@@ -5,6 +5,9 @@
 
 `--in` takes directories (searched recursively) under `logs/`; each figure
 finds its CSV by name and is skipped with a printed note when it is absent.
+The feature table is the one CSV with `out:rank_shift`: its path is printed,
+and two candidates are refused (exit 2). Every figure keeps cells apart: one
+line, box or panel per combination of the CELL_FIELDS that vary.
 Writes, per what exists: `stage_survival_<model>.png` (features),
 `halflife_content_vs_warning.png` (halflife.csv), `transitions_<cell>.png`
 (chain.csv), `pareto_frontier.png` and `risk_heatmap.png` (risk.csv,
@@ -30,6 +33,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from eduinject.analysis import CELL_FIELDS
+from eduinject.behavior.propagation_model import is_on, stage_order, stages_of
 
 ROOT = Path(__file__).resolve().parents[1]
 LOGS = ROOT / "logs"
@@ -44,7 +48,6 @@ PALETTE = (
     "#F0E442",
     "#000000",
 )
-STAGES = ("intake", "analysis", "action")
 Row = dict[str, str]
 
 
@@ -80,12 +83,26 @@ def find(dirs: list[Path], name: str) -> list[Row] | None:
 
 
 def find_features(dirs: list[Path]) -> list[Row] | None:
+    """The one feature table under `dirs` (a CSV with `out:rank_shift`).
+
+    Raises:
+        ValueError: More than one feature table was found; pass `--in` narrower.
+    """
+    found = []
     for d in dirs:
         for p in sorted(d.rglob("*.csv")):
             with p.open(newline="", encoding="utf-8") as f:
                 if "out:rank_shift" in (next(csv.reader(f), [])):
-                    return read(p)
-    return None
+                    found.append(p)
+    if len(found) > 1:
+        raise ValueError(
+            "more than one feature table; narrow --in to one of: "
+            + ", ".join(map(str, found))
+        )
+    if not found:
+        return None
+    print(f"features <- {found[0]}")
+    return read(found[0])
 
 
 def label(row: Row, fields: tuple[str, ...]) -> str:
@@ -125,24 +142,31 @@ def err(rows: list[Row], value: str, lo: str, hi: str) -> list[list[float]]:
 
 
 def stage_survival(feats: list[Row], out: Path) -> list[Path]:
-    stages = [s for s in STAGES if any(f"carry:{s}" in r for r in feats[:1])]
+    """Per model, one line per cell over every stage the runs had (relays too);
+    each point's denominator is the runs that had that stage."""
     attacks = [
         r for r in feats if r.get("label") == "attack" and r.get("status") == "ok"
     ]
     arm = labeller(attacks, ())
     by_model: dict[str, dict[str, list[Row]]] = defaultdict(lambda: defaultdict(list))
-    for r in feats:
-        if r.get("label") == "attack" and r.get("status") == "ok":
-            by_model[r["model"]][arm(r)].append(r)
+    for r in attacks:
+        by_model[r["model"]][arm(r)].append(r)
     paths = []
     for model, cells in sorted(by_model.items()):
-        fig, ax = plt.subplots(figsize=(6, 4))
+        stages = sorted(
+            {s for rows in cells.values() for r in rows for s in stages_of(r)},
+            key=stage_order,
+        )
+        fig, ax = plt.subplots(figsize=(max(6, 1.1 * len(stages)), 4))
         for i, (cell, rows) in enumerate(sorted(cells.items())):
-            ys = [
-                sum(r.get(f"carry:{s}", "absent") != "absent" for r in rows) / len(rows)
-                for s in stages
-            ]
-            ax.plot(stages, ys, marker="o", color=PALETTE[i % 8], label=cell)
+            xs, ys = [], []
+            for x, s in enumerate(stages):
+                had = [r[f"carry:{s}"] for r in rows if r.get(f"carry:{s}")]
+                if had:
+                    xs.append(x)
+                    ys.append(sum(map(is_on, had)) / len(had))
+            ax.plot(xs, ys, marker="o", color=PALETTE[i % 8], label=cell or "all")
+        ax.set_xticks(range(len(stages)), stages, rotation=20)
         ax.set(
             ylim=(0, 1.02),
             xlabel="pipeline stage",
@@ -307,45 +331,69 @@ def heatmap(risk: list[Row], out: Path) -> Path:
 
 
 def rank_shift(feats: list[Row], out: Path, by: str | None) -> Path:
-    field = by or "model"
+    """One box per cell (every varying CELL_FIELD, model included), split by
+    `by` within each cell for the RESTRICTED slice."""
+    attacks = [
+        r
+        for r in feats
+        if r.get("label") == "attack" and not math.isnan(num(r.get("out:rank_shift")))
+    ]
+    cell = labeller(attacks, ())
     groups: dict[str, list[float]] = defaultdict(list)
-    for r in feats:
-        v = num(r.get("out:rank_shift"))
-        if r.get("label") == "attack" and not math.isnan(v):
-            groups[r.get(field, "")].append(v)
-    fig, ax = plt.subplots(figsize=(max(5, 1.3 * len(groups)), 4))
+    for r in attacks:
+        key = cell(r) or "all"
+        if by:
+            key += f" | {by}={r.get(by, '')}"
+        groups[key].append(num(r["out:rank_shift"]))
+    fig, ax = plt.subplots(figsize=(max(5, 1.3 * len(groups)), 4.5))
     if groups:
         names = sorted(groups)
         ax.boxplot([groups[n] for n in names], tick_labels=names)
-    ax.set(ylabel="rank shift of the attacker's candidate (positions)", xlabel=field)
-    ax.set_title(("RESTRICTED: " if by else "") + f"Rank shift by {field}")
+        ax.tick_params(axis="x", labelrotation=30, labelsize=7)
+    ax.set(ylabel="rank shift of the attacker's candidate (positions)", xlabel="cell")
+    ax.set_title(
+        ("RESTRICTED: " if by else "")
+        + f"Rank shift by cell{f' and {by}' if by else ''}"
+    )
     name = f"rank_shift_RESTRICTED_by_{by}.png" if by else "rank_shift.png"
     return save(fig, out, name)
 
 
 def violations(rows: list[Row], out: Path) -> Path:
-    stages = sorted({r.get("origin_stage") or "unknown" for r in rows})
-    labels = sorted({r.get("label", "") for r in rows})
-    fig, ax = plt.subplots(figsize=(6, 4))
-    bottom = [0] * len(stages)
-    for i, lab in enumerate(labels):
-        counts = [
-            sum(
-                1
-                for r in rows
-                if (r.get("origin_stage") or "unknown") == s
-                and r.get("label", "") == lab
+    """One panel per cell; bars stack by run label within a panel."""
+    cell = labeller(rows, ())
+    cells: dict[str, list[Row]] = defaultdict(list)
+    for r in rows:
+        cells[cell(r) or "all"].append(r)
+    fig, axes = plt.subplots(1, len(cells), figsize=(5 * len(cells), 4), squeeze=False)
+    for ax, (name, rs) in zip(axes[0], sorted(cells.items()), strict=True):
+        stages = sorted(
+            {r.get("origin_stage") or "unknown" for r in rs},
+            key=lambda s: stage_order(s) if s != "unknown" else 10_000,
+        )
+        labels = sorted({r.get("label", "") for r in rs})
+        bottom = [0] * len(stages)
+        for i, lab in enumerate(labels):
+            counts = [
+                sum(
+                    1
+                    for r in rs
+                    if (r.get("origin_stage") or "unknown") == s
+                    and r.get("label", "") == lab
+                )
+                for s in stages
+            ]
+            ax.bar(
+                stages, counts, bottom=bottom, color=PALETTE[i % 8], label=lab or "all"
             )
-            for s in stages
-        ]
-        ax.bar(stages, counts, bottom=bottom, color=PALETTE[i % 8], label=lab or "all")
-        bottom = [b + c for b, c in zip(bottom, counts, strict=True)]
-    ax.set(
-        xlabel="stage where the violation originated",
-        ylabel="violations",
-        title="Violations by origin stage",
-    )
-    ax.legend(fontsize=7)
+            bottom = [b + c for b, c in zip(bottom, counts, strict=True)]
+        ax.set(
+            xlabel="stage where the violation originated",
+            ylabel="violations",
+            title=name,
+        )
+        ax.legend(fontsize=7)
+    fig.suptitle("Violations by origin stage")
     return save(fig, out, "violations_by_origin_stage.png")
 
 
@@ -365,7 +413,11 @@ def main(argv: list[str] | None = None) -> int:
             return None
         return rows
 
-    feats = need("stage_survival, rank_shift", find_features(dirs))
+    try:
+        feats = need("stage_survival, rank_shift", find_features(dirs))
+    except ValueError as e:
+        print(f"refused: {e}", file=sys.stderr)
+        return 2
     if feats:
         stage_survival(feats, out)
         rank_shift(feats, out, None)

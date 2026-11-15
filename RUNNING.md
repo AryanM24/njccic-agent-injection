@@ -232,8 +232,12 @@ python scripts/risk_report.py --features logs/features/<name>.csv \
 
 Figures (E1) from those CSVs, plus the feature table and `audit_traces.py`
 output; needs the `analysis` extra. Inputs and `--out` must be under `logs/`;
-a figure whose CSV is absent is skipped with a note. `--by` adds a rank-shift
-slice by goal, channel or file type, named RESTRICTED: never commit it.
+a figure whose CSV is absent is skipped with a note. Each figure draws one
+line, box or panel per cell (never pooled). The feature table is the one CSV
+with `out:rank_shift` under `--in` (its path is printed); if there are two,
+the script refuses (exit 2), so point `--in` at one table. `--by` adds a
+rank-shift slice by goal, channel or file type within each cell, named
+RESTRICTED: never commit it.
 
 ```bash
 python scripts/make_figures.py --in logs/features logs/behavior logs/risk \
