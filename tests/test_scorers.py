@@ -607,6 +607,18 @@ def test_every_condition_reaches_the_hash(change: dict[str, Any]) -> None:
     assert hash_of() != hash_of(**change)
 
 
+def test_provenance_version_reaches_the_hash(monkeypatch: pytest.MonkeyPatch) -> None:
+    """I7: the gate acts on provenance labels, so their version is hashed."""
+    from eduinject import task
+    from eduinject.scorers.provenance import PROVENANCE_VERSION
+
+    before = task.eduinject_w2().metadata or {}
+    assert before["provenance_version"] == PROVENANCE_VERSION
+    monkeypatch.setattr(task, "PROVENANCE_VERSION", "test-bump")
+    after = task.eduinject_w2().metadata or {}
+    assert after["config_hash"] != before["config_hash"]
+
+
 def test_controls_reach_the_hash_and_relative_paths_resolve(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

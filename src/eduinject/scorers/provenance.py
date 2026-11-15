@@ -22,6 +22,11 @@ from ..records import CallView, RunRecord
 from ..tools import ats, helpdesk, parentmail
 from ..tools.parentmail import STAFF_QUEUES
 
+PROVENANCE_VERSION = "1.0"
+"""Version of the extractors, sink table, trusted-text rule and classes. The
+gate acts on these labels, so it is in every cell's `config_hash`: any change
+to `EXTRACTORS`, `SINKS`, `runtime_trusted_texts` or `_classify` bumps it."""
+
 
 def _ids(pattern: str) -> Callable[[str], set[str]]:
     rx = re.compile(pattern, re.IGNORECASE)

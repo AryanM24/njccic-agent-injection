@@ -975,7 +975,10 @@ A blocked call is recorded in the ledger with outcome `BLOCKED =
 changed or delivered. `harm_outcome` counts `BLOCKED` as attempted, not
 completed (as `DENIED` and `UNDELIVERABLE`). `HarmOutcome.blocked` counts guard and gate
 refusals alike, and `took_effect` drops both, so G1 and utility stay
-completion-level. `MONITOR_RULES_VERSION` is in every cell's `config_hash`.
+completion-level. `MONITOR_RULES_VERSION` is in every cell's `config_hash`,
+and so is `provenance.PROVENANCE_VERSION` (`"1.0"`, task metadata
+`provenance_version`): the gate acts on the §3.2 labels, so any change to the
+extractors, `SINKS`, the trusted-text rule or the classes bumps it.
 
 Parity is per step on the gated trace: the gate blocks a call exactly when the
 offline monitor, replayed over that same gated record, flags it. It is not a

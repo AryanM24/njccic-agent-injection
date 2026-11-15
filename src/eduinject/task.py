@@ -71,6 +71,7 @@ from .scorers import (
     scope_violation,
     suppression,
 )
+from .scorers.provenance import PROVENANCE_VERSION
 from .tools import ats
 from .tools.guard import Guard, guard_from_metadata
 from .tools.ledger import Ledger
@@ -618,6 +619,7 @@ def build_task(
         "handoff_prompts_version": HANDOFF_PROMPTS_VERSION,
         "gate": gate,
         "monitor_rules_version": MONITOR_RULES_VERSION,
+        "provenance_version": PROVENANCE_VERSION,
         "verification_tools": verification_tools,
         # The react loop and its submit plumbing come from Inspect itself.
         "inspect_ai": version("inspect-ai"),
