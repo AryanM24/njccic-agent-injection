@@ -658,6 +658,22 @@ Definitions, as built:
 - `scripts/behavior_models.py chain|halflife --features CSV --out
   logs/behavior/`.
 
+Definitions, as built:
+
+- Only scored attack runs enter (`label = attack`, `status = ok`,
+  `out:harm_completed` not NaN); twins carry no marker. `benign_act` is
+  `calls > 0` without harm.
+- Transition and emission rows exist only for observed from-states.
+  `reach_analysis` is carry at the analysis stage; `reach_action_given_analysis`
+  is carry at the last (action) stage among those, with relays inside it;
+  conditionals with nothing to condition on are NaN.
+- Survival depth k runs over analysis and the relays only (not the action
+  stage), so k ≤ `RELAY_MAX`. "Carried" is a non-`absent` carry state, or
+  `flag:<stage> = 1` for the warning. `fit_survival` returns exactly 1.0 when
+  nothing is lost (half-life `inf`), 0.0 when nothing survives a hop
+  (half-life 0), NaN with no hop at risk. `Survival.lo/hi` is the half-life's
+  interval; bootstrap draws with an undefined statistic are dropped.
+
 ### 3.7 Behaviour predictors and profiles (A7, `behavior/predictors.py`)
 
 - Targets: `out:harm_completed`, `carry:action`, and `rule:<id>` indicators for
