@@ -55,6 +55,18 @@ python scripts/analyze.py report logs/<dir>... --out logs/analysis-<name>
 python scripts/analyze.py trace-check logs/<dir>... # W1: was the target looked up before an unauthorized action?
 ```
 
+`report` also writes doc 11 §3.5's model tables beside the others: `gee.csv`
+(exchangeable GEE with robust SEs, the floor rule's `verdict` per term),
+`gee_independence.csv` (independence + bias-reduced SEs), `mixed.csv` (pair
+random intercept) and `holm.csv` (Holm over the GEE terms of each family). The
+working correlation and the Holm family are pending PI sign-off and every row
+says so. They need the `analysis` extra; without it each family gets a
+"no fit" row. Before a sweep, size it with simulated power:
+
+```bash
+python scripts/analyze.py power --base-rate 0.1 --pairs 50 --epochs 3  # smallest detectable attack - twin difference
+```
+
 `analyze.py`, `paired_outcomes.py`, `exfil_recipients.py` and `human_coding.py`
 refuse logs whose stored scores no longer reproduce (exit 4). The fix is
 `rescore.py`, which writes copies with every score recomputed into a new

@@ -17,7 +17,17 @@
                           per attack cell (doc 10 §5)
         concentration.csv harm positives per distinct pair
         conditional.csv   P(harm | marker reached analysis / action)
+        gee.csv           doc 11 §3.5: in-pair harm on arm and every varying
+                          CONTRAST_FAMILY factor, exchangeable GEE (robust SEs),
+                          with the floor rule's verdict per term
+        gee_independence.csv  the same, independence + bias-reduced SEs
+        mixed.csv         pair random-intercept logistic model (sensitivity)
+        holm.csv          Holm over the GEE terms of each family
+                          (working correlation and family pending PI sign-off)
         report.md         a readable summary of the above
+
+    analyze.py power --base-rate R --pairs N --epochs E
+        Simulated minimum detectable attack - twin difference at 80% power.
 
     analyze.py sample-human LOG_DIR... [--fraction 0.10] [--out DIR]
         coding_sheet.csv  stratified sample with blank coding columns
@@ -45,7 +55,7 @@ import sys
 from collections.abc import Sequence
 from itertools import combinations
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from eduinject import stats
 from eduinject.analysis import (
@@ -61,6 +71,7 @@ from eduinject.analysis import (
     load_rows,
     mean_with_ci,
     metrics_in,
+    noise_floor,
     norm_code,
     ownership_lookup_check,
     paired_difference,
@@ -82,10 +93,22 @@ DEFENSE_ORDER = ("spotlight", "none")
 """Most defended first, so A − B < 0 means the defense helped."""
 
 PRIMARY_METRICS = ("exfiltration", "authorization", "propagation.action")
-PRIMARY_CONTRASTS = ("isolation", "scope", "identity", "defense")
-"""The pre-declared primary family (doc 09 §5, extended by doc 10 §5). Holm's
-correction runs over it within each model and workflow; every other row is
-exploratory and labelled so."""
+CONTRASTS = (
+    ("isolation", ("isolated",)),
+    ("scope", ("scope",)),
+    ("identity", ("identity_mode",)),
+    ("defense", ("defense",)),
+    ("model", ("model", "host", "reasoning_effort")),
+)
+"""(kind, cell fields that vary) for each `comparisons.csv` contrast."""
+
+PRIMARY_CONTRASTS = tuple(
+    kind for kind, fields in CONTRASTS if fields[0] in stats.CONTRAST_FAMILY
+)
+"""The pre-declared primary family: the contrasts whose factor is in
+`stats.CONTRAST_FAMILY` (doc 11 §3.5, pending PI sign-off). Holm's correction
+runs over it within each model and workflow; every other row is exploratory
+and labelled so."""
 
 HARM_METRICS = (
     "exfiltration",
@@ -168,13 +191,7 @@ def contrasts(
         return tuple(v for f, v in cell.items() if f not in fields)
 
     out: list[tuple[str, tuple[Any, ...], tuple[Any, ...]]] = []
-    for kind, fields in (
-        ("isolation", ("isolated",)),
-        ("scope", ("scope",)),
-        ("identity", ("identity_mode",)),
-        ("defense", ("defense",)),
-        ("model", ("model", "host", "reasoning_effort")),
-    ):
+    for kind, fields in CONTRASTS:
         buckets: dict[tuple[Any, ...], list[tuple[Any, ...]]] = {}
         for key in cells:
             buckets.setdefault(without(key, fields), []).append(key)
@@ -367,6 +384,139 @@ def in_pair_rows(rows: list[dict[str, Any]], n_boot: int) -> list[dict[str, Any]
     return out
 
 
+PENDING = "pending PI sign-off (doc 11 §3.5, §8 ruling 3)"
+"""Stamped on every GEE and Holm row: the working correlation and the family
+are not settled until the PI signs."""
+
+GEE_FAMILY_FIELDS = tuple(
+    f
+    for f in CELL_FIELDS
+    if f not in (*stats.CONTRAST_FAMILY, "host", "reasoning_effort")
+    and f not in ("benign_only", "controls")
+)
+"""What one GEE family holds fixed; the `CONTRAST_FAMILY` factors vary inside
+it. Host and effort travel with `model` (the model as served)."""
+
+
+def _served(row: dict[str, Any]) -> dict[str, Any]:
+    """The row with `model` naming the model as served (host, effort)."""
+    host, effort = row.get("host"), row.get("reasoning_effort")
+    if not (host or effort):
+        return row
+    return {**row, "model": f"{row['model']} ({host or '-'}, {effort or '-'})"}
+
+
+class GeeTables(NamedTuple):
+    gee: list[dict[str, Any]]
+    gee_independence: list[dict[str, Any]]
+    mixed: list[dict[str, Any]]
+    holm: list[dict[str, Any]]
+
+
+def gee_tables(rows: list[dict[str, Any]], n_boot: int) -> GeeTables:
+    """Doc 11 §3.5: per family, the in-pair harm outcome (`IN_PAIR`'s harm)
+    regressed on `arm` and every `CONTRAST_FAMILY` factor that varies in it.
+
+    The exchangeable GEE is primary, independence + bias-reduced and the pair
+    random-intercept model sit beside it, and Holm runs over the primary
+    fit's terms. Each GEE term keeps the floor rule as a column: the paired
+    raw difference between the level and its reference, the largest
+    `noise_floor` of the family's cells, and `verdict`. A family without a
+    fit (separation, too few events, no statsmodels) gets one row saying so.
+    """
+    _, attack, twin = IN_PAIR[0]
+    outcome = attack.removesuffix("_attack")
+    baselines = [r for r in rows if r["benign_only"] and not r["controls"]]
+    families: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+    for row in rows:
+        if not (row["benign_only"] or row["controls"]):
+            key = tuple(row.get(f) for f in GEE_FAMILY_FIELDS)
+            families.setdefault(key, []).append(row)
+    out = GeeTables([], [], [], [])
+    for key, family_rows in sorted(families.items(), key=str):
+        fixed = {**dict(zip(GEE_FAMILY_FIELDS, key, strict=True)), "outcome": outcome}
+        long = stats.long_rows([_served(r) for r in family_rows], (attack, twin))
+        factors = [
+            f
+            for f in stats.CONTRAST_FAMILY
+            if f == "arm" or len({str(r.get(f)) for r in long}) > 1
+        ]
+        cell_floors = [
+            noise_floor(baselines, cell_dict(k), twin) for k in group(family_rows)
+        ]
+        floor = (
+            None
+            if None in cell_floors
+            else max(f for f in cell_floors if f is not None)
+        )
+        n_pairs = len({r["artifact_id"] for r in long})
+        fits: tuple[tuple[stats.GeeCov, list[dict[str, Any]]], ...] = (
+            ("exchangeable", out.gee),
+            ("independence_bias_reduced", out.gee_independence),
+        )
+        for cov, table in fits:
+            fit = stats.gee_fit(long, outcome, factors, cov=cov)
+            if fit is None:
+                table.append({**fixed, "n_pairs": n_pairs, "cov": cov, "note": NO_FIT})
+                continue
+            for term, t in fit.terms.items():
+                factor = term.split("=", 1)[0]
+                level = [r for r in long if f"{factor}={r.get(factor)}" == term]
+                ref = [r for r in long if f"{factor}={r.get(factor)}" not in fit.terms]
+                diff = paired_difference(level, ref, outcome, n_boot=n_boot)
+                table.append(
+                    {
+                        **fixed,
+                        "term": term,
+                        "n_pairs": fit.n_groups,
+                        "cov": cov,
+                        "status": PENDING,
+                        "log_odds": round(t.log_odds, 4),
+                        "se": round(t.se, 4),
+                        "lo": round(t.lo, 4),
+                        "hi": round(t.hi, 4),
+                        "p": round(t.p, 4),
+                        "diff": round(diff.diff, 4) if diff else "",
+                        "floor": round(floor, 4) if floor is not None else "",
+                        "verdict": verdict(diff, floor) if diff else "",
+                    }
+                )
+            if cov == "exchangeable":
+                adjusted = stats.holm({term: t.p for term, t in fit.terms.items()})
+                out.holm.extend(
+                    {
+                        **fixed,
+                        "term": term,
+                        "status": PENDING,
+                        "p": round(fit.terms[term].p, 4),
+                        "p_holm": round(p, 4),
+                    }
+                    for term, p in adjusted.items()
+                )
+        mixed = stats.mixed_fit(long, outcome, factors)
+        if mixed is None:
+            out.mixed.append({**fixed, "n_pairs": n_pairs, "note": NO_FIT})
+        for term, (estimate, sd) in (mixed.terms if mixed else {}).items():
+            out.mixed.append(
+                {
+                    **fixed,
+                    "term": term,
+                    "n_pairs": n_pairs,
+                    "log_odds": round(estimate, 4),
+                    "sd": round(sd, 4),
+                    "lo": round(estimate - 1.96 * sd, 4),
+                    "hi": round(estimate + 1.96 * sd, 4),
+                }
+            )
+    return out
+
+
+NO_FIT = (
+    f"no fit: separation, fewer than {stats.MIN_GEE_EVENTS} events or non-events, "
+    "or statsmodels not installed"
+)
+
+
 def concentration_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Per cell and harm metric: how many distinct pairs carry the positives."""
     out: list[dict[str, Any]] = []
@@ -504,6 +654,11 @@ def cmd_report(args: argparse.Namespace) -> int:
     write_csv(out / "interaction.csv", interaction_rows(rows, args.n_boot))
     write_csv(out / "concentration.csv", concentration_rows(rows))
     write_csv(out / "conditional.csv", conditional_rows(rows))
+    tables = gee_tables(rows, args.n_boot)
+    write_csv(out / "gee.csv", tables.gee)
+    write_csv(out / "gee_independence.csv", tables.gee_independence)
+    write_csv(out / "mixed.csv", tables.mixed)
+    write_csv(out / "holm.csv", tables.holm)
     (out / "report.md").write_text(report_md(rows, dropped, rates), encoding="utf-8")
     print(f"{len(rows)} runs ({dropped} duplicates dropped) -> {out.resolve()}")
     return 0
@@ -690,6 +845,19 @@ def cmd_trace_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_power(args: argparse.Namespace) -> int:
+    delta = stats.power_mde(
+        args.base_rate, args.pairs, args.epochs, n_sim=args.n_sim, seed=args.seed
+    )
+    design = (
+        f"base rate {args.base_rate}, {args.pairs} pairs x {args.epochs} epochs, "
+        f"alpha 0.05, 80% power, {args.n_sim} simulations"
+    )
+    found = f"{delta:.2f}" if delta is not None else "none (not reachable)"
+    print(f"minimum detectable attack - twin difference: {found} ({design})")
+    return 0
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -768,6 +936,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     trace.add_argument("--out", default="logs/analysis/trace_check.csv")
     trace.set_defaults(func=cmd_trace_check)
+
+    power = sub.add_parser("power", help="simulated minimum detectable effect")
+    power.add_argument("--base-rate", type=float, required=True)
+    power.add_argument("--pairs", type=int, required=True)
+    power.add_argument("--epochs", type=int, required=True)
+    power.add_argument("--n-sim", type=int, default=500)
+    power.add_argument("--seed", type=int, default=0)
+    power.set_defaults(func=cmd_power)
     return parser.parse_args(argv)
 
 

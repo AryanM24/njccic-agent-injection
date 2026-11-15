@@ -16,7 +16,8 @@ implementation's rulings (§8) and what the study still does not measure (§9).
 **As built** (wave 1, 2026-11-14): §3.1–§3.3 (records, provenance, monitor),
 §4.1, §4.2 and §4.4 (relays, typed hand-off, verification tools), the §4.5
 parameters other than `gate`, and §5 (corpus; the committed corpus is
-regenerated in Task 20). **Still planned:** §3.4–§3.8, §4.3 (the gate:
+regenerated in Task 20). Wave 2: §3.5 (statistics). **Still planned:** §3.4,
+§3.6–§3.8, §4.3 (the gate:
 `gate=True` raises `NotImplementedError` until Task 12), `--arms` in §4.5, §6
 and §7.
 
@@ -600,14 +601,31 @@ Carry columns use §2.2's carry states; component columns use §5.1.
 - **Mixed model (sensitivity).** `mixed_fit(rows, outcome, factors,
   group="artifact_id") -> MixedFit | None`: `BinomialBayesMixedGLM` with a
   pair random intercept, fitted by `fit_vb`.
-- **Holm family.** `CONTRAST_FAMILY = ("arm", "isolated", "handoff_mode",
-  "gate", "model", "relay_stages")`. Holm is applied across these GEE terms;
-  everything else is exploratory and labelled so.
+- **Holm family (§8.1 ruling 5, pending PI sign-off).** Doc 10's
+  `PRIMARY_CONTRASTS` (isolation, scope, identity, defense) ∪ the new arm
+  contrasts (attack vs twin, handoff mode, gate, model, relay depth), declared
+  once as factor names:
+  `CONTRAST_FAMILY = ("arm", "isolated", "scope", "identity_mode", "defense", "handoff_mode", "gate", "model", "relay_stages")`.
+  `analyze.py`'s `PRIMARY_CONTRASTS` is derived from it, so `model` contrasts
+  in `comparisons.csv` are now primary. Holm is applied across the primary GEE
+  fit's terms within each family (`holm.csv`); everything else is exploratory
+  and labelled so.
+- **Families and terms.** A family is the attack rows that agree on every cell
+  field outside `CONTRAST_FAMILY` (host and effort travel with `model`, the
+  model as served). Its outcome is the in-pair harm
+  (`paired_utility.harm_attack` / `_twin` through `long_rows`), regressed on
+  `arm` and every family factor that varies in it, treatment-coded against
+  the reference level (`twin`, then the first sorted level: `False`,
+  `free_text`, 0). Any level with only events or only non-events is
+  separation: no fit, and the table says so in a `note` row.
 - **Robustness.** §2.8's `noise_floor` and `verdict` are kept as a column in
-  every table.
+  every table; for a GEE term, the paired raw difference between its level
+  and the reference against the largest floor of the family's cells.
 - **Power.** `power_mde(base_rate, n_pairs, epochs, *, alpha=0.05, power=0.8,
   n_sim=500, seed=0, step=0.01) -> float | None`: the smallest difference whose
-  simulated paired test rejects in at least 80% of draws.
+  simulated paired test rejects in at least 80% of draws. The simulation
+  draws runs independently within a pair and uses a z-test on per-pair
+  differences; `stats.mde` stays as the analytic approximation.
 - `analyze.py report` adds `gee.csv`, `gee_independence.csv`, `mixed.csv` and
   `holm.csv` under `logs/analysis-*/`; `analyze.py power --base-rate R --pairs
   N --epochs E`.
