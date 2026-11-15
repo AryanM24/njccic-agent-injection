@@ -55,6 +55,23 @@ python scripts/analyze.py report logs/<dir>... --out logs/analysis-<name>
 python scripts/analyze.py trace-check logs/<dir>... # W1: was the target looked up before an unauthorized action?
 ```
 
+`report` also writes doc 11 §3.5's model tables beside the others: `gee.csv`
+(exchangeable GEE with robust SEs, the floor rule's `verdict` per term),
+`gee_independence.csv` (independence + bias-reduced SEs), `mixed.csv` (pair
+random intercept) and `holm.csv` (Holm over the GEE terms of each family). The
+working correlation and the Holm family are pending PI sign-off and every row
+says so. A level with only events or only non-events (say `gate=True` with no
+harm) is left out of the fit and gets a `separated` row with its counts and
+exact 95% bound; the rest is still fitted. They need the `analysis` extra;
+without it each family gets a "no fit" row. Before a sweep, size it with
+simulated power (pair heterogeneity `--icc`, default 0.2, and
+`--effect-concentration`, the share of pairs the attack moves, default 0.5;
+the command prints every assumption):
+
+```bash
+python scripts/analyze.py power --base-rate 0.1 --pairs 50 --epochs 3  # smallest detectable attack - twin difference
+```
+
 `analyze.py`, `paired_outcomes.py`, `exfil_recipients.py` and `human_coding.py`
 refuse logs whose stored scores no longer reproduce (exit 4). The fix is
 `rescore.py`, which writes copies with every score recomputed into a new
@@ -72,6 +89,7 @@ task, is folded into `config_hash` and is a cell field):
 | `--handoff-modes` | `free_text` `typed` | `typed` (B2): stages hand off validated JSON and the action stage gets a trusted case record built from manifest fields and directories. Cannot combine with `--identity facts`; a stage whose output fails to parse makes the whole pair NaN (`handoff_parse_error`). |
 | `--verification-tools` | `off` `on` | W2 only (C3): adds `lookup_certification` against the synthetic certification registry; the tool surface hash changes with it. |
 | `--gate` | `off` `on` | Runtime policy gate (B3): every sink call is checked against the trace-monitor rules first; a call that breaks one gets a district policy denial, is ledgered `blocked_by_policy` and never runs. Blocked calls count as attempted harm, never completed. |
+| `--arms` | `defense` `halflife` | Named comparison (B4); replaces the isolation, hand-off, gate, relay and defense axes, and combining it with any of those flags exits 2. `defense`: isolation off; isolation on; typed; typed + spotlight, each without and with the gate (8 arms per scope). `halflife`: relay depths 0-3, isolated, free_text, gate off. |
 | `-M` / `--model-arg` | `KEY=VALUE` | Provider argument bound with the model (repeatable); OpenRouter models must pin their host. |
 
 ```bash
@@ -79,6 +97,14 @@ python scripts/run_sweep.py --model mockllm/model --workflow w2 \
   --scopes read_write --isolation isolated --relay-stages 0 2 \
   --handoff-modes free_text typed --verification-tools off on \
   --epochs 1 --dry-run                   # 8 cells: run counts and config hashes
+```
+
+`--dry-run` prints one line per cell (conditions, `runs=`, `config_hash=`,
+`est=$X`, or `est=n/a` without a priced preset) then the total:
+
+```bash
+python scripts/run_sweep.py --preset gemini-3.8-flash --workflow w1 \
+  --scopes read_write --arms halflife --epochs 10 --dry-run   # 4 cells, $ each
 ```
 
 **Dev/confirm split** (C4). Every manifest row carries `split` (`dev` or
@@ -113,8 +139,16 @@ It is a **draft**, and until it is signed `run_sweep.py` refuses every paid run
 its rules were pushed before it ran. Sign doc 10, set its version to `1.0` in
 the doc *and* in `src/eduinject/config.py::DOC_VERSIONS`, commit, push, then run.
 
-**Models.** Use `--preset`. It sets the dated model, its pinned host (fallbacks
-off) and `--reasoning-effort low`, and lets a dry run print a cost estimate:
+**Models.** Use `--model-preset` (`--preset` is an alias). Models live in
+`configs/models.json`; a preset sets the dated model, its pinned host (fallbacks
+off) and its reasoning effort (`low`), and lets a dry run print a cost estimate.
+Several names sweep the model axis; `--hosts DeepInfra Together` sweeps the
+host axis (each pins `{"order":[host],"allow_fallbacks":false}`, overriding the
+registry pin; it cannot combine with `-M provider=...`); `--reasoning-effort
+low high` sweeps effort. Each is a separate cell with its own `config_hash`; an
+identical repeated cell is dropped with a warning. `-M provider=...` alone
+still overrides the pin. An entry with `TODO` fields (the `todo-*` placeholders)
+is refused with exit 2: fill its model, pin and prices first, never guess.
 
 | Preset | Model | Host | $/1M in / out (2026-10-25) |
 | --- | --- | --- | --- |
@@ -124,8 +158,18 @@ off) and `--reasoning-effort low`, and lets a dry run print a cost estimate:
 | `deepseek-v4` | DeepSeek V4 Flash (first edition only) | DeepInfra | 0.06 / 0.18 |
 
 Prices change. Re-read them on openrouter.ai before a run and update
-`scripts/run_sweep.py::PRESETS` if they moved; the estimate is only as good as
-that table.
+`configs/models.json` if they moved. `--dry-run` prices each cell with
+`scripts/estimate_cost.py`, from token means in existing logs under `--log-dir`
+(matched by `config_hash`); with no such logs it says it used the default pilot
+tokens. Without a preset the est column reads `est=n/a`. Standalone:
+`python scripts/estimate_cost.py --model-preset luna --log-dir logs/sweep --samples 100`,
+plus `--twin-only` (price a twin-only run: half the pair tokens in the fallback)
+and `--relay-stages N` (each relay adds to the fallback by (3+N)/3).
+
+```bash
+python scripts/run_sweep.py --preset luna --hosts DeepInfra Together \
+  --workflow w1 --scopes read_write --epochs 10 --dry-run   # 2 cells, 2 hashes
+```
 
 **New conditions** (doc 10 §2–4), crossed with scope and isolation:
 
@@ -139,7 +183,7 @@ that table.
 ```bash
 make test-eduinject                                       # no model contacted
 python scripts/validate_manifest.py corpus/manifest_w*.jsonl
-python scripts/run_sweep.py --preset luna --workflow w1 --scopes read_write \
+python scripts/run_sweep.py --model-preset luna --workflow w1 --scopes read_write \
   --identity off facts guard --epochs 10 --dry-run        # cells, hashes, $ estimate
 ```
 
@@ -148,7 +192,7 @@ docs 10–13 is unsigned; a pilot is never reported as a result).** For each mod
 pairs, one epoch, one write-capable cell, every new condition:
 
 ```bash
-python scripts/run_sweep.py --preset gemini-3.8-flash --workflow w1 \
+python scripts/run_sweep.py --model-preset gemini-3.8-flash --workflow w1 \
   --scopes read_write --isolation isolated --identity off facts guard \
   --defense none spotlight --limit 3 --epochs 1 --allow-draft-docs \
   --log-dir logs/pilot-v2-gemini
