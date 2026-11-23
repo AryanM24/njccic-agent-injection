@@ -23,9 +23,11 @@ attacker named.
 
 What this shows is reachability: whether attacker text *can* reach a stage
 holding a harmful tool, and whether the tool *can* complete the harm. It says
-nothing about how often a real model obeys. Spotlighting and the typed hand-off
-change nothing for an adversary that always obeys, so a null there is
-expected by construction, not a finding against them.
+nothing about how often a real model obeys. Spotlighting, the facts block and
+relay depth change nothing for an adversary that always obeys: a null there is
+expected by construction, not a finding against them. The typed hand-off's
+fields are free text, so its null here is a real finding: as built it does not
+structurally block relaying an instruction.
 """
 
 import json

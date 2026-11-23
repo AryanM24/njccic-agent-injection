@@ -98,6 +98,7 @@ from eduinject.analysis import (
     within_pair_difference,
     within_pair_differences,
 )
+from eduinject.models import load_models
 
 SCOPE_ORDER = ("read_only", "standard", "read_write")
 
@@ -435,31 +436,53 @@ SECONDARY = f"secondary, {PENDING}"
 """Stamped on every across-model row: outside every Holm family."""
 
 
+def model_family(served: str) -> str:
+    """The registry family of a served model label (`_served` appends the host
+    and effort in parentheses); an unregistered model is its own family."""
+    base = served.split(" (", 1)[0]
+    families = {e.model: e.family for e in load_models().values() if not e.todo}
+    return families.get(base, base)
+
+
 def across_model_rows(
     fixed: dict[str, Any],
     long: list[dict[str, Any]],
     outcome: str,
     factors: list[str],
 ) -> list[dict[str, Any]]:
-    """Doc 11 §3.5, across-model summary: the family's exchangeable GEE refitted
-    within each served model (the same factors less `model`), then each term
-    fitted in two or more models pooled by `stats.random_effects`. No runs are
-    pooled across models (doc 09 §1); only the per-model estimates are.
-    A model's term enters only when its fit used the family's reference for
-    that factor (`stats.factor_levels` over every model's rows: the usual
-    reference when present): a model whose reference was separated fitted a
-    different contrast under the same name. `k_missing` counts the models
-    left out for that reason, for a degenerate SE, or because the term was
-    separated, unfitted or not fitted at all; the sign counts are over the
-    pooled models' log-odds, and the `sig` ones count models whose own 95%
-    CI excludes zero."""
-    models = sorted({str(r["model"]) for r in long})
+    """Doc 11 §3.5, across-model summary: the family's GEE refitted within each
+    served model (the same factors less `model`), then each term fitted in two
+    or more models pooled by `stats.random_effects`. Only per-model estimates
+    are combined, never runs.
+
+    - One model per registry family (`model_family`): the first served label
+      in sort order; other members of a family are near-copies that would
+      inflate k, and are counted in `k_same_family`, not fitted.
+    - A model's term enters only when its fit used the family's reference for
+      that factor (`stats.factor_levels` over every model's rows): a model
+      whose reference was separated fitted a different contrast under the
+      same name.
+    - Models left out of a term are counted by reason: `k_sep_zero` (the level
+      had no event in that model), `k_sep_all` (only events) and `k_other`
+      (unfitted, another reference, a degenerate SE, or no fit).
+    - The pool uses the exchangeable fit's robust SEs; `lo_br`, `hi_br` and
+      `p_q_br` repeat it with the independence + bias-reduced SEs (fewer
+      pairs, less anti-conservative), over the same models.
+    - Sign counts are over the pooled models' log-odds; the `sig` ones count
+      models whose own 95% CI excludes zero.
+    """
+    chosen: dict[str, str] = {}
+    for model in sorted({str(r["model"]) for r in long}):
+        chosen.setdefault(model_family(model), model)
+    models = sorted(chosen.values())
+    same_family = len({str(r["model"]) for r in long}) - len(models)
     if len(models) < 2:
         return []
     reference = {
         f: stats.factor_levels(f, [r.get(f) for r in long])[0] for f in factors
     }
-    per_term: dict[str, dict[str, stats.GeeTerm]] = {}
+    per_term: dict[str, dict[str, tuple[stats.GeeTerm, stats.GeeTerm | None]]] = {}
+    separated: dict[str, dict[str, int]] = {}
     for model in models:
         mine = [r for r in long if str(r["model"]) == model]
         varying = [
@@ -468,30 +491,53 @@ def across_model_rows(
             if f != "model" and (f == "arm" or len({str(r.get(f)) for r in mine}) > 1)
         ]
         fit = stats.gee_fit(mine, outcome, varying)
-        for term, t in (fit.terms if fit else {}).items():
+        if fit is None:
+            continue
+        br = stats.gee_fit(mine, outcome, varying, cov="independence_bias_reduced")
+        for sep in fit.separated:
+            separated.setdefault(sep.term, {})[model] = sep.events
+        for term, t in fit.terms.items():
             factor = term.split("=", 1)[0]
             usable = math.isfinite(t.se) and t.se > 0
-            if usable and fit and fit.references[factor] == reference[factor]:
-                per_term.setdefault(term, {})[model] = t
+            if usable and fit.references[factor] == reference[factor]:
+                per_term.setdefault(term, {})[model] = (
+                    t,
+                    br.terms.get(term) if br else None,
+                )
     out: list[dict[str, Any]] = []
     for term, by_model in sorted(per_term.items()):
-        pooled = stats.random_effects([(t.log_odds, t.se) for t in by_model.values()])
+        terms = [t for t, _ in by_model.values()]
+        pooled = stats.random_effects([(t.log_odds, t.se) for t in terms])
         if pooled is None:
             continue
-        terms = list(by_model.values())
+        brs = [b for _, b in by_model.values()]
+        pooled_br = (
+            stats.random_effects([(b.log_odds, b.se) for b in brs if b])
+            if all(brs)
+            else None
+        )
+        left = {m: e for m, e in separated.get(term, {}).items() if m not in by_model}
+        k_sep_zero = sum(e == 0 for e in left.values())
+        k_sep_all = len(left) - k_sep_zero
+        factor = term.split("=", 1)[0]
         out.append(
             {
                 **fixed,
                 "term": term,
-                "reference": f"{term.split('=', 1)[0]}="
-                f"{reference[term.split('=', 1)[0]]}",
+                "reference": f"{factor}={reference[factor]}",
                 "models": ";".join(by_model),
-                "k_missing": len(models) - len(by_model),
+                "k_sep_zero": k_sep_zero,
+                "k_sep_all": k_sep_all,
+                "k_other": len(models) - len(by_model) - len(left),
+                "k_same_family": same_family,
                 "status": SECONDARY,
                 **{
                     k: "" if v is None else round(v, 4) if isinstance(v, float) else v
                     for k, v in pooled._asdict().items()
                 },
+                "lo_br": round(pooled_br.lo, 4) if pooled_br else "",
+                "hi_br": round(pooled_br.hi, 4) if pooled_br else "",
+                "p_q_br": round(pooled_br.p_q, 4) if pooled_br else "",
                 "n_negative": sum(t.log_odds < 0 for t in terms),
                 "n_positive": sum(t.log_odds > 0 for t in terms),
                 "n_sig_negative": sum(t.hi < 0 for t in terms),

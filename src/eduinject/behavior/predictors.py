@@ -74,6 +74,9 @@ GROUP_KEY: dict[str, str] = {
 SERVED_FIELDS = ("model", "host", "reasoning_effort")
 """The model as served: never an input under `leave_one_model_out`, where the
 held-out model's level is unseen in training by construction."""
+MODEL_SCALED = ("tokens_in:", "tokens_out:")
+"""Token counts follow each model's tokenizer, so they fingerprint the model
+and shift in scale between models: also dropped under `leave_one_model_out`."""
 Matrix = NDArray[np.float64]
 
 
@@ -328,14 +331,20 @@ def cross_validate(
         scheme: `group_kfold` (`GroupKFold(5)` on `artifact_id`),
             `leave_one_base_out` (`LeaveOneGroupOut` on `base_id`) or
             `leave_one_model_out` (`LeaveOneGroupOut` on `model`, with
-            `SERVED_FIELDS` dropped from the inputs and the config baseline).
+            `SERVED_FIELDS` dropped from the inputs and the config baseline,
+            and the `MODEL_SCALED` token counts from the inputs).
         seed: Tree seed.
 
     Every metric is NaN when there are fewer than two groups.
     """
     scored = _scored(rows, target)
-    drop = SERVED_FIELDS if scheme == "leave_one_model_out" else ()
-    columns = [c for c in default_columns(rows) if c not in drop]
+    lomo = scheme == "leave_one_model_out"
+    drop = SERVED_FIELDS if lomo else ()
+    columns = [
+        c
+        for c in default_columns(rows)
+        if c not in drop and not (lomo and c.startswith(MODEL_SCALED))
+    ]
     x, y, _ = design_matrix(rows, target, columns)
     config = [c for c in CELL_FIELDS if c not in drop and any(c in r for r in scored)]
     x_cfg, _, _ = _encode(scored, config)

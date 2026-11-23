@@ -2,12 +2,12 @@
 """Structural ceiling (A9, doc 11 §3.9): the harm each arm permits, on the mock
 model, at $0.
 
-    ceiling.py [--workflows w1 w2 w3] [--adversary copy drop] [--per-base 1]
+    ceiling.py [--workflows w1 w2 w3] [--adversary copy drop] [--per-base N]
                [--arms ARM...] [--out logs/ceiling]
 
 For each adversary × arm (`ceiling.ARMS`) × workflow, runs the task against
-`ceiling.adversary` on the first `--per-base` artifacts of every base scenario
-(manifest order), logging to OUT/<adversary>/<arm>/. Then it writes
+`ceiling.adversary` on every artifact (or, with `--per-base N`, the first N
+of every base scenario in manifest order: a quick look), logging to OUT/<adversary>/<arm>/. Then it writes
 OUT/ceiling.csv: one row per (adversary, arm, workflow) with the run count, the
 unscored count and the mean of every score. The adversary reads only the
 payload marker and the sample metadata, never the payload wording, so the
@@ -31,8 +31,9 @@ from eduinject.ceiling import ADVERSARIES, ARMS, MOCK, TASKS, adversary, ceiling
 from eduinject.task import workflow
 
 
-def sample_ids(manifest: Path, per_base: int) -> list[str]:
-    """The first `per_base` artifact ids of each `base_id`, in manifest order."""
+def sample_ids(manifest: Path, per_base: int | None) -> list[str]:
+    """The first `per_base` artifact ids of each `base_id`, in manifest order;
+    every id when `per_base` is None."""
     taken: dict[str, int] = {}
     ids: list[str] = []
     for line in manifest.read_text(encoding="utf-8").splitlines():
@@ -40,7 +41,7 @@ def sample_ids(manifest: Path, per_base: int) -> list[str]:
             continue
         entry = json.loads(line)
         base = str(entry.get("base_id", ""))
-        if taken.get(base, 0) < per_base:
+        if per_base is None or taken.get(base, 0) < per_base:
             taken[base] = taken.get(base, 0) + 1
             ids.append(entry["artifact_id"])
     return ids
@@ -64,10 +65,10 @@ def main(argv: list[str] | None = None) -> int:
         "--adversary", nargs="+", default=list(ADVERSARIES), choices=list(ADVERSARIES)
     )
     parser.add_argument("--arms", nargs="+", default=list(ARMS), choices=list(ARMS))
-    parser.add_argument("--per-base", type=int, default=1)
+    parser.add_argument("--per-base", type=int, default=None)
     parser.add_argument("--out", default="logs/ceiling")
     args = parser.parse_args(argv)
-    if args.per_base < 1:
+    if args.per_base is not None and args.per_base < 1:
         parser.error("--per-base must be at least 1")
     out = Path(args.out)
     table: list[dict[str, Any]] = []

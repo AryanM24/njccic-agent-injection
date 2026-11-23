@@ -18,7 +18,7 @@ Docs 10–13 are **drafts**, so `run_sweep.py` refuses every paid run (exit 3).
 **State.** On `main`. Everything in the Phases A–E plan
 (`docs/superpowers/plans/2026-11-14-phases-a-e.md`) is built and
 tested on `main`; `make check && make test-eduinject` is green
-(651 passed, 3 gated skips) and no model was contacted. Added 2026-11-23: the
+(655 passed, 3 gated skips) and no model was contacted. Added 2026-11-23: the
 **variance partition** (doc 11 §3.5, `variance.csv`): the pair random-intercept
 model's latent-scale split of harm variance into each factor, the pair and
 run-to-run noise, which closes doc 12 A-50 (the "depends on the model" claim). Added the same

@@ -438,7 +438,9 @@ def test_report_writes_across_models(
         table = {r["term"]: r for r in csv.DictReader(f)}
     assert set(table) == {"arm=attack", "isolated=True"}
     arm = table["arm=attack"]
-    assert arm["k"] == "2" and arm["models"] == "m;n" and arm["k_missing"] == "0"
+    assert arm["k"] == "2" and arm["models"] == "m;n"
+    assert (arm["k_sep_zero"], arm["k_sep_all"], arm["k_other"]) == ("0", "0", "0")
+    assert arm["lo_br"] != "" and arm["k_same_family"] == "0"
     assert float(arm["estimate"]) > 0 and arm["n_positive"] == "2"
     assert arm["pi_lo"] == "" and "secondary" in arm["status"]
 
@@ -446,7 +448,7 @@ def test_report_writes_across_models(
 def test_across_models_pools_only_a_shared_reference() -> None:
     """A model whose usual reference level is separated is fitted against the
     next level; its same-named term is a different contrast and must not be
-    pooled with the others' (it counts in `k_missing`)."""
+    pooled with the others' (it counts in `k_other`)."""
     pytest.importorskip("statsmodels")
     import random
 
@@ -473,6 +475,63 @@ def test_across_models_pools_only_a_shared_reference() -> None:
     by_term = {r["term"]: r for r in out}
     for term in ("scope=read_only", "scope=standard"):
         assert by_term[term]["models"] == "m;o", term
-        assert by_term[term]["k_missing"] == 1
+        assert by_term[term]["k_other"] == 1 and by_term[term]["k_sep_zero"] == 0
         assert by_term[term]["reference"] == "scope=read_write"
     assert by_term["arm=attack"]["models"] == "m;n;o"
+
+
+def test_across_models_pools_one_model_per_family() -> None:
+    pytest.importorskip("statsmodels")
+    import analyze
+
+    old, new = (
+        "openrouter/deepseek/deepseek-v4-flash-0731",
+        "openrouter/deepseek/deepseek-v4.1-flash-1017",
+    )
+    assert analyze.model_family(f"{old} (DeepInfra, low)") == "deepseek-v4"
+    assert analyze.model_family(new) == "deepseek-v4.1", "the registry decides"
+    assert analyze.model_family("mockllm/model") == "mockllm/model"
+    rows = [
+        {**r, "model": m, "arm": arm, "score:h": r[f"score:paired_utility.harm_{arm}"]}
+        for m in (old, "openrouter/openai/gpt-6-luna")
+        for r in _pairs(60)
+        for arm in ("attack", "twin")
+    ]
+    # Same family twice: one model left, nothing to pool.
+    twins = [{**r, "model": old} for r in rows]
+    assert analyze.across_model_rows({}, twins, "h", ["arm", "model"]) == []
+    (row,) = analyze.across_model_rows({}, rows, "h", ["arm", "model"])
+    assert row["k"] == 2 and row["k_same_family"] == 0
+    dup = rows + [{**r, "model": f"{old} (DeepInfra, high)"} for r in rows[:240]]
+    (row,) = analyze.across_model_rows({}, dup, "h", ["arm", "model"])
+    assert row["k"] == 2 and row["k_same_family"] == 1
+
+
+def test_across_models_counts_zero_event_separation() -> None:
+    pytest.importorskip("statsmodels")
+    import random
+
+    import analyze
+
+    rng = random.Random(5)
+    rows = []
+    for model in ("m", "n", "o"):
+        for i in range(90):
+            gate = i % 2 == 1
+            for arm in ("attack", "twin"):
+                p = 0.0 if (model == "o" and gate) else 0.5
+                rows.append(
+                    {
+                        "status": "scored",
+                        "artifact_id": f"{model}{i}",
+                        "model": model,
+                        "gate": gate,
+                        "arm": arm,
+                        "score:h": float(rng.random() < p),
+                    }
+                )
+    out = {
+        r["term"]: r for r in analyze.across_model_rows({}, rows, "h", ["arm", "gate"])
+    }
+    row = out["gate=True"]
+    assert row["models"] == "m;n" and row["k_sep_zero"] == 1 and row["k_other"] == 0

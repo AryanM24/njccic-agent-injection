@@ -268,3 +268,24 @@ def test_lomo_one_model_is_nan() -> None:
     rows = [r | {"model": "m0"} for r in _rows()]
     cv = cross_validate(rows, "out:harm_completed", "l1", "leave_one_model_out")
     assert math.isnan(cv.auroc) and cv.fold_groups == []
+
+
+def test_lomo_drops_token_counts() -> None:
+    """Token counts fingerprint the model; here they alone carry the signal."""
+    rng = random.Random(6)
+    rows = []
+    for i, r in enumerate(_rows(240)):
+        harm = rng.random() < 0.5
+        rows.append(
+            r
+            | {
+                "model": f"m{i % 3}",
+                "carry:analysis": rng.choice([S, A]),
+                "flag:intake": 0.0,
+                "tokens_in:intake": 900.0 + 100 * harm + rng.random(),
+                "out:harm_completed": float(harm),
+            }
+        )
+    assert cross_validate(rows, "out:harm_completed", "l1", "group_kfold").auroc > 0.9
+    lomo = cross_validate(rows, "out:harm_completed", "l1", "leave_one_model_out")
+    assert lomo.auroc < 0.7
