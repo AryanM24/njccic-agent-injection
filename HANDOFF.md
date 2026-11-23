@@ -8,7 +8,7 @@ runs.
 
 The first edition, the second edition (`isef-v2`) and the 2026-11-14 upgrades
 are **one study** (PI ruling; no frozen first-edition path, all runs redone).
-Spec: [`docs/design/11_study_design.md`](docs/design/11_study_design.md) (v0.4,
+Spec: [`docs/design/11_study_design.md`](docs/design/11_study_design.md) (v0.5,
 as built; §8 the design rulings, §9 what is still not measured).
 Audit: [`docs/design/12_v1_audit.md`](docs/design/12_v1_audit.md) (every row
 closed with a final status). Recipient rule:
@@ -18,10 +18,18 @@ Docs 10–13 are **drafts**, so `run_sweep.py` refuses every paid run (exit 3).
 **State.** On `main`. Everything in the Phases A–E plan
 (`docs/superpowers/plans/2026-11-14-phases-a-e.md`) is built and
 tested on `main`; `make check && make test-eduinject` is green
-(634 passed, 3 gated skips) and no model was contacted. Added 2026-11-23: the
+(651 passed, 3 gated skips) and no model was contacted. Added 2026-11-23: the
 **variance partition** (doc 11 §3.5, `variance.csv`): the pair random-intercept
 model's latent-scale split of harm variance into each factor, the pair and
-run-to-run noise, which closes doc 12 A-50 (the "depends on the model" claim). Built:
+run-to-run noise, which closes doc 12 A-50 (the "depends on the model" claim). Added the same
+day, the **model-agnostic layer** (doc 11 v0.5, all secondary and pending your
+ruling 6e): the **structural ceiling** (§3.9, `scripts/ceiling.py`, $0: the
+harm each arm permits against a scripted adversary that obeys wherever the
+marker reaches; already run on the public corpus), the **across-model
+summary** (§3.5, `across_models.csv`: each factor's effect pooled across
+models with a heterogeneity test and a prediction interval for an unstudied
+model) and **leave-one-model-out** cross-validation of the harm predictors
+(§3.7). Built:
 
 - **Phase 0:** declared correct actions (`correct_outcome`), carry states,
   recipient classes (doc 13), misdirection, directory-value detection,
@@ -65,7 +73,7 @@ offline analyses in order). Divergences: `docs/design/implementation-map.md`
 | 3 | **Confirm the W3 staff queue names** | `tools/parentmail.STAFF_QUEUES` = `front-office`, `records-office`, `counseling`, `special-services` (only `front-office` came from earlier code). Used by provenance's `staff_queue` extractor. |
 | 4 | **Fill the `TODO` model entries in `configs/models.json`** | `todo-closed-family` and `todo-open-family`: exact dated model id, host pin (fallbacks off), prices per million tokens and their source, read from openrouter.ai. Never guess; a sweep naming a TODO entry exits 2. Also resolve `deepseek-v4`'s note (HANDOFF lists it as fp8, its pin does not enforce fp8). |
 | 5 | **Sign the severity weights** | `configs/severity_weights.json` is `0.1-draft` placeholders, including `misdirection` 0.3 (doc 11 §3.8). Set the weights, a new version and a signed `status`; every risk figure is provisional until then. |
-| 6 | **Rule on the statistics** | (a) GEE structure: exchangeable + robust primary with independence + bias-reduced as sensitivity, or the reverse (doc 10 §5 chose independence; doc 11 §8 ruling 3). (b) Holm family = doc 10 `PRIMARY_CONTRASTS` ∪ the new arm contrasts. (c) GEE vs pair bootstrap as the primary test. (d) Doc 10 DECISION 5a: bootstrap resamples, 1,000 (signed doc 09 §3, the code default) or 10,000 (`--n-boot 10000`, as `RUNNING.md` §5 passes). |
+| 6 | **Rule on the statistics** | (a) GEE structure: exchangeable + robust primary with independence + bias-reduced as sensitivity, or the reverse (doc 10 §5 chose independence; doc 11 §8 ruling 3). (b) Holm family = doc 10 `PRIMARY_CONTRASTS` ∪ the new arm contrasts. (c) GEE vs pair bootstrap as the primary test. (d) Doc 10 DECISION 5a: bootstrap resamples, 1,000 (signed doc 09 §3, the code default) or 10,000 (`--n-boot 10000`, as `RUNNING.md` §5 passes). (e) Doc 11 §8 ruling 8: adopt the model-agnostic layer (structural ceiling, across-model summary, leave-one-model-out) as secondary analyses, and the reading rules it proposes for "general across models", "model-dependent" and "structurally prevents". |
 | 7 | **Sign docs 10, 11, 12 and 13** (PI and second reviewer) | Set each version to `1.0` in the doc header **and** in `config.DOC_VERSIONS` (the sync test enforces both), commit, push. Every doc 12 row marked "needs a decision from me" is yours first. |
 | 8 | **Initial DEV-2** (first edition) | `docs/design/attestations/preregistration_deviations.md`; still awaiting PI initials (doc 12 A-85). |
 | 9 | **Run the study** | The commands in `RUNNING.md`: dry run each sweep, a pilot with `--allow-draft-docs` only with your OK, then the twin baseline, controls and attack sweeps (`--arms defense`, `--arms halflife`, `--model-preset ...`), then the offline analyses in order. |

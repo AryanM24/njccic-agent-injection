@@ -13,7 +13,9 @@ Cell (NJCCIC).
 > edition plus the 2026-11-14 upgrades; spec in
 > [`docs/design/11_study_design.md`](docs/design/11_study_design.md)) is built
 > and tested but **not yet run**. It is being prepared for **TCJSF**, and a new
-> write-up will follow its runs. What is left before the first run:
+> write-up will follow its runs. Its newest layer separates what holds for any
+> model (the harm each design *permits*, measured against a scripted worst-case
+> adversary at no model cost) from what depends on the model. What is left before the first run:
 > [`HANDOFF.md`](HANDOFF.md). Week-by-week progress: the project wiki.
 
 ## Citation

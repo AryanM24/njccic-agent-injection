@@ -63,6 +63,8 @@ python scripts/behavior_models.py chain    --features logs/features/<name>.csv -
 python scripts/behavior_models.py halflife --features logs/features/<name>.csv --out logs/behavior/
 python scripts/behavior_models.py predict  --features logs/features/<name>.csv --out logs/behavior/
 python scripts/behavior_models.py profiles --features logs/features/<name>.csv --out logs/behavior/
+# 4b. Structural ceiling: the harm each arm permits, mock model only ($0, under a minute)
+python scripts/ceiling.py --out logs/ceiling   # logs/ceiling/ceiling.csv (doc 11 §3.9)
 # 5. Risk and the frontier
 python scripts/risk_report.py --features logs/features/<name>.csv \
   --weights configs/severity_weights.json --out logs/risk/
@@ -91,7 +93,10 @@ python scripts/analyze.py trace-check logs/<dir>... # W1: was the target looked 
 (exchangeable GEE with robust SEs, the floor rule's `verdict` per term),
 `gee_independence.csv` (independence + bias-reduced SEs), `mixed.csv` (pair
 random intercept), `variance.csv` (how much of the outcome's variance each
-factor, the pair and run-to-run noise account for, on the latent scale) and
+factor, the pair and run-to-run noise account for, on the latent scale),
+`across_models.csv` (each term refitted within each model and pooled across
+models: pooled effect, between-model variance, a heterogeneity test and the
+prediction interval for a model not studied; secondary) and
 `holm.csv` (Holm over the GEE terms of each family). The
 working correlation and the Holm family are pending PI sign-off and every row
 says so. A level with only events or only non-events (say `gate=True` with no
@@ -205,8 +210,9 @@ python scripts/behavior_models.py halflife --features logs/features/<name>.csv \
 only (any outcome column is refused), L1 logistic and depth-4 tree predictors
 of harmful completion, carry to the action stage and the five most violated
 rules (a rule is a target only on runs of its own workflow; profiles give
-rule rates per cell, like carry rates), cross-validated by pair (`GroupKFold` on `artifact_id`) and
-leave-one-base-out, against config-only and prevalence baselines (doc 11 §3.7).
+rule rates per cell, like carry rates), cross-validated by pair (`GroupKFold` on `artifact_id`),
+leave-one-base-out and leave-one-model-out (does a predictor transfer to a
+model it never saw? the model as served is not an input there), against config-only and prevalence baselines (doc 11 §3.7).
 Needs the `analysis` extra; `--n-boot` sets the coefficient resamples:
 
 ```bash
