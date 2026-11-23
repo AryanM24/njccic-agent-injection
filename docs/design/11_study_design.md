@@ -706,8 +706,11 @@ Definitions, as built:
   interaction the main-effects GEE does not fit. The 95% prediction interval
   μ ± t(k−2)·√(τ² + SE²) (Riley et al. 2011) is the expected effect in a
   model of the same tier that was not studied, empty when k < 3. Each row also
-  counts the models where the term was missing (separated, unfitted or no
-  fit: `k_missing`) and the per-model signs (`n_negative`, `n_positive`, and
+  counts the models where the term was missing (separated, unfitted, no fit,
+  a degenerate SE, or a fit whose reference level differs from the family's
+  because the usual reference was separated in that model, so the same-named
+  term is a different contrast: `k_missing`; the row's `reference` names the
+  shared one) and the per-model signs (`n_negative`, `n_positive`, and
   `n_sig_*` for a model's own 95% CI excluding zero). No run is pooled across
   models (doc 09 §1 holds); only per-model estimates are combined. None when
   k < 2 or an SE is not positive. `analyze.py report` writes

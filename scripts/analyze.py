@@ -62,6 +62,7 @@ runs is Tier 1, like the logs it is computed from. Nothing here contacts a model
 
 import argparse
 import csv
+import math
 import random
 import sys
 from collections.abc import Sequence
@@ -444,12 +445,20 @@ def across_model_rows(
     within each served model (the same factors less `model`), then each term
     fitted in two or more models pooled by `stats.random_effects`. No runs are
     pooled across models (doc 09 §1); only the per-model estimates are.
-    `k_missing` counts the models where the term was separated, unfitted or
-    not fitted at all; the sign counts are over the per-model log-odds, and
-    the `sig` ones count models whose own 95% CI excludes zero."""
+    A model's term enters only when its fit used the family's reference for
+    that factor (`stats.factor_levels` over every model's rows: the usual
+    reference when present): a model whose reference was separated fitted a
+    different contrast under the same name. `k_missing` counts the models
+    left out for that reason, for a degenerate SE, or because the term was
+    separated, unfitted or not fitted at all; the sign counts are over the
+    pooled models' log-odds, and the `sig` ones count models whose own 95%
+    CI excludes zero."""
     models = sorted({str(r["model"]) for r in long})
     if len(models) < 2:
         return []
+    reference = {
+        f: stats.factor_levels(f, [r.get(f) for r in long])[0] for f in factors
+    }
     per_term: dict[str, dict[str, stats.GeeTerm]] = {}
     for model in models:
         mine = [r for r in long if str(r["model"]) == model]
@@ -460,7 +469,10 @@ def across_model_rows(
         ]
         fit = stats.gee_fit(mine, outcome, varying)
         for term, t in (fit.terms if fit else {}).items():
-            per_term.setdefault(term, {})[model] = t
+            factor = term.split("=", 1)[0]
+            usable = math.isfinite(t.se) and t.se > 0
+            if usable and fit and fit.references[factor] == reference[factor]:
+                per_term.setdefault(term, {})[model] = t
     out: list[dict[str, Any]] = []
     for term, by_model in sorted(per_term.items()):
         pooled = stats.random_effects([(t.log_odds, t.se) for t in by_model.values()])
@@ -471,6 +483,8 @@ def across_model_rows(
             {
                 **fixed,
                 "term": term,
+                "reference": f"{term.split('=', 1)[0]}="
+                f"{reference[term.split('=', 1)[0]]}",
                 "models": ";".join(by_model),
                 "k_missing": len(models) - len(by_model),
                 "status": SECONDARY,

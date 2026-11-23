@@ -441,3 +441,38 @@ def test_report_writes_across_models(
     assert arm["k"] == "2" and arm["models"] == "m;n" and arm["k_missing"] == "0"
     assert float(arm["estimate"]) > 0 and arm["n_positive"] == "2"
     assert arm["pi_lo"] == "" and "secondary" in arm["status"]
+
+
+def test_across_models_pools_only_a_shared_reference() -> None:
+    """A model whose usual reference level is separated is fitted against the
+    next level; its same-named term is a different contrast and must not be
+    pooled with the others' (it counts in `k_missing`)."""
+    pytest.importorskip("statsmodels")
+    import random
+
+    import analyze
+
+    rng = random.Random(4)
+    rows = []
+    for model in ("m", "n", "o"):
+        for i in range(90):
+            scope = ("read_write", "standard", "read_only")[i % 3]
+            for arm in ("attack", "twin"):
+                p = 0.0 if (model == "n" and scope == "read_write") else 0.5
+                rows.append(
+                    {
+                        "status": "scored",
+                        "artifact_id": f"{model}{i}",
+                        "model": model,
+                        "scope": scope,
+                        "arm": arm,
+                        "score:h": float(rng.random() < p),
+                    }
+                )
+    out = analyze.across_model_rows({}, rows, "h", ["arm", "scope", "model"])
+    by_term = {r["term"]: r for r in out}
+    for term in ("scope=read_only", "scope=standard"):
+        assert by_term[term]["models"] == "m;o", term
+        assert by_term[term]["k_missing"] == 1
+        assert by_term[term]["reference"] == "scope=read_write"
+    assert by_term["arm=attack"]["models"] == "m;n;o"
