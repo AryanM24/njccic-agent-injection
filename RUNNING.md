@@ -90,7 +90,9 @@ python scripts/analyze.py trace-check logs/<dir>... # W1: was the target looked 
 `report` also writes doc 11 §3.5's model tables beside the others: `gee.csv`
 (exchangeable GEE with robust SEs, the floor rule's `verdict` per term),
 `gee_independence.csv` (independence + bias-reduced SEs), `mixed.csv` (pair
-random intercept) and `holm.csv` (Holm over the GEE terms of each family). The
+random intercept), `variance.csv` (how much of the outcome's variance each
+factor, the pair and run-to-run noise account for, on the latent scale) and
+`holm.csv` (Holm over the GEE terms of each family). The
 working correlation and the Holm family are pending PI sign-off and every row
 says so. A level with only events or only non-events (say `gate=True` with no
 harm) is left out of the fit and gets a `separated` row with its counts and

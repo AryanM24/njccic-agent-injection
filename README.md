@@ -7,6 +7,15 @@ office to find out, and measures how often it happens.
 This research was prepared for the New Jersey Cybersecurity and Communications Integration
 Cell (NJCCIC).
 
+> **Status (November 2026).** The paper in [`paper/`](paper/) and the results
+> in [`findings.md`](findings.md) are the **first edition** and stay here as the
+> record of how those numbers were produced. A larger combined study (second
+> edition plus the 2026-11-14 upgrades; spec in
+> [`docs/design/11_study_design.md`](docs/design/11_study_design.md)) is built
+> and tested but **not yet run**. It is being prepared for **TCJSF**, and a new
+> write-up will follow its runs. What is left before the first run:
+> [`HANDOFF.md`](HANDOFF.md). Week-by-week progress: the project wiki.
+
 ## Citation
 
 If you use this testbed or its findings, please cite the paper (source in

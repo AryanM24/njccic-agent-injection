@@ -19,7 +19,9 @@ functions add what a reader expects next to it, all still clustered by pair:
   clusters (exchangeable + robust errors primary, independence + bias-reduced
   beside it; pending PI sign-off), over `long_rows`; `mixed_fit`, a pair
   random-intercept sensitivity model; `CONTRAST_FAMILY`, the Holm family
-  (doc 11 §3.5). These need `statsmodels` (the optional `analysis` extra).
+  (doc 11 §3.5); `MixedFit.variance`, the latent-scale variance partition
+  (model vs other factors vs pair vs run). These need `statsmodels` (the
+  optional `analysis` extra).
 - `power_mde`: simulated power, the smallest detectable attack-minus-twin
   difference for a planned design.
 
@@ -276,11 +278,32 @@ class GeeFit(NamedTuple):
     unfitted: tuple[str, ...] = ()
 
 
+LOGISTIC_RESIDUAL = math.pi**2 / 3
+"""Latent-scale residual variance of the logit link: run-to-run noise."""
+
+
+class VariancePartition(NamedTuple):
+    """Latent-scale variance of a pair random-intercept logistic fit
+    (Nakagawa & Schielzeth 2013), by source.
+
+    `variance` holds one entry per fitted factor (the variance across runs of
+    that factor's part of the linear predictor), `overlap` (what the factors
+    explain jointly beyond their sum, from imbalance; may be negative),
+    `pair` (the random-intercept variance: document to document) and `run`
+    (`LOGISTIC_RESIDUAL`: epoch to epoch). `share` is each over the total.
+    """
+
+    variance: dict[str, float]
+    share: dict[str, float]
+
+
 class MixedFit(NamedTuple):
     """Posterior (mean, sd) of each fixed effect of a pair random-intercept
-    logistic model, named like `GeeFit.terms`."""
+    logistic model, named like `GeeFit.terms`, and the variance partition of
+    the same fit."""
 
     terms: dict[str, tuple[float, float]]
+    variance: VariancePartition | None = None
 
 
 class GeeResult(NamedTuple):
@@ -519,8 +542,11 @@ def mixed_fit(
     statsmodels' `BinomialBayesMixedGLM` fitted by variational Bayes
     (`fit_vb`), on the same design as `gee_fit` (separated levels left out).
     Its estimates are conditional on the pair, so they run larger than the
-    GEE's population-averaged ones when pairs differ. None when there is no
-    term to fit or the fit fails.
+    GEE's population-averaged ones when pairs differ. The same fit gives
+    `variance` (`VariancePartition`), which backs or refutes a claim that the
+    outcome "depends more on the model than anything else varied" (doc 12
+    A-50); like the terms, it describes the rows left after separation. None
+    when there is no term to fit or the fit fails.
     """
     try:
         import numpy as np
@@ -548,13 +574,26 @@ def mixed_fit(
     except (ValueError, np.linalg.LinAlgError):
         return None
     means, sds = np.asarray(result.fe_mean), np.asarray(result.fe_sd)
+    pair_sd = float(np.exp(np.asarray(result.vcp_mean)[0]))
     if not (np.isfinite(means).all() and np.isfinite(sds).all()):
         return None
+    parts = exog[:, 1:] * means[1:]
+    variance: dict[str, float] = {}
+    for factor in dict.fromkeys(n.split("=", 1)[0] for n in design.names):
+        columns = [i for i, n in enumerate(design.names) if n.startswith(f"{factor}=")]
+        variance[factor] = float(np.var(parts[:, columns].sum(axis=1)))
+    variance["overlap"] = float(np.var(parts.sum(axis=1))) - sum(variance.values())
+    variance["pair"] = pair_sd**2
+    variance["run"] = LOGISTIC_RESIDUAL
+    total = sum(variance.values())
     return MixedFit(
         {
             name: (float(means[i + 1]), float(sds[i + 1]))
             for i, name in enumerate(design.names)
-        }
+        },
+        VariancePartition(variance, {k: v / total for k, v in variance.items()})
+        if math.isfinite(total)
+        else None,
     )
 
 

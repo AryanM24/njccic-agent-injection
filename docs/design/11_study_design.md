@@ -1,7 +1,8 @@
 # Study Design
 
-**STATUS: DRAFT v0.3 (2026-11-14). Not signed. Not in force.** Recorded in
-`config.DOC_VERSIONS` as `study_design = "0.3-draft"`. While any governing
+**STATUS: DRAFT v0.4 (2026-11-23). Not signed. Not in force.** Recorded in
+`config.DOC_VERSIONS` as `study_design = "0.4-draft"`. v0.4 adds the
+variance partition (§3.5). While any governing
 document is a draft, `scripts/run_sweep.py` refuses a paid run (doc 10 §8).
 This is the specification the v3 brief
 (`docs/superpowers/plans/2026-11-14-v3-brief.md`) calls "doc 10"; under the
@@ -674,6 +675,19 @@ Definitions, as built:
   pair random intercept, fitted by `fit_vb`, on the same design after
   separation. Its estimates are conditional on the pair, so larger than the
   GEE's population-averaged ones when pairs differ.
+- **Variance partition (closes doc 12 A-50).** The same mixed fit returns
+  `MixedFit.variance`, a `VariancePartition(variance, share)` on the latent
+  (logit) scale (Nakagawa & Schielzeth 2013): for each fitted factor, the
+  variance across runs of that factor's part of the linear predictor; `overlap`,
+  the variance of the whole fixed part minus their sum (non-zero only when the
+  factors are unbalanced, and may be negative); `pair`, the random-intercept
+  variance (document to document); and `run`, the logistic residual π²/3
+  (`stats.LOGISTIC_RESIDUAL`: epoch to epoch). `share` is each over the total.
+  `analyze.py report` writes it per family to `variance.csv`. It is descriptive:
+  point estimates from the variational fit (whose pair variance runs somewhat
+  high), no interval, on the rows left after separation. A claim that harm
+  "depends more on the model than anything else varied" is made only where
+  `model`'s share exceeds every other factor's in that family.
 - **Holm family (pending PI sign-off).** Doc 10's
   `PRIMARY_CONTRASTS` (isolation, scope, identity, defense) ∪ the new arm
   contrasts (attack vs twin, handoff mode, gate, model, relay depth), declared
@@ -720,8 +734,8 @@ Definitions, as built:
   half the pairs) are planning assumptions to replace with pilot estimates.
   `stats.mde` stays as the analytic approximation; `power_mde` is the
   reported power.
-- `analyze.py report` adds `gee.csv`, `gee_independence.csv`, `mixed.csv` and
-  `holm.csv` under `logs/analysis-*/`; `analyze.py power --base-rate R --pairs
+- `analyze.py report` adds `gee.csv`, `gee_independence.csv`, `mixed.csv`,
+  `variance.csv` and `holm.csv` under `logs/analysis-*/`; `analyze.py power --base-rate R --pairs
   N --epochs E [--icc --effect-concentration]` prints the MDE and every
   assumption behind it.
 

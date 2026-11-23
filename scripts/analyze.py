@@ -24,6 +24,8 @@
         mixed.csv         pair random-intercept logistic model (sensitivity)
         holm.csv          Holm over the GEE terms of each family
                           (working correlation and family pending PI sign-off)
+        variance.csv      latent-scale variance share of each factor, the
+                          pair and run-to-run noise, from the mixed fit
         report.md         a readable summary of the above
 
     analyze.py power --base-rate R --pairs N --epochs E
@@ -419,6 +421,7 @@ class GeeTables(NamedTuple):
     gee_independence: list[dict[str, Any]]
     mixed: list[dict[str, Any]]
     holm: list[dict[str, Any]]
+    variance: list[dict[str, Any]]
 
 
 def gee_tables(rows: list[dict[str, Any]], n_boot: int) -> GeeTables:
@@ -427,7 +430,7 @@ def gee_tables(rows: list[dict[str, Any]], n_boot: int) -> GeeTables:
 
     The exchangeable GEE is primary, independence + bias-reduced and the pair
     random-intercept model sit beside it, and Holm runs over the primary
-    fit's terms. Each GEE term names its `reference` level and keeps the floor
+    fit's terms. The mixed fit's variance partition goes to `variance`. Each GEE term names its `reference` level and keeps the floor
     rule as a column: the paired raw difference between the level and its
     reference (attack runs only, except for `arm`), the largest `noise_floor`
     of the family's cells, and `verdict`. A separated level gets a row with its
@@ -443,7 +446,7 @@ def gee_tables(rows: list[dict[str, Any]], n_boot: int) -> GeeTables:
         if not (row["benign_only"] or row["controls"]):
             key = tuple(row.get(f) for f in GEE_FAMILY_FIELDS)
             families.setdefault(key, []).append(row)
-    out = GeeTables([], [], [], [])
+    out = GeeTables([], [], [], [], [])
     for key, family_rows in sorted(families.items(), key=str):
         fixed = {**dict(zip(GEE_FAMILY_FIELDS, key, strict=True)), "outcome": outcome}
         long = stats.long_rows([_served(r) for r in family_rows], (attack, twin))
@@ -543,6 +546,17 @@ def gee_tables(rows: list[dict[str, Any]], n_boot: int) -> GeeTables:
         mixed = stats.mixed_fit(long, outcome, factors)
         if mixed is None:
             out.mixed.append({**fixed, "n_pairs": n_pairs, "note": NO_FIT})
+        if mixed and mixed.variance:
+            out.variance.extend(
+                {
+                    **fixed,
+                    "source": source,
+                    "n_pairs": n_pairs,
+                    "variance": round(v, 4),
+                    "share": round(mixed.variance.share[source], 4),
+                }
+                for source, v in mixed.variance.variance.items()
+            )
         for term, (estimate, sd) in (mixed.terms if mixed else {}).items():
             out.mixed.append(
                 {
@@ -706,6 +720,7 @@ def cmd_report(args: argparse.Namespace) -> int:
     write_csv(out / "gee_independence.csv", tables.gee_independence)
     write_csv(out / "mixed.csv", tables.mixed)
     write_csv(out / "holm.csv", tables.holm)
+    write_csv(out / "variance.csv", tables.variance)
     (out / "report.md").write_text(report_md(rows, dropped, rates), encoding="utf-8")
     print(f"{len(rows)} runs ({dropped} duplicates dropped) -> {out.resolve()}")
     return 0

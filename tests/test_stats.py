@@ -1,5 +1,6 @@
 """A5 statistics (doc 11 §3.5): GEE, mixed model, Holm family, simulated power."""
 
+import itertools
 import math
 import re
 import sys
@@ -205,6 +206,40 @@ def test_mixed_fit_recovers_a_conditional_effect_under_pair_variance() -> None:
     assert 0 < gee.terms["arm=attack"].log_odds < estimate
 
 
+def test_variance_partition_recovers_known_sources() -> None:
+    pytest.importorskip("statsmodels")
+    import random
+
+    rng = random.Random(1)
+    sigma, b_model, b_iso = 1.0, 2.0, 0.3
+    rows = []
+    for i in range(200):
+        u = rng.gauss(0.0, sigma)
+        for model, iso in itertools.product(("a", "b"), (False, True)):
+            for _ in range(3):
+                eta = -1.0 + u + b_model * (model == "b") + b_iso * iso
+                rows.append(
+                    {
+                        "status": "scored",
+                        "artifact_id": f"p{i}",
+                        "model": model,
+                        "isolated": iso,
+                        "score:y": float(rng.random() < 1 / (1 + math.exp(-eta))),
+                    }
+                )
+    fit = stats.mixed_fit(rows, "y", ["model", "isolated"])
+    assert fit is not None and fit.variance is not None
+    var, share = fit.variance
+    assert set(var) == {"model", "isolated", "overlap", "pair", "run"}
+    assert abs(sum(share.values()) - 1) < 1e-9
+    # Balanced binary factor: variance b^2 / 4 (sampling noise at 200 pairs).
+    assert abs(var["model"] - b_model**2 / 4) < 0.4
+    assert abs(var["pair"] - sigma**2) < 0.6
+    assert var["run"] == stats.LOGISTIC_RESIDUAL
+    assert share["model"] > share["pair"] > share["isolated"]
+    assert abs(var["overlap"]) < 0.05
+
+
 def test_holm_family_matches_doc11() -> None:
     doc = (ROOT / "docs" / "design" / "11_study_design.md").read_text(encoding="utf-8")
     match = re.search(r"`CONTRAST_FAMILY = \(([^)]*)\)`", doc)
@@ -309,4 +344,7 @@ def test_report_writes_gee_tables(
     assert {r["reference"] for r in fitted} == {"arm=twin", "isolated=False"}
     assert read("gee_independence.csv")[0]["cov"] == "independence_bias_reduced"
     assert read("mixed.csv")[0]["term"] == "arm=attack"
+    variance = read("variance.csv")
+    assert {r["source"] for r in variance} >= {"arm", "pair", "run"}
+    assert abs(sum(float(r["share"]) for r in variance) - 1) < 1e-3
     assert read("holm.csv")[0]["p_holm"] != ""
