@@ -488,8 +488,8 @@ def test_across_models_pools_one_model_per_family() -> None:
         "openrouter/deepseek/deepseek-v4-flash-0731",
         "openrouter/deepseek/deepseek-v4.1-flash-1017",
     )
-    assert analyze.model_family(f"{old} (DeepInfra, low)") == "deepseek-v4"
-    assert analyze.model_family(new) == "deepseek-v4.1", "the registry decides"
+    assert analyze.model_family(f"{old} (DeepInfra, low)") == "deepseek"
+    assert analyze.model_family(new) == "deepseek", "the registry decides"
     assert analyze.model_family("mockllm/model") == "mockllm/model"
     rows = [
         {**r, "model": m, "arm": arm, "score:h": r[f"score:paired_utility.harm_{arm}"]}
@@ -505,6 +505,11 @@ def test_across_models_pools_one_model_per_family() -> None:
     dup = rows + [{**r, "model": f"{old} (DeepInfra, high)"} for r in rows[:240]]
     (row,) = analyze.across_model_rows({}, dup, "h", ["arm", "model"])
     assert row["k"] == 2 and row["k_same_family"] == 1
+    # V4 and V4.1 are one family; V4.1 (added later) is the one fitted.
+    both = rows + [{**r, "model": new} for r in rows if r["model"] == old]
+    (row,) = analyze.across_model_rows({}, both, "h", ["arm", "model"])
+    assert row["k_same_family"] == 1
+    assert row["models"] == f"{new};openrouter/openai/gpt-6-luna"
 
 
 def test_across_models_counts_zero_event_separation() -> None:

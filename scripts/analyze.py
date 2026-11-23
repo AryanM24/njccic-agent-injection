@@ -455,9 +455,11 @@ def across_model_rows(
     or more models pooled by `stats.random_effects`. Only per-model estimates
     are combined, never runs.
 
-    - One model per registry family (`model_family`): the first served label
-      in sort order; other members of a family are near-copies that would
-      inflate k, and are counted in `k_same_family`, not fitted.
+    - One model per registry family (`model_family`): the one added to the
+      registry last (so DeepSeek V4.1, not the first edition's V4), then the
+      first served label in sort order; other members of a family are
+      near-copies or superseded versions that would inflate k, and are
+      counted in `k_same_family`, not fitted.
     - A model's term enters only when its fit used the family's reference for
       that factor (`stats.factor_levels` over every model's rows): a model
       whose reference was separated fitted a different contrast under the
@@ -471,8 +473,13 @@ def across_model_rows(
     - Sign counts are over the pooled models' log-odds; the `sig` ones count
       models whose own 95% CI excludes zero.
     """
+    # Registry order is the order models were added: the latest wins its family.
+    added = {e.model: i for i, e in enumerate(load_models().values())}
     chosen: dict[str, str] = {}
-    for model in sorted({str(r["model"]) for r in long}):
+    for model in sorted(
+        {str(r["model"]) for r in long},
+        key=lambda m: (-added.get(m.split(" (", 1)[0], -1), m),
+    ):
         chosen.setdefault(model_family(model), model)
     models = sorted(chosen.values())
     same_family = len({str(r["model"]) for r in long}) - len(models)

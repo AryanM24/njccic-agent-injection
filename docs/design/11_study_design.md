@@ -704,9 +704,11 @@ Definitions, as built:
     members of a family (another host or reasoning effort of the same model)
     would count near-copies as independent models, inflating k and shrinking
     τ²; they are counted in `k_same_family` and not fitted. The registry's
-    `family` decides: `deepseek-v4` (first edition) and `deepseek-v4.1` are
-    separate families there, so a run that includes both needs the PI to say
-    whether they count as one (§8 ruling 8).
+    `family` decides. `deepseek-v4` (first edition) and `deepseek-v4.1` are
+    one family, `deepseek` (PI, 2026-11-23): a superseded version of the same
+    model is a near-copy, not a second model. Within a family the entry added
+    to the registry last is fitted, so the summary uses V4.1, never V4, and
+    never pools the two.
   - **Estimator.**
     - τ² is Paule–Mandel (statsmodels `combine_effects`, `method_re="pm"`),
       preferred over DerSimonian–Laird for few studies (Veroniki et al. 2016).
