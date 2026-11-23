@@ -26,6 +26,11 @@
                           (working correlation and family pending PI sign-off)
         variance.csv      latent-scale variance share of each factor, the
                           pair and run-to-run noise, from the mixed fit
+        across_models.csv per term fitted in 2+ models: the per-model GEE
+                          estimates pooled (random effects, HKSJ), the
+                          between-model variance and heterogeneity test, the
+                          prediction interval for an unstudied model, and
+                          sign counts (secondary, pending PI sign-off)
         report.md         a readable summary of the above
 
     analyze.py power --base-rate R --pairs N --epochs E
@@ -422,6 +427,64 @@ class GeeTables(NamedTuple):
     mixed: list[dict[str, Any]]
     holm: list[dict[str, Any]]
     variance: list[dict[str, Any]]
+    across_models: list[dict[str, Any]]
+
+
+SECONDARY = f"secondary, {PENDING}"
+"""Stamped on every across-model row: outside every Holm family."""
+
+
+def across_model_rows(
+    fixed: dict[str, Any],
+    long: list[dict[str, Any]],
+    outcome: str,
+    factors: list[str],
+) -> list[dict[str, Any]]:
+    """Doc 11 §3.5, across-model summary: the family's exchangeable GEE refitted
+    within each served model (the same factors less `model`), then each term
+    fitted in two or more models pooled by `stats.random_effects`. No runs are
+    pooled across models (doc 09 §1); only the per-model estimates are.
+    `k_missing` counts the models where the term was separated, unfitted or
+    not fitted at all; the sign counts are over the per-model log-odds, and
+    the `sig` ones count models whose own 95% CI excludes zero."""
+    models = sorted({str(r["model"]) for r in long})
+    if len(models) < 2:
+        return []
+    per_term: dict[str, dict[str, stats.GeeTerm]] = {}
+    for model in models:
+        mine = [r for r in long if str(r["model"]) == model]
+        varying = [
+            f
+            for f in factors
+            if f != "model" and (f == "arm" or len({str(r.get(f)) for r in mine}) > 1)
+        ]
+        fit = stats.gee_fit(mine, outcome, varying)
+        for term, t in (fit.terms if fit else {}).items():
+            per_term.setdefault(term, {})[model] = t
+    out: list[dict[str, Any]] = []
+    for term, by_model in sorted(per_term.items()):
+        pooled = stats.random_effects([(t.log_odds, t.se) for t in by_model.values()])
+        if pooled is None:
+            continue
+        terms = list(by_model.values())
+        out.append(
+            {
+                **fixed,
+                "term": term,
+                "models": ";".join(by_model),
+                "k_missing": len(models) - len(by_model),
+                "status": SECONDARY,
+                **{
+                    k: "" if v is None else round(v, 4) if isinstance(v, float) else v
+                    for k, v in pooled._asdict().items()
+                },
+                "n_negative": sum(t.log_odds < 0 for t in terms),
+                "n_positive": sum(t.log_odds > 0 for t in terms),
+                "n_sig_negative": sum(t.hi < 0 for t in terms),
+                "n_sig_positive": sum(t.lo > 0 for t in terms),
+            }
+        )
+    return out
 
 
 def gee_tables(rows: list[dict[str, Any]], n_boot: int) -> GeeTables:
@@ -430,8 +493,10 @@ def gee_tables(rows: list[dict[str, Any]], n_boot: int) -> GeeTables:
 
     The exchangeable GEE is primary, independence + bias-reduced and the pair
     random-intercept model sit beside it, and Holm runs over the primary
-    fit's terms. The mixed fit's variance partition goes to `variance`. Each GEE term names its `reference` level and keeps the floor
-    rule as a column: the paired raw difference between the level and its
+    fit's terms. The mixed fit's variance partition goes to `variance`, and
+    `across_model_rows` to `across_models`. Each GEE term names its
+    `reference` level and keeps the floor rule as a column: the paired raw
+    difference between the level and its
     reference (attack runs only, except for `arm`), the largest `noise_floor`
     of the family's cells, and `verdict`. A separated level gets a row with its
     counts and exact bound; factors left unfitted for too few events after
@@ -446,7 +511,7 @@ def gee_tables(rows: list[dict[str, Any]], n_boot: int) -> GeeTables:
         if not (row["benign_only"] or row["controls"]):
             key = tuple(row.get(f) for f in GEE_FAMILY_FIELDS)
             families.setdefault(key, []).append(row)
-    out = GeeTables([], [], [], [], [])
+    out = GeeTables([], [], [], [], [], [])
     for key, family_rows in sorted(families.items(), key=str):
         fixed = {**dict(zip(GEE_FAMILY_FIELDS, key, strict=True)), "outcome": outcome}
         long = stats.long_rows([_served(r) for r in family_rows], (attack, twin))
@@ -543,6 +608,7 @@ def gee_tables(rows: list[dict[str, Any]], n_boot: int) -> GeeTables:
                     }
                     for term, p in adjusted.items()
                 )
+        out.across_models.extend(across_model_rows(fixed, long, outcome, factors))
         mixed = stats.mixed_fit(long, outcome, factors)
         if mixed is None:
             out.mixed.append({**fixed, "n_pairs": n_pairs, "note": NO_FIT})
@@ -721,6 +787,7 @@ def cmd_report(args: argparse.Namespace) -> int:
     write_csv(out / "mixed.csv", tables.mixed)
     write_csv(out / "holm.csv", tables.holm)
     write_csv(out / "variance.csv", tables.variance)
+    write_csv(out / "across_models.csv", tables.across_models)
     (out / "report.md").write_text(report_md(rows, dropped, rates), encoding="utf-8")
     print(f"{len(rows)} runs ({dropped} duplicates dropped) -> {out.resolve()}")
     return 0

@@ -348,3 +348,96 @@ def test_report_writes_gee_tables(
     assert {r["source"] for r in variance} >= {"arm", "pair", "run"}
     assert abs(sum(float(r["share"]) for r in variance) - 1) < 1e-3
     assert read("holm.csv")[0]["p_holm"] != ""
+
+
+Y_META = [0.1, 0.5, -0.2, 0.8]
+SE_META = [0.2, 0.3, 0.25, 0.4]
+
+
+def test_random_effects_is_paule_mandel_with_hksj() -> None:
+    pytest.importorskip("statsmodels")
+    from scipy.stats import t as student_t  # type: ignore[import-untyped]
+
+    pooled = stats.random_effects(list(zip(Y_META, SE_META, strict=True)))
+    assert pooled is not None and pooled.k == 4
+    w = [1 / (s**2 + pooled.tau2) for s in SE_META]
+    mu = sum(wi * y for wi, y in zip(w, Y_META, strict=True)) / sum(w)
+    assert abs(pooled.estimate - mu) < 1e-9
+    # Paule-Mandel: the generalized Q equals its degrees of freedom.
+    q_gen = sum(wi * (y - mu) ** 2 for wi, y in zip(w, Y_META, strict=True))
+    assert pooled.tau2 > 0 and abs(q_gen - 3) < 1e-4
+    # HKSJ, truncated below at the random-effects variance.
+    se = math.sqrt(max(1.0, q_gen / 3) / sum(w))
+    assert abs(pooled.se - se) < 1e-9
+    crit = student_t.ppf(0.975, 3)
+    assert abs(pooled.lo - (mu - crit * se)) < 1e-9
+    assert abs(pooled.hi - (mu + crit * se)) < 1e-9
+    # Cochran's Q with fixed-effect weights: the model x factor heterogeneity test.
+    wf = [1 / s**2 for s in SE_META]
+    mf = sum(a * y for a, y in zip(wf, Y_META, strict=True)) / sum(wf)
+    q = sum(a * (y - mf) ** 2 for a, y in zip(wf, Y_META, strict=True))
+    assert abs(pooled.q - q) < 1e-9
+    assert abs(pooled.i2 - max(0.0, (q - 3) / q)) < 1e-9
+    pi = student_t.ppf(0.975, 2) * math.sqrt(pooled.tau2 + se**2)
+    assert pooled.pi_lo is not None and pooled.pi_hi is not None
+    assert abs(pooled.pi_lo - (mu - pi)) < 1e-9 and abs(pooled.pi_hi - (mu + pi)) < 1e-9
+
+
+def test_random_effects_homogeneous() -> None:
+    pytest.importorskip("statsmodels")
+    pooled = stats.random_effects([(0.4, 0.2), (0.4, 0.3), (0.4, 0.25)])
+    assert pooled is not None
+    assert pooled.tau2 == 0.0 and pooled.i2 == 0.0 and pooled.p_q > 0.99
+    assert abs(pooled.estimate - 0.4) < 1e-12
+
+
+def test_random_effects_needs_two() -> None:
+    pytest.importorskip("statsmodels")
+    assert stats.random_effects([(0.4, 0.2)]) is None
+    assert stats.random_effects([(0.4, 0.2), (0.1, 0.0)]) is None
+    two = stats.random_effects([(0.4, 0.2), (0.1, 0.3)])
+    assert two is not None and two.pi_lo is None and two.pi_hi is None
+
+
+def test_report_writes_across_models(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("statsmodels")
+    import csv
+
+    import analyze
+
+    from eduinject.analysis import CELL_FIELDS
+
+    cell = {f: None for f in CELL_FIELDS} | {
+        "workflow": "w1",
+        "benign_only": False,
+        "controls": False,
+        "scope": "read_write",
+        "identity_mode": "off",
+        "defense": "none",
+        "gate": False,
+    }
+    rows = [
+        {
+            **cell,
+            **r,
+            "model": m,
+            "isolated": iso,
+            "epoch": 1,
+            "sample_id": r["artifact_id"],
+        }
+        for m in ("m", "n")
+        for iso in (False, True)
+        for r in _pairs(60)
+    ]
+    monkeypatch.setattr(analyze, "refuse_stale", lambda *a, **k: False)
+    monkeypatch.setattr(analyze, "load_rows", lambda dirs, split=None: (rows, 0))
+    assert analyze.main(["report", "x", "--out", str(tmp_path)]) == 0
+    with open(tmp_path / "across_models.csv", newline="", encoding="utf-8") as f:
+        table = {r["term"]: r for r in csv.DictReader(f)}
+    assert set(table) == {"arm=attack", "isolated=True"}
+    arm = table["arm=attack"]
+    assert arm["k"] == "2" and arm["models"] == "m;n" and arm["k_missing"] == "0"
+    assert float(arm["estimate"]) > 0 and arm["n_positive"] == "2"
+    assert arm["pi_lo"] == "" and "secondary" in arm["status"]

@@ -597,6 +597,85 @@ def mixed_fit(
     )
 
 
+class Pooled(NamedTuple):
+    """A random-effects summary of one term across models (doc 11 §3.5).
+
+    `estimate` (log-odds) with its Hartung–Knapp–Sidik–Jonkman `se`, 95% CI
+    (`lo`, `hi`) and `p` on t with k − 1 df; `tau2`, the between-model variance
+    (Paule–Mandel); Cochran's `q` with `p_q` and `i2`, the test of whether the
+    term differs across models (model × factor heterogeneity); and the 95%
+    prediction interval for a model not studied (`pi_lo`, `pi_hi`, t with
+    k − 2 df), None when k < 3.
+    """
+
+    k: int
+    estimate: float
+    se: float
+    lo: float
+    hi: float
+    p: float
+    tau2: float
+    i2: float
+    q: float
+    p_q: float
+    pi_lo: float | None
+    pi_hi: float | None
+
+
+def random_effects(estimates: Sequence[tuple[float, float]]) -> Pooled | None:
+    """Pool per-model (log-odds, se) estimates of one term.
+
+    τ² is Paule–Mandel (statsmodels `combine_effects`, `method_re="pm"`), which
+    suits few studies better than DerSimonian–Laird. The pooled SE is HKSJ
+    truncated below at the plain random-effects SE (`max(1, q*)`), so a small
+    k never narrows the interval. The prediction interval
+    μ ± t(k−2)·√(τ² + SE²) follows Riley et al. (2011). None with fewer than
+    two estimates, a non-positive or non-finite se, or without statsmodels.
+    """
+    k = len(estimates)
+    if k < 2 or not all(
+        math.isfinite(y) and math.isfinite(s) and s > 0 for y, s in estimates
+    ):
+        return None
+    try:
+        import numpy as np
+        from scipy.stats import chi2, t  # type: ignore[import-untyped]
+        from statsmodels.stats.meta_analysis import (  # type: ignore[import-untyped]
+            combine_effects,
+        )
+    except ImportError:
+        return None
+    y = [e for e, _ in estimates]
+    v = [s**2 for _, s in estimates]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = combine_effects(np.asarray(y), np.asarray(v), method_re="pm")
+        tau2 = max(0.0, float(result.tau2))
+    w = [1 / (vi + tau2) for vi in v]
+    mu = sum(wi * yi for wi, yi in zip(w, y, strict=True)) / sum(w)
+    q_star = sum(wi * (yi - mu) ** 2 for wi, yi in zip(w, y, strict=True)) / (k - 1)
+    se = math.sqrt(max(1.0, q_star) / sum(w))
+    crit = float(t.ppf(0.975, k - 1))
+    wf = [1 / vi for vi in v]
+    mf = sum(a * yi for a, yi in zip(wf, y, strict=True)) / sum(wf)
+    q = sum(a * (yi - mf) ** 2 for a, yi in zip(wf, y, strict=True))
+    half = float(t.ppf(0.975, k - 2)) * math.sqrt(tau2 + se**2) if k >= 3 else None
+    return Pooled(
+        k=k,
+        estimate=mu,
+        se=se,
+        lo=mu - crit * se,
+        hi=mu + crit * se,
+        p=float(2 * t.sf(abs(mu / se), k - 1)),
+        tau2=tau2,
+        i2=(q - (k - 1)) / q if q > k - 1 else 0.0,
+        q=q,
+        p_q=float(chi2.sf(q, k - 1)),
+        pi_lo=mu - half if half is not None else None,
+        pi_hi=mu + half if half is not None else None,
+    )
+
+
 def gee_contrast(
     rows_a: Sequence[Mapping[str, Any]],
     rows_b: Sequence[Mapping[str, Any]],
