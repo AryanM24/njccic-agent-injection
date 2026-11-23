@@ -166,8 +166,12 @@ def test_behavior_models_predict_and_profiles(
         cv = list(csv.DictReader(f))
     assert {r["target"] for r in cv} >= set(TARGETS)
     assert {(r["model"], r["scheme"]) for r in cv} == {
-        (m, s) for m in ("l1", "tree") for s in ("group_kfold", "leave_one_base_out")
+        (m, s)
+        for m in ("l1", "tree")
+        for s in ("group_kfold", "leave_one_base_out", "leave_one_model_out")
     }
+    lomo = [r for r in cv if r["scheme"] == "leave_one_model_out"]
+    assert all(r["fold_groups"] == "m0;m1" for r in lomo)
     for name in ("coefficients.csv", "drop_column.csv", "trees.txt", "calibration.csv"):
         assert (out / name).exists(), name
     assert sorted(p.name for p in out.glob("profile_*.md")) == [
@@ -222,3 +226,45 @@ def test_rule_target_only_on_its_workflow_and_rates_per_cell() -> None:
         "W2-R01",
         "isolated=True",
     ) in cells
+
+
+def test_lomo_folds_are_models() -> None:
+    rows = [r | {"model": f"m{i % 3}"} for i, r in enumerate(_rows(240))]
+    cv = cross_validate(rows, "out:harm_completed", "l1", "leave_one_model_out")
+    assert cv.fold_groups == ["m0", "m1", "m2"]
+    assert len(cv.fold_auroc) == 3 and cv.auroc > 0.9, "carry transfers across models"
+    loo = cross_validate(rows, "out:harm_completed", "l1", "leave_one_base_out")
+    assert loo.fold_groups == [f"b{i}" for i in range(5)]
+    assert (
+        cross_validate(rows, "out:harm_completed", "l1", "group_kfold").fold_groups
+        == []
+    )
+
+
+def test_lomo_drops_served_identity() -> None:
+    """Harm follows only the host here, which travels with the model as served:
+    leave-one-model-out must not use it, the other schemes may."""
+    rng = random.Random(3)
+    rows = []
+    for i, r in enumerate(_rows(240)):
+        host = rng.choice(["h0", "h1"])
+        rows.append(
+            r
+            | {
+                "model": f"m{i % 3}",
+                "host": host,
+                "carry:analysis": rng.choice([S, A]),
+                "flag:intake": 0.0,
+                "out:harm_completed": float(host == "h1"),
+            }
+        )
+    assert cross_validate(rows, "out:harm_completed", "l1", "group_kfold").auroc > 0.9
+    lomo = cross_validate(rows, "out:harm_completed", "l1", "leave_one_model_out")
+    assert lomo.auroc < 0.7
+    assert lomo.baseline_config_auroc == pytest.approx(0.5)
+
+
+def test_lomo_one_model_is_nan() -> None:
+    rows = [r | {"model": "m0"} for r in _rows()]
+    cv = cross_validate(rows, "out:harm_completed", "l1", "leave_one_model_out")
+    assert math.isnan(cv.auroc) and cv.fold_groups == []

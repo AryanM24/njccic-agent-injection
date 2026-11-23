@@ -64,7 +64,16 @@ N_BINS = 10
 TOP_PREDICTORS = 3
 
 Model = Literal["l1", "tree"]
-Scheme = Literal["group_kfold", "leave_one_base_out"]
+Scheme = Literal["group_kfold", "leave_one_base_out", "leave_one_model_out"]
+GROUP_KEY: dict[str, str] = {
+    "group_kfold": "artifact_id",
+    "leave_one_base_out": "base_id",
+    "leave_one_model_out": "model",
+}
+"""The column each scheme's folds are grouped on."""
+SERVED_FIELDS = ("model", "host", "reasoning_effort")
+"""The model as served: never an input under `leave_one_model_out`, where the
+held-out model's level is unseen in training by construction."""
 Matrix = NDArray[np.float64]
 
 
@@ -243,7 +252,10 @@ class CvResult(NamedTuple):
     estimated); `fold_auroc` keeps each fold's. Brier and `calibration`
     (mean predicted, observed rate, n per non-empty decile bin) pool the
     out-of-fold predictions. The baselines: the same model and scheme on
-    `CELL_FIELDS` only, and the training-fold prevalence.
+    `CELL_FIELDS` only, and the training-fold prevalence. `fold_groups` names
+    each fold's held-out group under a leave-one-out scheme (the model, for
+    `leave_one_model_out`: does the predictor transfer to it?); empty under
+    `group_kfold`, whose folds hold many pairs.
     """
 
     auroc: float
@@ -252,6 +264,7 @@ class CvResult(NamedTuple):
     baseline_config_auroc: float
     baseline_prevalence_brier: float
     fold_auroc: list[float]
+    fold_groups: list[str]
 
 
 def _folds(groups: Sequence[str], scheme: Scheme) -> list[tuple[Matrix, Matrix]]:
@@ -312,20 +325,24 @@ def cross_validate(
         target: As `design_matrix`.
         model: `l1` (L1 logistic, liblinear, C = 1, standardized inputs) or
             `tree` (depth ≤ 4).
-        scheme: `group_kfold` (`GroupKFold(5)` on `artifact_id`) or
-            `leave_one_base_out` (`LeaveOneGroupOut` on `base_id`).
+        scheme: `group_kfold` (`GroupKFold(5)` on `artifact_id`),
+            `leave_one_base_out` (`LeaveOneGroupOut` on `base_id`) or
+            `leave_one_model_out` (`LeaveOneGroupOut` on `model`, with
+            `SERVED_FIELDS` dropped from the inputs and the config baseline).
         seed: Tree seed.
 
     Every metric is NaN when there are fewer than two groups.
     """
     scored = _scored(rows, target)
-    x, y, _ = design_matrix(rows, target)
-    config = [c for c in CELL_FIELDS if any(c in r for r in scored)]
+    drop = SERVED_FIELDS if scheme == "leave_one_model_out" else ()
+    columns = [c for c in default_columns(rows) if c not in drop]
+    x, y, _ = design_matrix(rows, target, columns)
+    config = [c for c in CELL_FIELDS if c not in drop and any(c in r for r in scored)]
     x_cfg, _, _ = _encode(scored, config)
-    key = "artifact_id" if scheme == "group_kfold" else "base_id"
-    folds = _folds([str(r.get(key, "")) for r in scored], scheme)
+    groups = [str(r.get(GROUP_KEY[scheme], "")) for r in scored]
+    folds = _folds(groups, scheme)
     if not folds:
-        return CvResult(math.nan, math.nan, [], math.nan, math.nan, [])
+        return CvResult(math.nan, math.nan, [], math.nan, math.nan, [], [])
     pred, aurocs = _oof(model, x, y, folds, seed)
     _, cfg_aurocs = _oof(model, x_cfg, y, folds, seed)
     prevalence, _ = _oof(model, x[:, :0], y, folds, seed)
@@ -336,6 +353,9 @@ def cross_validate(
         baseline_config_auroc=_mean_auroc(cfg_aurocs),
         baseline_prevalence_brier=float(np.mean((prevalence - y) ** 2)),
         fold_auroc=aurocs,
+        fold_groups=[]
+        if scheme == "group_kfold"
+        else [groups[int(te[0])] for _, te in folds],
     )
 
 

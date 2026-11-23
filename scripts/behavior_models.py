@@ -12,8 +12,9 @@ component marker as content, flag language as the warning). Every estimate
 is per experimental cell (`analysis.CELL_FIELDS`; half-lives pool relay depths
 only) with a pair-bootstrap 95% interval and the count of bootstrap draws that
 defined it. `predict` (A7, doc 11 §3.7) cross-validates L1 logistic and
-depth-4 tree predictors from `pre_outcome` columns only, for harmful
-completion, carry to the action stage and the five most violated rules:
+depth-4 tree predictors from `pre_outcome` columns only, grouped by pair,
+by base scenario and by model (leave one model out: does a predictor transfer
+to a model it never saw?), for harmful completion, carry to the action stage and the five most violated rules:
 `predictors.csv`, `calibration.csv`, `coefficients.csv`, `drop_column.csv`,
 `trees.txt`. `profiles` writes `profile_<model>.md` per model, templated
 sentences only. OUT must lie under the repository's `logs/` (exit 2), and a
@@ -27,11 +28,12 @@ import re
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 from eduinject.analysis import N_BOOT
 from eduinject.behavior.predictors import (
     TARGETS,
+    Scheme,
     cross_validate,
     explain,
     profile_stats,
@@ -152,7 +154,7 @@ def _predict(rows: list[dict[str, Any]], out: Path, n_boot: int) -> None:
     trees: list[str] = []
     for target in (*TARGETS, *top_rule_targets(rows)):
         for model in ("l1", "tree"):
-            for scheme in ("group_kfold", "leave_one_base_out"):
+            for scheme in get_args(Scheme):
                 cv = cross_validate(rows, target, model, scheme)  # type: ignore[arg-type]
                 key = {"target": target, "model": model, "scheme": scheme}
                 cv_rows.append(
@@ -161,6 +163,7 @@ def _predict(rows: list[dict[str, Any]], out: Path, n_boot: int) -> None:
                     | {
                         "calibration": len(cv.calibration),
                         "fold_auroc": ";".join(f"{a:.4f}" for a in cv.fold_auroc),
+                        "fold_groups": ";".join(cv.fold_groups),
                     }
                 )
                 calib += [
