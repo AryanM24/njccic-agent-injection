@@ -1322,10 +1322,11 @@ presets (doc 10 §6):
 | `deepseek-v4` | `openrouter/deepseek/deepseek-v4-flash-0731` | DeepInfra, no fallbacks | 0.06 / 0.18 | yes |
 | `gemini-3.8-flash` | `openrouter/google/gemini-3.8-flash` | Google AI Studio, no fallbacks | 0.75 / 3.75 | no |
 | `deepseek-v4.1` | `openrouter/deepseek/deepseek-v4.1-flash-1017` | DeepInfra, no fallbacks, fp8 | 0.098 / 0.294 | yes |
+| `claude-haiku-5.5` | `openrouter/anthropic/claude-haiku-5.5` | Anthropic, no fallbacks | 0.10 / 0.50 | no |
 
 All at `reasoning_effort` `low`. `deepseek-v4`'s `note` records that HANDOFF
 lists it as fp8 while its pin does not enforce a quantization (PI to resolve).
-Two placeholders, `todo-closed-family` and `todo-open-family`, carry `"TODO"`
+One placeholder, `todo-open-family`, carries `"TODO"`
 for model, family, provider and prices; a sweep naming one exits 2. Nothing is
 guessed.
 

@@ -145,7 +145,7 @@ def test_registry_matches_recorded_models() -> None:
 
 
 def test_placeholders_are_todo_and_refused(capsys: pytest.CaptureFixture[str]) -> None:
-    for name in ("todo-closed-family", "todo-open-family"):
+    for name in ("todo-open-family",):
         assert load_models()[name].todo
         with pytest.raises(SystemExit) as exc:
             parse_args(["--model-preset", name])
