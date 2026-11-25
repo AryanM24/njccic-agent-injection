@@ -14,11 +14,7 @@ from typing import Any, Literal, NamedTuple
 
 from eduinject.analysis import finished_samples
 from eduinject.defense import unmark
-from eduinject.scorers.deterministic import RUNS_KEY
-
-SWAP_KEY = "swap_runs"
-"""Sample metadata key of a swap sample's two cross runs (doc 14 §4); the same
-key the solver writes (`scorers.deterministic.SWAP_KEY`)."""
+from eduinject.scorers.deterministic import RUNS_KEY, SWAP_KEY
 
 SWAP_CELLS: tuple[tuple[str, Literal["attack", "twin"]], ...] = (
     ("tt", "twin"),

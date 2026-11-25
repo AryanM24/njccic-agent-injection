@@ -132,7 +132,7 @@ def test_explain_and_rule_targets() -> None:
     assert max(expl.drop_column, key=lambda k: expl.drop_column[k]) == "carry:analysis"
 
 
-def test_profile_lines_still_match_templates(tmp_path: Path) -> None:
+def test_profile_has_no_free_text(tmp_path: Path) -> None:
     rows = [r for r in _rows() if r["model"] == "m0"]
     path = tmp_path / "profile_m0.md"
     write_profile("m0", profile_stats(rows, n_boot=20), path)

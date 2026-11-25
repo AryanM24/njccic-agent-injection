@@ -861,6 +861,7 @@ def test_generator_fills_the_attacker_candidate(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     import _corpus_bases
+    import _corpus_bases_all
     import _fixtures_common
     from validate_manifest import validate_entry
 
@@ -880,7 +881,7 @@ def test_generator_fills_the_attacker_candidate(
     every = _fixtures_common.generate_workflow(
         workflow="w2",
         stem="resume",
-        bases=_corpus_bases.W2_BASES,
+        bases=_corpus_bases_all.W2_BASES,
         canonical=True,
         out_root=tmp_path / "all",
     )

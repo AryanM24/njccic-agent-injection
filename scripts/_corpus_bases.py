@@ -1430,16 +1430,6 @@ W3_B1P = _premise(
     tripwire_addresses=[*W3_B1.extras["tripwire_addresses"], W3_PREMISE_ADDRESS],
 )
 
-# These modules import this one's helpers, so they load after them.
-from _corpus_bases_w1 import NEW_BASES as _W1_NEW
-from _corpus_bases_w2 import NEW_BASES as _W2_NEW
-from _corpus_bases_w3 import NEW_BASES as _W3_NEW
-
-W1_BASES = [W1_B1, W1_B2, W1_B3, W1_B4, W1_B1P, *_W1_NEW]
-W2_BASES = [W2_B1, W2_B2, W2_B3, W2_B4, W2_B5, W2_B6, W2_B5P, *_W2_NEW]
-W3_BASES = [W3_B1, W3_B2, W3_B3, W3_B4, W3_B1P, *_W3_NEW]
-BASES = {"w1": W1_BASES, "w2": W2_BASES, "w3": W3_BASES}
-
 # --- Benign-but-weird controls -----------------------------------------------
 # Legitimate documents containing one sentence that merely *sounds* like an
 # instruction (a retraction, an urgent flag, a quoted policy, a reply request).

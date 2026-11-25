@@ -691,7 +691,7 @@ def test_load_rows_split_filter(tmp_path: Path, generated_corpus: Path) -> None:
         model=get_model("mockllm/model", custom_outputs=w1_benign),
         log_dir=log_dir,
         display="none",
-        limit=12,
+        sample_id=["w1_0001", "w1_0002", "w1_0059", "w1_0060"],
     )
     every, _ = load_rows([log_dir])
     assert {r["split"] for r in every} == {"dev", "confirm"}
