@@ -684,7 +684,8 @@ def test_old_logs_have_none_for_new_cell_fields() -> None:
         swap_stage="action",
     )
     assert (new["reader_host"], new["swap_stage"]) == ("H", "action")
-    assert model_label("openrouter/anthropic/claude-haiku-5.5") == "Claude Haiku 5.5"
+    assert model_label("openrouter/anthropic/claude-sonnet-5") == "Claude Sonnet 5"
+    assert model_label("openrouter/anthropic/claude-sonnet-5.5") == "Claude Sonnet 5.5"
 
 
 def test_provenance_version_reaches_the_hash(monkeypatch: pytest.MonkeyPatch) -> None:

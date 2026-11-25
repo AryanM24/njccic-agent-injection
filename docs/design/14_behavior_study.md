@@ -1,7 +1,8 @@
 # Behaviour Study
 
-**STATUS: DRAFT v0.1 (2026-11-24). Not signed. Not in force.** Recorded
-in `config.DOC_VERSIONS` as `behavior_study = "0.1-draft"`. While this
+**STATUS: DRAFT v0.2 (2026-11-25). Not signed. Not in force.** Recorded
+in `config.DOC_VERSIONS` as `behavior_study = "0.2-draft"`. v0.2 replaces Claude
+Haiku 5.5 with Claude Sonnet 5 (§2) and reprices §14. While this
 or any governing document is a draft, `scripts/run_sweep.py` refuses a paid run
 (doc 10 §8). This document extends doc 11 (study design). Where the two
 disagree, §16 lists the amendment to doc 11 (v0.6-draft); nothing here edits
@@ -75,9 +76,13 @@ bases are dev because first-edition results on them have been seen. Confirm
 set: W1 64, W2 48, W3 64 pairs in 22 scenarios. Dev set: the existing 190
 pairs.
 
-**Models.** Dev: `luna`, `claude-haiku-5.5`, `deepseek-v4.1`. Held-out:
-`gemini-3.8-flash` (it is the most expensive, so it runs only on the frozen
-confirm grid). All at `reasoning_effort="low"`, pinned hosts as in
+**Models.** Dev: `luna`, `claude-sonnet-5`, `deepseek-v4.1`. Held-out:
+`gemini-3.8-flash`, run only on the frozen confirm grid. `claude-sonnet-5`
+(PI, 2026-11-25) replaces `claude-haiku-5.5`, so the set is not all one cheap
+tier; doc 06 §2 had already passed over Haiku 5.5 for a floor effect. It is a dev
+model so the pilot can show whether it too sits at the floor, which a held-out
+model cannot show before the freeze. Its vendor does not publish its
+architecture, so the paper makes no architectural claim about it. All at `reasoning_effort="low"`, pinned hosts as in
 `configs/models.json`. `deepseek-v4` stays in the registry as first-edition
 record and is not run.
 
@@ -533,26 +538,29 @@ Both are in task metadata, `config_hash`, `CELL_FIELDS` (hence
 ## 14. Experiment matrix and cost
 
 Cost per pair from `scripts/estimate_cost.py`'s fallback (23k in / 9.5k out):
-`luna` and `claude-haiku-5.5` $0.0071, `deepseek-v4.1` $0.0051,
-`gemini-3.8-flash` $0.0529; the three dev models together $0.0192. A swap
+`luna` $0.0071, `claude-sonnet-5` $0.1410, `deepseek-v4.1` $0.0051,
+`gemini-3.8-flash` $0.0529; the three dev models together $0.1531, 92% of it
+Sonnet. The token counts come from a first-edition pilot, not Sonnet. A swap
 block is priced at 1.6 pairs and a grid cell at the dearer of its two models
 (both planning assumptions until the pilot gives per-stage tokens). Confirm
-cells have 176 pairs × 10 epochs (doc 04 §13.4) = 1,760 pairs: $33.7 for the
+cells have 176 pairs × 10 epochs (doc 04 §13.4) = 1,760 pairs: $269 for the
 dev models, $93.1 for the held-out model. Run `run_sweep.py --dry-run` for the
 figures that count.
 
 | Stage | Runs (pairs) | Dev models | Held-out |
 | --- | --- | --- | --- |
 | 0. Corpus, ceiling, search, power, tests | 0 paid | $0 | $0 |
-| 1. Pilot: U `isolated=False`, dev, 2 epochs (tokens, ICCs, base rates) | 380 | $7 | — |
-| 2. Dev: swap U (3 epochs); `--arms defense`, 8 arms (3 epochs); grid, 6 off-diagonal cells (3 epochs) | 912 + 4,560 + 3,420 | $129 | — |
+| 1. Pilot: U `isolated=False`, dev, 2 epochs (tokens, ICCs, base rates) | 380 | $58 | — |
+| 2. Dev: swap U (3 epochs); `--arms defense`, 8 arms (3 epochs); grid, 6 off-diagonal cells (3 epochs) | 912 + 4,560 + 3,420 | $1,167 | — |
 | 3. Freeze; ceiling and search on confirm | 0 paid | $0 | $0 |
-| 4. Confirm, minimum: swap U; U at both isolations; G (`isolated=False`); TG (`isolated=True`); grid, 6 off-diagonal dev cells; twin-only floors, 2 epochs | 2,816 + 7,040 + 10,560 + 880 | $280 | swap U, U and G at `isolated=False`, floors: $363 |
-| 5. Confirm, recommended additions: the other five `defense` arms; swap under G; held-out model as actor behind each dev reader; floors at 3 epochs | +8,800 + 2,816 + 5,280 | +$240 | +$465 (arms), +$279 (actor row) |
+| 4. Confirm, minimum: swap U; U at both isolations; G (`isolated=False`); TG (`isolated=True`); grid, 6 off-diagonal dev cells; twin-only floors, 2 epochs | 2,816 + 7,040 + 10,560 + 880 | $2,661 | swap U, U and G at `isolated=False`, floors: $363 |
+| 5. Confirm, recommended additions: the other five `defense` arms; swap under G; held-out model as actor behind each dev reader; floors at 3 epochs | +8,800 + 2,816 + 5,280 | +$1,913 | +$465 (arms), +$434 (actor row) |
 
-Minimum (stages 1, 2, 4): about $780, $935 with the 20% retry allowance.
+Minimum (stages 1, 2, 4): about $4,250, $5,100 with the 20% retry allowance.
 Recommended (adding stage 5 without the held-out model's five extra arms):
-about $1,300, $1,560 with retries. The held-out model on every arm adds $465.
+about $6,600, $7,920 with retries. The held-out model on every arm adds $465.
+Making Sonnet the held-out model and Gemini a dev model instead: about $3,090
+minimum, $4,950 recommended, both with retries (§17 item 14).
 What to run first: stage 0 entirely, then the pilot, then decide epochs and
 whether E5's setting has a non-zero base rate before any larger spend.
 
@@ -637,6 +645,9 @@ W2 122, W3 122 pairs.
 12. After the pilot: δ, or more scenarios, for H-main's power (§8).
 13. Confirm the gate reads the attack document in the `ta` swap cell (§4): the
     hand-off there is attack-derived, so laundered values stay traceable to it.
+14. Sonnet 5's role after the pilot: dev (as written), or held out with Gemini
+    3.8 Flash as dev, which costs about 40% less (§14) but hides a Sonnet floor
+    until after the freeze, where it would block every held-out replication (§7).
 
 ## 18. Signature
 

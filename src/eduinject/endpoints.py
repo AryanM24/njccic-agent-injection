@@ -43,7 +43,7 @@ Values = Mapping[str, float]
 Arms = Mapping[str, Mapping[str, Any]]
 """Arm name -> task arguments (`ceiling.ARMS`)."""
 
-DEV_MODELS = ("luna", "claude-haiku-5.5", "deepseek-v4.1")
+DEV_MODELS = ("luna", "claude-sonnet-5", "deepseek-v4.1")
 """Registry names of the pooled models (doc 14 §2)."""
 CORE: dict[str, Any] = {
     "benign_only": False,

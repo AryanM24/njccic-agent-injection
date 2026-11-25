@@ -5,7 +5,7 @@
 The study measures agent **behaviour** under indirect prompt injection, treats
 models as replicates, and sets up a frozen held-out test any protection must
 pass. Spec: [`docs/design/14_behavior_study.md`](docs/design/14_behavior_study.md)
-(v0.1 draft) on top of
+(v0.2 draft) on top of
 [`docs/design/11_study_design.md`](docs/design/11_study_design.md) (v0.6 draft).
 Plan it was built from:
 [`docs/superpowers/plans/2026-11-24-behavior-study.md`](docs/superpowers/plans/2026-11-24-behavior-study.md).
@@ -21,7 +21,7 @@ held-out scenario; scenario-level estimates, difference-in-differences,
 equivalence tests, intention-to-treat endpoints; the corrected ceiling and the
 scripted adversary search; the freeze and its refusals; a blinded two-coder
 behaviour pass; new primary figures. Severity scores, half-life, profiles and
-model rankings are appendix. **Models:** GPT-6 Luna, Claude Haiku 5.5, DeepSeek
+model rankings are appendix. **Models:** GPT-6 Luna, Claude Sonnet 5, DeepSeek
 V4.1 Flash for development, Gemini 3.8 Flash held out.
 
 **Checked by two independent reviews** in fresh contexts (Claude Fable on the

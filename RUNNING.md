@@ -727,22 +727,22 @@ python scripts/ceiling.py --split dev --search --arms not_isolated gate_open bas
 python scripts/analyze.py power --base-rate 0.1 --pairs 176 --epochs 10 --scenarios 22 --icc-scenario 0.15
 # 1. Pilot (paid; needs the PI's OK and, while docs are drafts, --allow-draft-docs)
 python scripts/run_sweep.py --workflow w1 --isolation control --scopes read_write --epochs 2 \
-  --model-preset luna claude-haiku-5.5 deepseek-v4.1 --log-dir logs/pilot --dry-run
+  --model-preset luna claude-sonnet-5 deepseek-v4.1 --log-dir logs/pilot --dry-run
 # 2. Development (dev scenarios, dev models): core arms, the message swap, the reader x actor grid
 python scripts/run_sweep.py --workflow w1 --arms core --scopes read_write --epochs 3 \
-  --model-preset luna claude-haiku-5.5 deepseek-v4.1 --log-dir logs/dev-core --dry-run
+  --model-preset luna claude-sonnet-5 deepseek-v4.1 --log-dir logs/dev-core --dry-run
 python scripts/run_sweep.py --workflow w1 --arms swap --scopes read_write --epochs 3 \
-  --model-preset luna claude-haiku-5.5 deepseek-v4.1 --log-dir logs/dev-swap --dry-run
+  --model-preset luna claude-sonnet-5 deepseek-v4.1 --log-dir logs/dev-swap --dry-run
 python scripts/run_sweep.py --workflow w1 --isolation isolated --scopes read_write --epochs 3 \
-  --model-preset luna claude-haiku-5.5 deepseek-v4.1 \
-  --reader-preset luna claude-haiku-5.5 deepseek-v4.1 --log-dir logs/dev-grid --dry-run
+  --model-preset luna claude-sonnet-5 deepseek-v4.1 \
+  --reader-preset luna claude-sonnet-5 deepseek-v4.1 --log-dir logs/dev-grid --dry-run
 # 3. Freeze (commit first), then the ceiling on the held-out scenarios, before any paid confirm run
 python scripts/freeze.py write --candidate ARM --reference ARM --note "why"
 python scripts/freeze.py check
 python scripts/ceiling.py --split confirm --per-base 0 --search --out logs/ceiling-confirm
 # 4. Confirm: held-out scenarios, 10 epochs; gemini-3.8-flash is the held-out model
 python scripts/run_sweep.py --workflow w1 --split confirm --arms core --scopes read_write \
-  --epochs 10 --model-preset luna claude-haiku-5.5 deepseek-v4.1 gemini-3.8-flash \
+  --epochs 10 --model-preset luna claude-sonnet-5 deepseek-v4.1 gemini-3.8-flash \
   --log-dir logs/confirm-core --dry-run
 ```
 

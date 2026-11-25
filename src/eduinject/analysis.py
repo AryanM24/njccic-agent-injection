@@ -82,10 +82,12 @@ MODEL_LABELS = (
     ("deepseek-v4-flash", "DeepSeek"),
     ("deepseek-v4.1-flash", "DeepSeek V4.1"),
     ("gemini-3.8-flash", "Gemini 3.8 Flash"),
-    ("claude-haiku-5.5", "Claude Haiku 5.5"),
+    ("claude-sonnet-5", "Claude Sonnet 5"),
+    ("claude-sonnet-5.5", "Claude Sonnet 5.5"),
 )
 """Model-slug fragment -> table label. The longest matching fragment wins, so
-`deepseek-v4.1-flash` is not labelled as the first-edition DeepSeek."""
+`deepseek-v4.1-flash` is not labelled as the first-edition DeepSeek, nor
+Sonnet 5.5 as the study's Sonnet 5."""
 
 
 def model_label(model: str) -> str:
