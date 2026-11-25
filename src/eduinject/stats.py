@@ -267,7 +267,10 @@ class GeeFit(NamedTuple):
     the levels left out; the terms are estimated on the rows that remain.
     `unfitted` names the factors that still vary but were not fitted because
     fewer than `MIN_GEE_EVENTS` events or non-events remained; `terms` is
-    then empty.
+    then empty. `degenerate` names the terms whose sandwich variance is zero
+    up to rounding (no pair's outcomes differ in a way the term could explain);
+    they have no standard error, so they carry no inference and are not in
+    `terms`.
     """
 
     terms: dict[str, GeeTerm]
@@ -276,6 +279,12 @@ class GeeFit(NamedTuple):
     references: dict[str, Any]
     separated: tuple[SeparatedLevel, ...] = ()
     unfitted: tuple[str, ...] = ()
+    degenerate: tuple[str, ...] = ()
+
+
+MIN_GEE_SE = 1e-6
+"""A log-odds standard error at or below this is a zero variance plus rounding,
+whose sign differs by platform (NaN on one, about 1e-9 on another)."""
 
 
 LOGISTIC_RESIDUAL = math.pi**2 / 3
@@ -515,19 +524,26 @@ def gee_fit(
         np.linalg.LinAlgError,
     ):
         return None
+    if not np.isfinite(np.asarray(fit.params)).all():
+        return None
     ci = np.asarray(fit.conf_int())
     values = np.column_stack([fit.params, fit.bse, fit.pvalues, ci])
-    if not np.isfinite(values).all():
-        return None
+    terms: dict[str, GeeTerm] = {}
+    degenerate: list[str] = []
+    for name, row in zip(design.names, values[1:], strict=True):
+        if not row[1] > MIN_GEE_SE:
+            degenerate.append(name)
+        elif not np.isfinite(row).all():
+            return None
+        else:
+            terms[name] = GeeTerm(*(float(v) for v in row))
     return GeeFit(
-        terms={
-            name: GeeTerm(*(float(v) for v in values[i + 1]))
-            for i, name in enumerate(design.names)
-        },
+        terms=terms,
         n_groups=n_groups,
         cov=cov,
         separated=design.separated,
         references=design.references,
+        degenerate=tuple(degenerate),
     )
 
 

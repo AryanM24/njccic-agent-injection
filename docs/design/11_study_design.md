@@ -674,6 +674,12 @@ Definitions, as built:
   - "No fit" (one `NO_FIT` row) remains only for a family with no event or
     no non-event at all, too few events and no separated level, no
     statsmodels, or a failed fit.
+- **Degenerate terms.** A term whose robust standard error is at or below
+  `MIN_GEE_SE` (1e-6: zero variance up to rounding, as when a factor changes
+  no outcome in any pair) has no inference. It is listed in
+  `GeeFit.degenerate` and gets a `degenerate: ...` row; the other terms keep
+  their estimates. (Its variance rounds to either sign by platform, so before
+  this rule the same data fitted on one machine and not on another.)
 - **Mixed model (sensitivity).** `mixed_fit(rows, outcome, factors,
   group="artifact_id") -> MixedFit | None`: `BinomialBayesMixedGLM` with a
   pair random intercept, fitted by `fit_vb`, on the same design after

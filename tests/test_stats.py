@@ -31,6 +31,28 @@ def _pairs(n: int = 200) -> list[dict[str, Any]]:
     ]
 
 
+def _isolation_helps_some(r: dict[str, Any], isolated: bool) -> dict[str, Any]:
+    """Isolation stops the attack harm of one pair in four, so its term has a
+    real within-pair variance (identical arms would be degenerate)."""
+    if isolated and int(r["artifact_id"][1:]) % 4 == 0:
+        return r | {"score:paired_utility.harm_attack": 0.0}
+    return r
+
+
+def test_gee_degenerate_term_does_not_discard_the_fit() -> None:
+    pytest.importorskip("statsmodels")
+    rows = [
+        r | {"isolated": iso}
+        for iso in (False, True)
+        for r in stats.long_rows(_pairs(60), HARM)
+    ]
+    for cov in ("exchangeable", "independence_bias_reduced"):
+        fit = stats.gee_fit(rows, "paired_utility.harm", ["arm", "isolated"], cov=cov)
+        assert fit is not None
+        assert fit.degenerate == ("isolated=True",)
+        assert set(fit.terms) == {"arm=attack"} and fit.terms["arm=attack"].se > 0.01
+
+
 def test_long_rows_split_each_pair_into_two_arms() -> None:
     rows = stats.long_rows(_pairs(4), HARM)
     assert [r["arm"] for r in rows] == ["attack", "twin"] * 4
@@ -314,7 +336,13 @@ def test_report_writes_gee_tables(
         "gate": False,
     }
     rows = [
-        {**cell, **r, "isolated": iso, "epoch": 1, "sample_id": r["artifact_id"]}
+        {
+            **cell,
+            **_isolation_helps_some(r, iso),
+            "isolated": iso,
+            "epoch": 1,
+            "sample_id": r["artifact_id"],
+        }
         for iso in (False, True)
         for r in _pairs(60)
     ]
@@ -421,7 +449,7 @@ def test_report_writes_across_models(
     rows = [
         {
             **cell,
-            **r,
+            **_isolation_helps_some(r, iso),
             "model": m,
             "isolated": iso,
             "epoch": 1,

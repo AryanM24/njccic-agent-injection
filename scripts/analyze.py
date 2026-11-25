@@ -605,7 +605,19 @@ def gee_tables(rows: list[dict[str, Any]], n_boot: int) -> GeeTables:
             if fit is None:
                 table.append({**fixed, "n_pairs": n_pairs, "cov": cov, "note": NO_FIT})
                 continue
-            dropped = {s.term for s in fit.separated}
+            dropped = {s.term for s in fit.separated} | set(fit.degenerate)
+            table.extend(
+                {
+                    **fixed,
+                    "term": term,
+                    "n_pairs": fit.n_groups,
+                    "cov": cov,
+                    "status": PENDING,
+                    "note": "degenerate: zero robust variance (no pair's outcomes "
+                    "vary with this term); no standard error, no inference",
+                }
+                for term in fit.degenerate
+            )
             table.extend(
                 {
                     **fixed,
