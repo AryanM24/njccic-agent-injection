@@ -58,6 +58,26 @@
         so the file cannot rank attack techniques. Releasing it is still a doc
         05 decision.
 
+    analyze.py endpoints --features logs/features/<name>.csv
+                         [--swap logs/features/<name>.swap.csv]
+                         [--ceiling logs/<ceiling>/ceiling.csv]
+                         [--candidate ARM --reference ARM]... --split dev|confirm
+                         --out logs/<dir>
+        The behaviour study's endpoints (doc 14 §§4-7), from feature tables. An
+        ARM is a name in `ceiling.ARMS`; without any, E5's two declared subjects.
+        endpoints.csv     E1-E5 with Holm, the held-out model and the call; the
+                          fixed-sequence follow-ups E5a/E5b; E3, E4 and H-main
+        swap_effects.csv  total, direct, laundered and interaction effects, dev
+                          models pooled and each model, per workflow and pooled
+        did.csv           difference in differences per comparison and outcome
+                          (twin utility: plain difference), with the noise
+                          floor's verdict, dropped blocks and parse-error rates
+        grid.csv          reader x actor cells, transition equivalence, onset
+                          differences, variance shares
+        headroom.csv      permitted against observed harm per arm
+        Exit 2: OUT outside logs/, an unknown arm, or rows that mix
+        configurations. Exit 4: a stale feature or swap table.
+
 Outputs default to logs/analysis/, which is gitignored: analysis of canonical
 runs is Tier 1, like the logs it is computed from. Nothing here contacts a model.
 """
@@ -67,12 +87,12 @@ import csv
 import math
 import random
 import sys
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from itertools import combinations
 from pathlib import Path
 from typing import Any, NamedTuple
 
-from eduinject import stats
+from eduinject import ceiling, endpoints, stats
 from eduinject.analysis import (
     CELL_FIELDS,
     N_BOOT,
@@ -100,7 +120,10 @@ from eduinject.analysis import (
     within_pair_difference,
     within_pair_differences,
 )
+from eduinject.features import stale_features
 from eduinject.models import load_models
+
+LOGS = Path(__file__).resolve().parents[1] / "logs"
 
 SCOPE_ORDER = ("read_only", "standard", "read_write")
 
@@ -1089,6 +1112,53 @@ def cmd_power(args: argparse.Namespace) -> int:
     return 0
 
 
+def read_columns(path: str | None, columns: Iterable[str]) -> list[dict[str, Any]]:
+    """The named columns of a CSV's rows; [] without a path."""
+    if path is None:
+        return []
+    keep = frozenset(columns)
+    with open(path, newline="", encoding="utf-8") as f:
+        return [{c: v for c, v in r.items() if c in keep} for r in csv.DictReader(f)]
+
+
+def cmd_endpoints(args: argparse.Namespace) -> int:
+    out = Path(args.out)
+    if not out.resolve().is_relative_to(LOGS):
+        print(f"refused: --out {out} is not under {LOGS}", file=sys.stderr)
+        return 2
+    if len(args.candidate) != len(args.reference):
+        print("refused: one --reference per --candidate", file=sys.stderr)
+        return 2
+    stale = [s for p in (args.features, args.swap) if p and (s := stale_features(p))]
+    if stale:
+        print("\n".join(stale), file=sys.stderr)
+        return 4
+    try:
+        tables = endpoints.compute(
+            read_columns(args.features, endpoints.COLUMNS),
+            read_columns(args.swap, endpoints.COLUMNS),
+            read_columns(args.ceiling, endpoints.CEILING_COLUMNS),
+            subjects=tuple(zip(args.candidate, args.reference))
+            or endpoints.E5_SUBJECTS,
+            arms=ceiling.ARMS,
+            models=endpoints.study_models(),
+            split=args.split,
+            n_boot=args.n_boot,
+        )
+    except ValueError as e:
+        print(f"refused: {e}", file=sys.stderr)
+        return 2
+    for name, rows in tables._asdict().items():
+        if name != "notes":
+            write_csv(out / f"{name}.csv", rows)
+    for note in tables.notes:
+        print(f"note: {note}")
+    for row in tables.endpoints:
+        print(row["endpoint"], row.get("candidate", ""), row["call"])
+    print(f"-> {out.resolve()}")
+    return 0
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -1187,6 +1257,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     power.add_argument("--n-sim", type=int, default=500)
     power.add_argument("--seed", type=int, default=0)
     power.set_defaults(func=cmd_power)
+
+    ends = sub.add_parser("endpoints", help="primary endpoints (doc 14 §§4-7)")
+    ends.add_argument("--features", required=True)
+    ends.add_argument("--swap", help="<name>.swap.csv; without it E1/E2 are not_run")
+    ends.add_argument("--ceiling", help="ceiling.csv; without it no headroom")
+    ends.add_argument("--candidate", action="append", default=[], metavar="ARM")
+    ends.add_argument("--reference", action="append", default=[], metavar="ARM")
+    ends.add_argument("--split", choices=("dev", "confirm"), required=True)
+    ends.add_argument("--out", required=True)
+    ends.add_argument("--n-boot", type=int, default=N_BOOT)
+    ends.set_defaults(func=cmd_endpoints)
     return parser.parse_args(argv)
 
 
