@@ -52,8 +52,10 @@ class FreezeEntry(NamedTuple):
 LISTS = ("candidates", "references", "held_out")
 
 
-def tree_digest(root: Path = ROOT, patterns: Sequence[str] = FREEZE_PATHS) -> str:
-    """Hex sha256 over the path and bytes of every file matching `patterns`.
+def frozen_files(
+    root: Path = ROOT, patterns: Sequence[str] = FREEZE_PATHS
+) -> dict[str, Path]:
+    """Every frozen file by its path under `root`.
 
     `configs/freeze.json`, `__pycache__` and hidden files (macOS metadata) are
     left out.
@@ -66,6 +68,12 @@ def tree_digest(root: Path = ROOT, patterns: Sequence[str] = FREEZE_PATHS) -> st
             if path.is_file() and not skip:
                 files[rel.as_posix()] = path
     files.pop("configs/freeze.json", None)
+    return files
+
+
+def tree_digest(root: Path = ROOT, patterns: Sequence[str] = FREEZE_PATHS) -> str:
+    """Hex sha256 over the path and bytes of every file of `frozen_files`."""
+    files = frozen_files(root, patterns)
     digest = hashlib.sha256()
     for name in sorted(files):
         digest.update(name.encode() + b"\0" + files[name].read_bytes() + b"\0")

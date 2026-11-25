@@ -157,12 +157,14 @@ def _ladder(
                 continue
             attack = _per_scenario(sides["attack"], rows)
             twin = _per_scenario(sides["twin"], rows)
-            ci = mean_with_ci(_per_scenario(sides["diff"], rows), n_boot)
+            # A behaviour only an attack run can show has its own rate's interval.
+            per_pair = sides["attack" if alone else "diff"]
+            ci = mean_with_ci(_per_scenario(per_pair, rows), n_boot)
             out.append(
                 dict(zip(GROUP_FIELDS, key))
                 | {"behaviour": name, "attack_rate": mean(attack.values())}
                 | {"twin_rate": mean(twin.values()) if twin else ""}
-                | {"difference": ci.diff if ci else ""}
+                | {"difference": ci.diff if ci and not alone else ""}
                 | {"lo": ci.lo if ci else "", "hi": ci.hi if ci else ""}
                 | {"n_pairs": len(sides["attack"]), "n_scenarios": len(attack)}
             )

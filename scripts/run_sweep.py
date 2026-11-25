@@ -27,6 +27,7 @@ from inspect_ai import eval_set
 from eduinject import freeze
 from eduinject.agents.task_facts import IDENTITY_MODES
 from eduinject.config import draft_documents
+from eduinject.corpus import split_for_base
 from eduinject.defense import DEFENSES
 from eduinject.models import ModelEntry, load_models
 from eduinject.task import DEFAULT_MANIFEST as W2_MANIFEST
@@ -383,30 +384,37 @@ def split_refusals(
     root: Path = ROOT,
 ) -> list[str]:
     """Why this sweep may not run under doc 14 §10; [] when it may."""
-    held_out = {e.model for e in load_models().values() if e.held_out}
-    uses_held_out = any(
-        m in held_out
-        for c in cells
-        for m in (c.model, c.reader.model if c.reader else None)
-    )
+    # By the model's own name, in any argument: a suffix, a dated slug, another
+    # case or a provider's fallback list still serves the held-out model.
+    held_out = [
+        e.model.rsplit("/", 1)[-1] for e in load_models().values() if e.held_out
+    ]
+    served = " ".join(
+        f"{c.model} {c.reader.model if c.reader else ''} {c.model_args}" for c in cells
+    ).lower()
+    uses_held_out = any(name.lower() in served for name in held_out)
     if split == "dev":
         problems = []
         if uses_held_out:
             problems.append("a held-out model runs on --split confirm only")
-        if (Path(log_dir) / FREEZE_COPY).exists():
+        here = Path(log_dir).resolve()
+        if any((d / FREEZE_COPY).exists() for d in (here, *here.parents)):
             problems.append(f"{log_dir} holds a confirm run; use another --log-dir")
         return problems
     problems = list(freeze.freeze_problems())
     if root != freeze.ROOT:
         problems.append(f"this script is in {root}, the frozen tree is {freeze.ROOT}")
-    resolved = Path(manifest).resolve()
-    frozen = {p.resolve() for p in (root / "corpus").glob("manifest_w*.jsonl")}
-    frozen |= set((root / "corpus" / "canonical").resolve().rglob("*.jsonl"))
-    if resolved not in frozen:
+    frozen = {p.resolve() for p in freeze.frozen_files(root).values()}
+    if Path(manifest).resolve() not in frozen:
         problems.append(f"manifest {manifest} is not in the frozen corpus")
-    logs = Path(log_dir)
-    if not (logs / FREEZE_COPY).exists() and any(logs.rglob("*.eval")):
-        problems.append(f"{log_dir} already holds a run that is not a confirm run")
+    copy = Path(log_dir) / FREEZE_COPY
+    if any(Path(log_dir).rglob("*.eval")) and not (
+        copy.exists()
+        and not problems
+        and json.loads(copy.read_text("utf-8"))["digest"]
+        == freeze.load_freeze()[-1].digest
+    ):
+        problems.append(f"{log_dir} already holds runs not made under this freeze")
     return problems
 
 
@@ -466,9 +474,17 @@ def main(argv: list[str] | None = None) -> int:
     ]
     tasks = [task for _, task in cells]
     for task in tasks:
-        if any("split" not in (s.metadata or {}) for s in task.dataset):
-            print(f"{manifest}: a row has no split (doc 14 §2)", file=sys.stderr)
-            return 2
+        for s in task.dataset:
+            meta = s.metadata or {}
+            # The scenario decides, not the file: a manifest built before the
+            # scenario split, or an edited one, must not move a scenario.
+            if meta.get("split") != split_for_base(args.workflow, str(meta["base_id"])):
+                print(
+                    f"{manifest}: {s.id} has split {meta.get('split')!r}, not its "
+                    "scenario's (doc 14 §2); regenerate the corpus",
+                    file=sys.stderr,
+                )
+                return 2
         task.dataset = task.dataset.filter(
             lambda s: (s.metadata or {})["split"] == args.split
         )

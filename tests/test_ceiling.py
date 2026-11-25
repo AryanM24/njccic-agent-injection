@@ -1,6 +1,7 @@
 """The structural ceiling (doc 11 §3.9): a scripted adversary that obeys any
 stage the marker reaches, run against the arms on the mock model. No network."""
 
+import argparse
 import ast
 import csv
 import json
@@ -678,3 +679,9 @@ def test_ceiling_confirm_needs_a_freeze(
     assert script.main(["--split", split, "--out", str(tmp_path)]) == 3
     assert "no freeze entry" in capsys.readouterr().err
     assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("key", ["model", "reader_model", "manifest"])
+def test_arm_json_cannot_replace_the_mock_or_the_corpus(key: str) -> None:
+    with pytest.raises(argparse.ArgumentTypeError, match=key):
+        ceiling_script.arm_json(f'x={{"{key}": "openrouter/a/b"}}')

@@ -587,3 +587,74 @@ def test_confirm_refuses_a_manifest_outside_the_frozen_corpus(
     other = generated_corpus / "corpus" / "manifest_w1.jsonl"
     argv = _confirm(tmp_path, "--model", "mockllm/model", "--manifest", str(other))
     assert run_sweep.main(argv) == 3 and not swept
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--model", "openrouter/google/gemini-3.8-flash:nitro"],
+        ["--model", "openrouter/google/gemini-3.8-flash-20260901"],
+        ["--model", "openrouter/Google/Gemini-3.8-flash"],
+        [
+            "--model",
+            "openrouter/openai/gpt-6-luna",
+            "-M",
+            'models=["google/gemini-3.8-flash"]',
+        ],
+    ],
+)
+def test_held_out_model_is_refused_under_any_spelling(
+    extra: list[str],
+    tmp_path: Path,
+    swept: list[dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from run_sweep import main
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "x")
+    pin = ["-M", 'provider={"order":["Google AI Studio"],"allow_fallbacks":false}']
+    dev = [a if a != "confirm" else "dev" for a in _confirm(tmp_path)]
+    assert main([*dev, *extra, *pin, "--allow-draft-docs"]) == 3
+    assert not swept
+
+
+def test_a_relabelled_manifest_is_refused(
+    tmp_path: Path,
+    generated_corpus: Path,
+    swept: list[dict[str, Any]],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from run_sweep import main
+
+    source = generated_corpus / "corpus" / "manifest_w1.jsonl"
+    edited = generated_corpus / "corpus" / "manifest_relabelled.jsonl"
+    edited.write_text(source.read_text("utf-8").replace('"confirm"', '"dev"'), "utf-8")
+    argv = ["--workflow", "w1", "--model", "mockllm/model", "--manifest", str(edited)]
+    try:
+        assert main([*argv, "--log-dir", str(tmp_path / "logs")]) == 2
+    finally:
+        edited.unlink()  # the corpus fixture is shared across tests
+    assert "not its scenario" in capsys.readouterr().err.replace("its \n", "its ")
+    assert not swept
+
+
+def test_freezes_never_share_a_log_dir(
+    tmp_path: Path, swept: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import run_sweep
+
+    from eduinject.freeze import FreezeEntry
+
+    old = FreezeEntry("0" * 64, "c", "2026-12-01", ("gate",), ("baseline",), (), "n")
+    new = old._replace(digest="1" * 64)
+    monkeypatch.setattr(run_sweep.freeze, "freeze_problems", list)
+    monkeypatch.setattr(run_sweep.freeze, "load_freeze", lambda: [old])
+    argv = _confirm(tmp_path, "--model", "mockllm/model")
+    assert run_sweep.main(argv) == 0
+    (tmp_path / "logs" / "x.eval").write_text("")
+    assert run_sweep.main(argv) == 0  # the same freeze may resume
+    monkeypatch.setattr(run_sweep.freeze, "load_freeze", lambda: [old, new])
+    assert run_sweep.main(argv) == 3
+    nested = [a if a != "confirm" else "dev" for a in argv]
+    nested[nested.index("--log-dir") + 1] = str(tmp_path / "logs" / "sub")
+    assert run_sweep.main(nested) == 3
