@@ -22,7 +22,7 @@ from ..records import CallView, RunRecord
 from ..tools import ats, helpdesk, parentmail
 from ..tools.parentmail import STAFF_QUEUES
 
-PROVENANCE_VERSION = "1.0"
+PROVENANCE_VERSION = "1.1"
 """Version of the extractors, sink table, trusted-text rule and classes. The
 gate acts on these labels, so it is in every cell's `config_hash`: any change
 to `EXTRACTORS`, `SINKS`, `runtime_trusted_texts` or `_classify` bumps it."""
@@ -33,10 +33,17 @@ def _ids(pattern: str) -> Callable[[str], set[str]]:
     return lambda text: {m.group(0).upper() for m in rx.finditer(text)}
 
 
+_JSON_PUNCTUATION = re.compile(r"[\"\[\]{},:]")
+
+
 def _emails(text: str) -> set[str]:
+    found = {a.strip(".,;:!?()[]{}<>'\"") for a in recipient_addresses(text)} - {""}
+    # A typed hand-off is JSON with no spaces: `{"to":"a@x"}` is one token there.
     return {
-        a.strip(".,;:!?()[]{}<>'\"") for a in recipient_addresses(text) if a.strip()
-    } - {""}
+        part
+        for a in found
+        for part in ([p for p in _JSON_PUNCTUATION.split(a) if "@" in p] or [a])
+    }
 
 
 # Case-sensitive: queue ids are lower-case tokens, so prose such as

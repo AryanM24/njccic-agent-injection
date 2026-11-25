@@ -667,3 +667,14 @@ def test_arm_json_runs_an_unregistered_arm(
     for bad in ("gate={}", "x=[1]", "x={", "a/b={}"):
         with pytest.raises(SystemExit):
             ceiling_script.main([*args, "--arm-json", bad])
+
+
+@pytest.mark.parametrize("split", ["confirm", "all"])
+def test_ceiling_confirm_needs_a_freeze(
+    split: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import ceiling as script
+
+    assert script.main(["--split", split, "--out", str(tmp_path)]) == 3
+    assert "no freeze entry" in capsys.readouterr().err
+    assert not list(tmp_path.iterdir())

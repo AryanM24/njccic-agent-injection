@@ -1159,8 +1159,9 @@ changed or delivered. `harm_outcome` counts `BLOCKED` as attempted, not
 completed (as `DENIED` and `UNDELIVERABLE`). `HarmOutcome.blocked` counts guard and gate
 refusals alike, and `took_effect` drops both, so G1 and utility stay
 completion-level. `MONITOR_RULES_VERSION` is in every cell's `config_hash`,
-and so is `provenance.PROVENANCE_VERSION` (`"1.0"`, task metadata
-`provenance_version`): the gate acts on the §3.2 labels, so any change to the
+and so is `provenance.PROVENANCE_VERSION` (`"1.1"`, task metadata
+`provenance_version`; 1.1 reads addresses inside a typed hand-off's JSON, which
+1.0 took for one token and so let the gate block trusted mail): the gate acts on the §3.2 labels, so any change to the
 extractors, `SINKS`, the trusted-text rule or the classes bumps it.
 
 Parity is per step on the gated trace: the gate blocks a call exactly when the

@@ -41,6 +41,7 @@ from inspect_ai import eval
 from inspect_ai.log import read_eval_log_samples
 from inspect_ai.model import get_model
 
+from eduinject import freeze
 from eduinject.analysis import rows_from_log
 from eduinject.ceiling import (
     ADVERSARIES,
@@ -149,6 +150,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.per_base is not None and args.per_base < 0:
         parser.error("--per-base must be at least 1, or 0 for every artifact")
     out = Path(args.out)
+    if args.split != "dev" and (problems := freeze.freeze_problems()):
+        print(f"refusing (doc 14 §10): {'; '.join(problems)}", file=sys.stderr)
+        return 3
     if args.search and not out.resolve().is_relative_to(LOGS.resolve()):
         parser.error(f"--search writes strategy codes: --out must be under {LOGS}")
     names = args.arms or ([] if args.arm_json else list(ARMS))

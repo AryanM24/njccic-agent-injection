@@ -366,3 +366,19 @@ def test_typed_handoff_trusted_block_is_trusted() -> None:
     # The model never sees the facts block in a typed cell: not trusted there.
     guard = typed._replace(cell={**typed.cell, "identity_mode": "guard"})
     assert trusted_texts(guard) == (block,)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{"hiring_mailbox":"hr@example-district.k12.nj.us","roster":[]}',
+        '{"to":["hr@example-district.k12.nj.us","b@example.org"]}',
+        '["hr@example-district.k12.nj.us"]',
+    ],
+)
+def test_email_extractor_reads_addresses_inside_json(text: str) -> None:
+    """A typed hand-off is JSON with no spaces, so an address is not a token of
+    its own; missing it made the gate block mail to a trusted address."""
+    found = EXTRACTORS["email"](text)
+    assert "hr@example-district.k12.nj.us" in found
+    assert not any('"' in a for a in found)

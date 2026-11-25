@@ -15,6 +15,7 @@ from tests.helpers import MOCK, w1_compromised
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
+SWAP_CSV = "features/both.swap.csv"
 sys.path.insert(0, str(SCRIPTS))
 
 
@@ -25,6 +26,7 @@ def _tree(root: Path) -> set[Path]:
 def test_every_phase_a_script_runs_on_a_mock_log(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    import analyze
     import audit_traces
     import behavior_models
     import build_features
@@ -41,6 +43,15 @@ def test_every_phase_a_script_runs_on_a_mock_log(
         limit=2,
     )
     assert log.status == "success", log.error
+    swap_runs = logs / "swap_runs"
+    (swap,) = eval(
+        eduinject_w1(scope="read_write", isolated=False, swap_stage="action"),
+        model=get_model(MOCK, custom_outputs=w1_compromised),
+        log_dir=str(swap_runs),
+        display="none",
+        limit=2,
+    )
+    assert swap.status == "success", swap.error
     repo_logs_before = _tree(ROOT / "logs")
 
     def script(name: str, *args: str) -> str:
@@ -67,7 +78,10 @@ def test_every_phase_a_script_runs_on_a_mock_log(
     assert build_features.main(["--log-dir", r, "--out", str(features)]) == 0
     with features.open(encoding="utf-8") as f:
         assert len(list(csv.DictReader(f))) == 4  # two pairs, attack and twin
-    for model in ("chain", "halflife", "predict", "profiles"):
+    both = logs / "features" / "both.csv"
+    argv = ["--log-dir", r, str(swap_runs), "--swap", "--out", str(both)]
+    assert build_features.main(argv) == 0
+    for model in ("chain", "halflife", "predict", "profiles", "ladder"):
         argv = [
             model,
             "--features",
@@ -90,6 +104,12 @@ def test_every_phase_a_script_runs_on_a_mock_log(
     ]
     assert risk_report.main(argv) == 0
     script("analyze.py", "report", r, "--out", str(logs / "analysis"), "--n-boot", "20")
+    script("verify_scores.py", str(swap_runs))
+    monkeypatch.setattr(analyze, "LOGS", logs)
+    argv = ["endpoints", "--features", str(both), "--swap", str(logs / SWAP_CSV)]
+    argv += ["--candidate", "gate_open", "--reference", "not_isolated"]
+    argv += ["--split", "dev", "--n-boot", "20", "--out", str(logs / "endpoints")]
+    assert analyze.main(argv) == 0
     script("analyze.py", "trace-check", r, "--out", str(logs / "trace-check"))
     script(
         "analyze.py",
@@ -109,7 +129,10 @@ def test_every_phase_a_script_runs_on_a_mock_log(
         assert "| --- |" in script("paired_outcomes.py", r, *split)
         assert "| --- |" in script("exfil_recipients.py", r, *split)
     monkeypatch.setattr(make_figures, "LOGS", logs)
-    assert make_figures.main(["--in", str(logs), "--out", str(logs / "figures")]) == 0
+    both.unlink()  # one feature table per figure run
+    argv = ["--in", str(logs), "--out", str(logs / "figures")]
+    assert make_figures.main(argv) == 0
+    assert make_figures.main([*argv, "--appendix"]) == 0
     script("estimate_cost.py", "--log-dir", r, "--model-preset", "luna")
     script(
         "run_sweep.py",
@@ -133,8 +156,13 @@ def test_every_phase_a_script_runs_on_a_mock_log(
         "risk/risk.csv",
         "risk/frontier.csv",
         "analysis/rates.csv",
-        "figures/risk_heatmap.png",
-        "figures/violations_by_origin_stage.png",
+        "behavior/ladder.csv",
+        "behavior/transitions.csv",
+        "endpoints/endpoints.csv",
+        "endpoints/swap_effects.csv",
+        "figures/ladder.png",
+        "figures/appendix/risk_heatmap.png",
+        "figures/appendix/violations_by_origin_stage.png",
     ):
         assert (logs / expected).is_file(), expected
     assert list((logs / "behavior").glob("profile_*.md"))
