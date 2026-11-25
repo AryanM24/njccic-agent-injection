@@ -9,14 +9,23 @@ Cell (NJCCIC).
 
 > **Status (November 2026).** The paper in [`paper/`](paper/) and the results
 > in [`findings.md`](findings.md) are the **first edition** and stay here as the
-> record of how those numbers were produced. A larger combined study (second
-> edition plus the 2026-11-14 upgrades; spec in
-> [`docs/design/11_study_design.md`](docs/design/11_study_design.md)) is built
-> and tested but **not yet run**. It is being prepared for **TCJSF**, and a new
-> write-up will follow its runs. Its newest layer separates what holds for any
-> model (the harm each design *permits*, measured against a scripted worst-case
-> adversary at no model cost) from what depends on the model. What is left before the first run:
-> [`HANDOFF.md`](HANDOFF.md). Week-by-week progress: the project wiki.
+> record of how those numbers were produced. The new study measures the
+> **behaviour** of agents under attack, treats models as replicates, and sets up
+> a frozen, held-out test that any protection must pass
+> ([`docs/design/14_behavior_study.md`](docs/design/14_behavior_study.md), on top
+> of [`docs/design/11_study_design.md`](docs/design/11_study_design.md)). It is
+> built and tested but **not yet run**: there are no new results from real models.
+> What is left before the first run: [`HANDOFF.md`](HANDOFF.md). Week-by-week
+> progress: the project wiki.
+>
+> The behaviour study has five parts: a **behaviour ladder** (ignore, warn, carry
+> silently, trust without checking, skip a check, use the wrong source, attempt,
+> harm, overreact); a **message swap** that separates harm caused by the document
+> from harm caused by another agent's summary of it; a **reader × actor grid**
+> that asks whether behaviour follows the message or the model; a **scripted
+> adversary** that bounds the harm each design permits, set against what models
+> did; and a **freeze** with held-out scenarios and a held-out model. Severity
+> scores, half-life fits and model profiles are appendix analyses.
 
 ## Citation
 
@@ -307,9 +316,9 @@ tests in parallel, and saving logs.
 
 ### Where things stand
 
-- **Built and tested (2026-11-14):** all three workflows, 190 document pairs
-  (W1 and W3 58 each over five bases, W2 74 over seven, counting the
-  false-premise variants) plus 4 innocent-but-odd "controls" per workflow,
+- **Built and tested (2026-11-25):** all three workflows, 366 document pairs
+  (122 per workflow over 12 base scenarios and one false-premise variant; the 14
+  first scenarios are for development, 22 new ones are held out) plus 4 innocent-but-odd "controls" per workflow,
   the scoring, the safety checks, and every Phase A–E instrument: one typed
   record per run, argument provenance, the trace monitor and its runtime
   policy gate, relay stages, the typed hand-off, the W2 certification lookup,
@@ -508,9 +517,9 @@ HANDOFF.md       current state and what only the project lead can do
 ```bash
 python3.11 -m venv .venv && source .venv/bin/activate
 make install                        # lock file first, then the package (see below)
-python scripts/make_fixtures_v2.py  # regenerate the W2 corpus (74 pairs, 7 bases)
-python scripts/make_fixtures_w1.py  # regenerate the W1 corpus (58 pairs, 5 bases)
-python scripts/make_fixtures_w3.py  # regenerate the W3 corpus (58 pairs, 5 bases)
+python scripts/make_fixtures_v2.py  # regenerate the W2 corpus (122 pairs, 12 scenarios)
+python scripts/make_fixtures_w1.py  # regenerate the W1 corpus (122 pairs, 12 scenarios)
+python scripts/make_fixtures_w3.py  # regenerate the W3 corpus (122 pairs, 12 scenarios)
 python scripts/make_fixtures_controls.py  # benign-but-weird controls (4 per workflow)
 make check && make test-eduinject   # lint, types, tests; no model-provider calls
 ```

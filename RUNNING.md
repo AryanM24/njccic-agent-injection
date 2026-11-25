@@ -73,12 +73,15 @@ python scripts/analyze.py report logs/<dir> --split dev --out logs/analysis-<nam
 python scripts/analyze.py power --base-rate 0.1 --pairs 50 --epochs 10
 python scripts/analyze.py trace-check logs/<dir>
 # 7. Figures
+python scripts/make_figures.py --in logs/features logs/behavior logs/endpoints \
+  --out logs/figures/
+# appendix figures (risk, half-life, transitions, rank shift, violations)
 python scripts/make_figures.py --in logs/features logs/behavior logs/risk \
-  logs/audit/<name> --out logs/figures/
+  logs/audit/<name> --out logs/figures/ --appendix
 ```
 
-Develop on `--split dev`; rerun steps 2–7 with `--split confirm` (where the
-script takes it) for reported numbers.
+Develop on `--split dev`. Confirm runs and confirm tables need a freeze: see
+"Behaviour study (doc 14)" below.
 
 **After a run, before any table:**
 
@@ -335,8 +338,8 @@ what it cost.
 
 **Matrix and cost.** Per model, at list price, before retries (add 20%), with
 48 pairs × 10 epochs per cell and a matching twin baseline for every attack cell
-(the study now has 58 pairs in W1 and W3 and 74 in W2, so scale W1/W3 by
-58/48 and W2 by 74/48; `--dry-run` prices the real cells):
+(the study now has 122 pairs per workflow, 58/74/58 of them dev; `--dry-run`
+prices the real cells):
 
 | Matrix | Cells | DeepSeek V4.1 | Gemini 3.8 Flash | GPT-6 Luna |
 | --- | --- | --- | --- | --- |
@@ -711,11 +714,56 @@ instead of starting over and paying twice.
 - [ ] The run postdates the doc 04 §16 signing (2026-10-18), if you call it
       pre-registered.
 
-## Behaviour study (doc 14): planned flags
+## Behaviour study (doc 14)
 
-- `run_sweep.py --swap-stage STAGE`: the message swap (four cells per block).
-- `run_sweep.py --reader-preset NAME...`: the model that runs every stage before action.
-- `run_sweep.py --split {dev,confirm}`: samples by scenario split; confirm needs a matching freeze.
+In order. Everything up to the pilot is free.
+
+```bash
+# 0. Free: corpus, scripted ceiling and adversary search on dev, power
+python scripts/validate_manifest.py corpus/manifest_w*.jsonl
+python scripts/ceiling.py --split dev --per-base 0 --out logs/ceiling-dev
+python scripts/ceiling.py --split dev --search --arms not_isolated gate_open baseline typed_gate \
+  --out logs/ceiling-dev-search            # about 6 minutes
+python scripts/analyze.py power --base-rate 0.1 --pairs 176 --epochs 10 --scenarios 22 --icc-scenario 0.15
+# 1. Pilot (paid; needs the PI's OK and, while docs are drafts, --allow-draft-docs)
+python scripts/run_sweep.py --workflow w1 --isolation control --scopes read_write --epochs 2 \
+  --model-preset luna claude-haiku-5.5 deepseek-v4.1 --log-dir logs/pilot --dry-run
+# 2. Development (dev scenarios, dev models): core arms, the message swap, the reader x actor grid
+python scripts/run_sweep.py --workflow w1 --arms core --scopes read_write --epochs 3 \
+  --model-preset luna claude-haiku-5.5 deepseek-v4.1 --log-dir logs/dev-core --dry-run
+python scripts/run_sweep.py --workflow w1 --arms swap --scopes read_write --epochs 3 \
+  --model-preset luna claude-haiku-5.5 deepseek-v4.1 --log-dir logs/dev-swap --dry-run
+python scripts/run_sweep.py --workflow w1 --isolation isolated --scopes read_write --epochs 3 \
+  --model-preset luna claude-haiku-5.5 deepseek-v4.1 \
+  --reader-preset luna claude-haiku-5.5 deepseek-v4.1 --log-dir logs/dev-grid --dry-run
+# 3. Freeze (commit first), then the ceiling on the held-out scenarios, before any paid confirm run
+python scripts/freeze.py write --candidate ARM --reference ARM --note "why"
+python scripts/freeze.py check
+python scripts/ceiling.py --split confirm --per-base 0 --search --out logs/ceiling-confirm
+# 4. Confirm: held-out scenarios, 10 epochs; gemini-3.8-flash is the held-out model
+python scripts/run_sweep.py --workflow w1 --split confirm --arms core --scopes read_write \
+  --epochs 10 --model-preset luna claude-haiku-5.5 deepseek-v4.1 gemini-3.8-flash \
+  --log-dir logs/confirm-core --dry-run
+```
+
+Repeat for `w2` and `w3`, with a `--benign-only` sweep of the same arms for the
+noise floors. Remove `--dry-run` to run.
+
+- `run_sweep.py --split {dev,confirm}`: default `dev`; no value runs both. A
+  confirm sweep, and any use of the held-out model, exits 3 unless
+  `configs/freeze.json`'s last entry matches the working tree. A confirm log
+  directory gets `FREEZE.json` and belongs to that freeze only. Calling a task
+  directly (`inspect eval`) is **not** checked: do not.
+- `run_sweep.py --swap-stage STAGE`: the message swap (four cells per block);
+  needs `--isolation control`. `--arms swap` is the main one.
+- `run_sweep.py --reader-preset NAME...`: the model that runs every stage before
+  action, crossed with `--model-preset`.
+- `ceiling.py --arm-json 'NAME={...}'`: search an arm before it is registered.
+- `human_coding.py behaviour FEATURES --log-dir DIR --n N --seed S --out
+  logs/human-check/behaviour/`: two blank, differently ordered sheets and blinded
+  packets; `agree --codes behaviour` compares the returned sheets. People code.
+- Appendix analyses (severity-weighted risk, half-life, profiles): step 4–5 above;
+  their outputs are stamped `appendix`.
 - `analyze.py endpoints` (built): swap effects, difference-in-differences, the
   reader × actor grid, headroom and the primary endpoints with their calls, from
   the feature tables. Exits 2 on rows that mix configurations, 4 on a stale table.
