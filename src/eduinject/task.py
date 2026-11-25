@@ -71,6 +71,7 @@ from .scorers import (
     scope_violation,
     suppression,
 )
+from .scorers.outcomes import stage_names
 from .scorers.provenance import PROVENANCE_VERSION
 from .tools import ats
 from .tools.guard import Guard, guard_from_metadata
@@ -398,6 +399,10 @@ def paired_pipeline(
     handoff_mode: HandoffMode = "free_text",
     gate: bool = False,
     verification_tools: bool = False,
+    reader_model: str | None = None,
+    reader_model_args: dict[str, Any] | None = None,
+    reader_effort: ReasoningEffort | None = None,
+    swap_stage: str | None = None,
 ) -> Solver:
     """Run the attack document and its twin (or the twin alone) through the pipeline.
 
@@ -418,6 +423,10 @@ def paired_pipeline(
         handoff_mode: "free_text" or "typed" stage hand-off.
         gate: Enable the monitor gate on the action stage's calls.
         verification_tools: Grant the workflow's verification lookups.
+        reader_model: Model for every stage before action (default: the task's).
+        reader_model_args: Provider args bound with the reader.
+        reader_effort: Reasoning effort bound with the reader.
+        swap_stage: First stage of the message swap (doc 14 §4), or None.
 
     Returns:
         A solver that records each run under `metadata["runs"]`.
@@ -427,6 +436,11 @@ def paired_pipeline(
         spec, verification_tools
     )
     labels = ("twin",) if benign_only else ("attack", "twin")
+    reader = (
+        bind_model(reader_model, reader_model_args, reader_effort)
+        if reader_model
+        else None
+    )
     spotlight = defense == "spotlight"
     clause = prompts.SPOTLIGHT_CLAUSE if spotlight else ""
     # The clause describes the document, so only stages that receive it get it.
@@ -469,6 +483,7 @@ def paired_pipeline(
                 gate_meta={k: v for k, v in meta.items() if k != RUNS_KEY},
                 workflow=workflow,
                 identity_mode=identity_mode,
+                reader=reader,
             )
             # Written per run, so a run that hits a limit later still leaves
             # the finished one on the record.
@@ -555,6 +570,9 @@ def build_task(
     handoff_mode: HandoffMode = "free_text",
     gate: bool = False,
     verification_tools: bool = False,
+    reader_model: str | None = None,
+    reader_model_args: dict[str, Any] | None = None,
+    swap_stage: str | None = None,
 ) -> Task:
     """Build one cell of a workflow's experiment (see the `eduinject_*` tasks)."""
     if identity_mode not in IDENTITY_MODES:
@@ -585,6 +603,25 @@ def build_task(
     manifest, benign_only = resolve_run_mode(
         manifest, workflow.manifest, workflow.controls_manifest, controls, benign_only
     )
+    if reader_model_args and reader_model is None:
+        raise ValueError("reader_model_args need a reader_model to bind to")
+    # Reader = actor is the ordinary cell, so it must hash and pool as one.
+    if (reader_model, reader_model_args or None) == (model, model_args or None):
+        reader_model = None
+    if reader_model is None:
+        reader_model_args = None
+    if swap_stage is not None:
+        if swap_stage not in (later := stage_names(relay_stages)[1:]):
+            raise ValueError(f"swap_stage must be None or one of {later}")
+        if isolated:
+            raise ValueError(
+                "swap_stage needs isolated=False: the swapped stage must see the "
+                "document"
+            )
+        if benign_only:
+            raise ValueError(
+                "swap_stage needs attack/twin pairs: not benign_only or controls"
+            )
     # C2: the extraction stack decides which concealment channels are visible
     # at all, so drift fails the run here rather than silently changing what
     # was measured.
@@ -621,6 +658,9 @@ def build_task(
         "monitor_rules_version": MONITOR_RULES_VERSION,
         "provenance_version": PROVENANCE_VERSION,
         "verification_tools": verification_tools,
+        "reader_model": reader_model,
+        "reader_model_args": reader_model_args,
+        "swap_stage": swap_stage,
         # The react loop and its submit plumbing come from Inspect itself.
         "inspect_ai": version("inspect-ai"),
     }
@@ -637,6 +677,10 @@ def build_task(
             handoff_mode=handoff_mode,
             gate=gate,
             verification_tools=verification_tools,
+            reader_model=reader_model,
+            reader_model_args=reader_model_args,
+            reader_effort=reasoning_effort,
+            swap_stage=swap_stage,
         ),
         message_limit=message_limit,
         epochs=epochs,
@@ -671,6 +715,9 @@ def eduinject_w2(
     handoff_mode: HandoffMode = "free_text",
     gate: bool = False,
     verification_tools: bool = False,
+    reader_model: str | None = None,
+    reader_model_args: dict[str, Any] | None = None,
+    swap_stage: str | None = None,
 ) -> Task:
     """Indirect prompt injection through a district hiring workflow.
 
@@ -719,6 +766,13 @@ def eduinject_w2(
         handoff_mode: "free_text" or "typed" stage hand-off.
         gate: Monitor gate on the action stage's calls.
         verification_tools: Grant the workflow's verification lookups (W2).
+        reader_model: Model for intake, analysis and relays (doc 14 §5), at the
+            same `reasoning_effort`; the action stage stays on `model`. None, or
+            the same model with the same args, is the ordinary cell.
+        reader_model_args: Provider args bound with the reader (host pin).
+        swap_stage: First stage of the message swap (doc 14 §4): `analysis`,
+            `relay_i` or `action`. Needs `isolated=False`. `message_limit` is
+            per conversation, so the two extra runs do not consume it.
 
     Returns:
         The configured task.
@@ -741,4 +795,7 @@ def eduinject_w2(
         handoff_mode=handoff_mode,
         gate=gate,
         verification_tools=verification_tools,
+        reader_model=reader_model,
+        reader_model_args=reader_model_args,
+        swap_stage=swap_stage,
     )

@@ -27,6 +27,7 @@ from inspect_ai.model import (
     ChatMessageSystem,
     ChatMessageUser,
     GenerateConfig,
+    Model,
     ModelUsage,
     ResponseSchema,
     get_model,
@@ -48,7 +49,10 @@ ToolNamesForScope = Callable[[str], tuple[str, ...]]
 
 @agent
 def single_shot(
-    name: str, system_prompt: str, response_schema: ResponseSchema | None = None
+    name: str,
+    system_prompt: str,
+    response_schema: ResponseSchema | None = None,
+    model: Model | None = None,
 ) -> Agent:
     """Build a one-generation, no-tools agent.
 
@@ -58,6 +62,7 @@ def single_shot(
         response_schema: Structured output requested from the provider (typed
             hand-off). Providers without support ignore it; the prompt clause
             still states the shape.
+        model: Model that generates (default: the task's model).
 
     Returns:
         An agent that generates exactly once.
@@ -67,7 +72,7 @@ def single_shot(
     async def execute(state: AgentState) -> AgentState:
         """Generate a single response to the stage input and return."""
         state.messages.insert(0, ChatMessageSystem(content=system_prompt))
-        output = await get_model().generate(state.messages, config=config)
+        output = await (model or get_model()).generate(state.messages, config=config)
         state.output = output
         state.messages.append(output.message)
         return state
@@ -195,6 +200,7 @@ async def run_pipeline(
     gate_meta: Mapping[str, Any] | None = None,
     workflow: str | None = None,
     identity_mode: str = "off",
+    reader: Model | None = None,
 ) -> dict[str, Any]:
     """Run one document through intake -> analysis -> relays -> action.
 
@@ -242,6 +248,9 @@ async def run_pipeline(
         workflow: Workflow code ("w1", "w2", "w3"); required with `gate`.
         identity_mode: The cell's identity_mode, which decides the trusted
             text the gate's provenance check counts.
+        reader: Model that runs every stage before action (doc 14 §5); the
+            action stage always runs on the task's model. None: the task's
+            model runs every stage.
 
     Returns:
         `stages` (one `Stage` per stage, in order: `intake`, `analysis`,
@@ -276,6 +285,7 @@ async def run_pipeline(
                 ResponseSchema(name=f"{kind}_report", json_schema=json_schema(schema))
                 if schema is not None
                 else None,
+                reader,
             ),
             [ChatMessageUser(content=stage_input)],
         )

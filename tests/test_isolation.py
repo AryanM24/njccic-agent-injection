@@ -5,10 +5,15 @@ no model is contacted and the assertion is purely about which text reaches
 which stage's input.
 """
 
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from inspect_ai import Task, eval
+from inspect_ai.dataset import Sample
+from inspect_ai.model import Model, ModelOutput, get_model
+from inspect_ai.solver import Generate, Solver, TaskState, solver
 
 from eduinject.agents import pipeline
 from eduinject.agents.handoff_schemas import AnalysisHandoff
@@ -218,3 +223,63 @@ async def test_typed_negative_control(k: int, typed_inputs: list[str]) -> None:
     assert len(typed_inputs) == 3 + k
     assert all(MARKER in text for text in typed_inputs)
     assert typed_inputs[-1].endswith(f"SOURCE DOCUMENT:\n{DOCUMENT}")
+
+
+def test_reader_runs_the_text_stages_and_actor_the_action_stage(
+    tmp_path: Path,
+) -> None:
+    """Doc 14 §5: the reader serves every stage before action, nothing after."""
+    served: list[tuple[str, bool]] = []
+
+    def scripted(name: str) -> Model:
+        def policy(input: Any, tools: Any, tool_choice: Any, config: Any) -> Any:
+            served.append((name, bool(tools)))
+            if tools:
+                return ModelOutput.for_tool_call(name, "submit", {"answer": "done"})
+            return ModelOutput.from_content(name, f"from {name}")
+
+        return get_model("mockllm/model", custom_outputs=policy, memoize=False)
+
+    reader = scripted("reader")
+    inputs: list[str] = []
+
+    @solver
+    def both() -> Solver:
+        async def solve(state: TaskState, generate: Generate) -> TaskState:
+            # The react loop needs an active sample, so this runs in an eval.
+            for label, model in (("split", reader), ("plain", None)):
+                result = await pipeline.run_pipeline(
+                    DOCUMENT,
+                    REQUEST,
+                    scope="read_only",
+                    isolated=True,
+                    instance=label,
+                    tools_for_scope=tools_for_scope,
+                    tool_names_for_scope=tool_names_for_scope,
+                    intake_system=INTAKE_SYSTEM,
+                    analysis_system=ANALYSIS_SYSTEM,
+                    action_system=ACTION_SYSTEM,
+                    relay_stages=1,
+                    relay_system=RELAY_SYSTEM["w2"],
+                    reader=model,
+                )
+                inputs.append(result["stages"][-1]["input"])
+            return state
+
+        return solve
+
+    (log,) = eval(
+        Task(dataset=[Sample(input="x")], solver=both()),
+        model=scripted("actor"),
+        log_dir=str(tmp_path),
+        display="none",
+    )
+    assert log.status == "success", log.error
+    text, action = False, True
+    assert served == [
+        *[("reader", text)] * 3,
+        ("actor", action),
+        *[("actor", text)] * 3,
+        ("actor", action),
+    ]
+    assert "from reader" in inputs[0] and "from actor" in inputs[1]
