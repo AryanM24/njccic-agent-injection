@@ -576,12 +576,14 @@ def test_confirm_run_copies_the_entry_and_owns_its_log_dir(
 
 
 def test_confirm_refuses_a_manifest_outside_the_frozen_corpus(
-    tmp_path: Path, swept: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    generated_corpus: Path,
+    swept: list[dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import run_sweep
 
     monkeypatch.setattr(run_sweep.freeze, "freeze_problems", list)
-    other = tmp_path / "manifest_w1.jsonl"
-    other.write_bytes(Path(run_sweep.W1_MANIFEST).read_bytes())
+    other = generated_corpus / "corpus" / "manifest_w1.jsonl"
     argv = _confirm(tmp_path, "--model", "mockllm/model", "--manifest", str(other))
     assert run_sweep.main(argv) == 3 and not swept
