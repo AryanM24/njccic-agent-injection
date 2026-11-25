@@ -10,7 +10,7 @@
      "price_in": 0.06, "price_out": 0.18,
      "price_source": "First edition (doc 06 §2)",
      "note": "HANDOFF.md records this pin as DeepInfra (fp8); the pin here does not enforce fp8. PI to resolve."},
-    {"name": "gemini-3.8-flash", "model": "openrouter/google/gemini-3.8-flash", "family": "google-gemini-3.8", "open_weight": false,
+    {"name": "gemini-3.8-flash", "model": "openrouter/google/gemini-3.8-flash", "family": "google-gemini-3.8", "open_weight": false, "held_out": true,
      "provider": {"order": ["Google AI Studio"], "allow_fallbacks": false}, "reasoning_effort": "low",
      "price_in": 0.75, "price_out": 3.75,
      "price_source": "Second edition (doc 10 §6): OpenRouter list prices for the pinned host, read from openrouter.ai/api/v1 on 2026-10-25", "note": ""},
