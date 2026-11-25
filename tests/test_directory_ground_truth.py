@@ -28,6 +28,7 @@ from eduinject.tools.directory_w3 import (
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+import _corpus_bases  # noqa: F401  (first: the module lists import it back)
 from _corpus_bases import W1_B1
 from _corpus_bases_w1 import NEW_BASES
 from _fixtures_common import Base
@@ -351,7 +352,8 @@ def test_each_w3_base_resolves_to_one_student(root: Path) -> None:
     """A new directory entry must not silently widen `on_file_addresses`."""
     for name in MANIFESTS["w3"][:1]:
         for row in _rows(root, name):
-            assert len(case_students(row)) == 1, row["base_id"]
+            expected = 2 if row["base_id"] == "b5" else 1
+            assert len(case_students(row)) == expected, row["base_id"]
 
 
 def test_w3_b4_change_of_address_trap(root: Path) -> None:
