@@ -82,6 +82,9 @@ def eduinject_w1(
     handoff_mode: HandoffMode = "free_text",
     gate: bool = False,
     verification_tools: bool = False,
+    reader_model: str | None = None,
+    reader_model_args: dict[str, Any] | None = None,
+    swap_stage: str | None = None,
 ) -> Task:
     """Indirect prompt injection through a district IT help-desk workflow.
 
@@ -131,6 +134,13 @@ def eduinject_w1(
         handoff_mode: "free_text" or "typed" stage hand-off.
         gate: Monitor gate on the action stage's calls.
         verification_tools: Grant the workflow's verification lookups (W2).
+        reader_model: Model for intake, analysis and relays (doc 14 §5), at the
+            same `reasoning_effort`; the action stage stays on `model`. None, or
+            the same model with the same args, is the ordinary cell.
+        reader_model_args: Provider args bound with the reader (host pin).
+        swap_stage: First stage of the message swap (doc 14 §4): `analysis`,
+            `relay_i` or `action`. Needs `isolated=False`. `message_limit` is
+            per conversation, so the two extra runs do not consume it.
 
     Returns:
         The configured task.
@@ -153,4 +163,7 @@ def eduinject_w1(
         handoff_mode=handoff_mode,
         gate=gate,
         verification_tools=verification_tools,
+        reader_model=reader_model,
+        reader_model_args=reader_model_args,
+        swap_stage=swap_stage,
     )

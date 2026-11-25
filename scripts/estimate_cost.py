@@ -21,6 +21,10 @@ TOKENS_PER_PAIR = (23_000, 9_500)
 """(input, output) tokens for one attack+twin sample at relay_stages=0, from the
 first edition's pilot (RUNNING.md). Used only when no log gives real numbers."""
 
+SWAP_PAIR_FACTOR = 1.6
+"""A message-swap block in pairs (doc 14 §14): a planning assumption until the
+pilot gives per-stage tokens."""
+
 
 class TokenStats(NamedTuple):
     """Mean tokens per sample over the logs matched."""
@@ -60,11 +64,13 @@ def estimate_usd(
     relay_stages: int,
     entry: ModelEntry,
     tokens: TokenStats | None,
+    swap: bool = False,
 ) -> float | None:
     """USD for `n_samples` runs, or None when the entry's prices are TODO.
 
     Measured `tokens` are used as given (the logs already reflect their cell).
-    The fallback scales by (3 + relay_stages) / 3 and halves for twin-only.
+    The fallback scales by (3 + relay_stages) / 3, halves for twin-only and
+    takes `SWAP_PAIR_FACTOR` for a message swap.
     """
     if entry.todo:
         return None
@@ -72,6 +78,7 @@ def estimate_usd(
         tin, tout = tokens.mean_in, tokens.mean_out
     else:
         scale = (3 + relay_stages) / 3 * (0.5 if twin_only else 1.0)
+        scale *= SWAP_PAIR_FACTOR if swap else 1.0
         tin, tout = (t * scale for t in TOKENS_PER_PAIR)
     return n_samples * (tin * entry.price_in + tout * entry.price_out) / 1e6
 

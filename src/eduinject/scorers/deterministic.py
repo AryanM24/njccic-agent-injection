@@ -45,6 +45,9 @@ from .outcomes import (
 RUNS_KEY = "runs"
 """Sample metadata key under which the solver records the paired runs."""
 
+SWAP_KEY = "swap_runs"
+"""Sample metadata key for a swap sample's two cross runs, `at` and `ta` (doc 14 §4)."""
+
 
 class MissingRun(ValueError):
     """A recorded run the scorer needs is absent from the sample."""

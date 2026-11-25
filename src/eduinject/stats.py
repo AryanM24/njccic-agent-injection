@@ -23,7 +23,9 @@ functions add what a reader expects next to it, all still clustered by pair:
   (model vs other factors vs pair vs run). These need `statsmodels` (the
   optional `analysis` extra).
 - `power_mde`: simulated power, the smallest detectable attack-minus-twin
-  difference for a planned design.
+  difference (or difference in differences) for a planned design.
+- `scenario_estimate`, `did`, `equivalence` and their helpers: inference over
+  base scenarios, the cluster of every confirmatory number (doc 14 §7).
 
 Everything is deterministic under its seed. Nothing here contacts a model.
 """
@@ -36,6 +38,8 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from statistics import NormalDist, mean, stdev
 from typing import Any, Literal, NamedTuple
+
+from .analysis import N_BOOT, percentiles
 
 
 def _scored(rows: Sequence[Mapping[str, Any]], metric: str) -> list[Mapping[str, Any]]:
@@ -190,6 +194,182 @@ def conditional_rate(
     return Conditional(len(hits), mean(hits) if hits else None)
 
 
+def scenario_key(row: Mapping[str, Any]) -> str:
+    """`workflow:base_id`; a false-premise variant belongs to its base."""
+    return f"{row['workflow']}:{str(row['base_id']).removesuffix('p')}"
+
+
+def scenario_values(
+    per_pair: Mapping[str, float], scenario_of: Mapping[str, str]
+) -> dict[str, float]:
+    """Mean of the per-pair values of each scenario (doc 14 §7)."""
+    grouped: dict[str, list[float]] = defaultdict(list)
+    for pair, value in per_pair.items():
+        grouped[scenario_of[pair]].append(value)
+    return {k: mean(v) for k, v in grouped.items()}
+
+
+def pool_models(by_model: Mapping[str, Mapping[str, float]]) -> dict[str, float]:
+    """Mean over models of each scenario's value, models as fixed replicates.
+
+    Only scenarios present in every model count, so each scenario's mean is
+    over the same models.
+    """
+    tables = list(by_model.values())
+    if not tables:
+        return {}
+    shared = set(tables[0]).intersection(*tables[1:])
+    return {k: mean(t[k] for t in tables) for k in sorted(shared)}
+
+
+def did(
+    delta_candidate: Mapping[str, float], delta_reference: Mapping[str, float]
+) -> dict[str, float]:
+    """Per-pair difference in differences: candidate arm's attack-minus-twin
+    value minus the reference arm's, over the pairs both contain."""
+    shared = sorted(set(delta_candidate) & set(delta_reference))
+    return {k: delta_candidate[k] - delta_reference[k] for k in shared}
+
+
+def _by_workflow(keys: Iterable[str]) -> list[list[str]]:
+    groups: dict[str, list[str]] = defaultdict(list)
+    for key in sorted(keys):
+        groups[key.split(":", 1)[0]].append(key)
+    return [groups[w] for w in sorted(groups)]
+
+
+def _scenario_draws(keys: Iterable[str], n_boot: int, seed: int) -> list[list[str]]:
+    """Bootstrap samples of scenarios, resampled within each workflow."""
+    rng = random.Random(seed)
+    groups = _by_workflow(keys)
+    return [
+        [k for g in groups for k in rng.choices(g, k=len(g))] for _ in range(n_boot)
+    ]
+
+
+class Estimate(NamedTuple):
+    """Mean over scenarios with its bootstrap interval and sign-flip p-value."""
+
+    n_scenarios: int
+    estimate: float
+    lo: float
+    hi: float
+    p: float
+
+
+def scenario_estimate(
+    values: Mapping[str, float],
+    *,
+    n_boot: int = N_BOOT,
+    seed: int = 0,
+    level: float = 0.95,
+) -> Estimate | None:
+    """Mean of one value per scenario, equal weight (doc 14 §7).
+
+    The interval is the percentile bootstrap resampling scenarios within
+    workflow (the key's prefix); `p` is the scenario-level `sign_flip_test`,
+    which is the decision. The interval is descriptive: with 22 scenarios a
+    nominal 95% one covers about 91% (it uses no small-sample correction, unlike
+    `equivalence`). None when no workflow has two scenarios: nothing would be
+    resampled and the interval would have zero width.
+    """
+    if len(values) == len(_by_workflow(values)):
+        return None
+    keys = sorted(values)
+    draws = [mean(values[k] for k in d) for d in _scenario_draws(keys, n_boot, seed)]
+    tail = 50 * (1 - level)
+    lo, hi = percentiles(draws, tail, 100 - tail)
+    ordered = [values[k] for k in keys]
+    return Estimate(len(keys), mean(ordered), lo, hi, sign_flip_test(ordered))
+
+
+Verdict = Literal[
+    "equivalent", "different", "inconclusive", "not_estimable", "saturated"
+]
+
+
+class Equivalence(NamedTuple):
+    """Two ratios over the same scenarios, their difference and the verdict."""
+
+    a: float
+    b: float
+    diff: float
+    lo90: float
+    hi90: float
+    lo95: float
+    hi95: float
+    verdict: Verdict
+
+
+def equivalence(
+    num_a: Mapping[str, float],
+    den_a: Mapping[str, float],
+    num_b: Mapping[str, float],
+    den_b: Mapping[str, float],
+    *,
+    margin: float = 0.10,
+    min_runs: int = 40,
+    min_scenarios: int = 6,
+    n_boot: int = N_BOOT,
+    seed: int = 0,
+) -> Equivalence:
+    """Equivalence (two one-sided 5% tests) of two per-scenario ratios.
+
+    `a` and `b` are ratios of sums over scenarios. Scenarios with no run on
+    either side are dropped; the rest are resampled jointly, within workflow,
+    and draws with a zero denominator are dropped. Each interval is
+    diff ± t · sqrt(S / (S − H)) · (bootstrap SE), t on S − H degrees of
+    freedom for S scenarios in H workflows, because a plain percentile interval
+    called a true difference exactly at the margin equivalent 7–10% of the time
+    at 22 scenarios (14% at six). Needs scipy (the `analysis` extra).
+
+    Verdict: `not_estimable` if either side has fewer than `min_runs` runs or
+    `min_scenarios` scenarios with a run, or no workflow has two scenarios;
+    `saturated` if both ratios are below `margin` or both above 1 − `margin`;
+    `equivalent` if the 90% interval lies inside ±`margin`; `different` if the
+    95% interval lies wholly outside it; else `inconclusive`.
+    """
+    from scipy.stats import t  # type: ignore[import-untyped]
+
+    keys = sorted(
+        k for k in set(den_a) | set(den_b) if den_a.get(k, 0) + den_b.get(k, 0) > 0
+    )
+
+    def ratio(
+        num: Mapping[str, float], den: Mapping[str, float], chosen: Sequence[str]
+    ) -> float:
+        total = sum(den.get(k, 0) for k in chosen)
+        return sum(num.get(k, 0) for k in chosen) / total if total else math.nan
+
+    def difference(chosen: Sequence[str]) -> float:
+        return ratio(num_a, den_a, chosen) - ratio(num_b, den_b, chosen)
+
+    a, b, diff = ratio(num_a, den_a, keys), ratio(num_b, den_b, keys), difference(keys)
+    drawn = [difference(d) for d in _scenario_draws(keys, n_boot, seed)]
+    kept = [d for d in drawn if not math.isnan(d)]
+    df = len(keys) - len(_by_workflow(keys))
+    half90 = half95 = math.nan
+    if df and len(kept) > 1:
+        se = math.sqrt(len(keys) / df) * stdev(kept)
+        half90, half95 = float(t.ppf(0.95, df)) * se, float(t.ppf(0.975, df)) * se
+    lo90, hi90, lo95, hi95 = diff - half90, diff + half90, diff - half95, diff + half95
+    thin = any(
+        sum(den.values()) < min_runs or sum(v > 0 for v in den.values()) < min_scenarios
+        for den in (den_a, den_b)
+    )
+    verdict: Verdict = "inconclusive"
+    # The tolerance keeps a difference exactly at the margin in neither verdict.
+    if thin or math.isnan(half90):
+        verdict = "not_estimable"
+    elif max(a, b) < margin or min(a, b) > 1 - margin:
+        verdict = "saturated"
+    elif -margin + 1e-9 < lo90 and hi90 < margin - 1e-9:
+        verdict = "equivalent"
+    elif lo95 > margin + 1e-9 or hi95 < -margin - 1e-9:
+        verdict = "different"
+    return Equivalence(a, b, diff, lo90, hi90, lo95, hi95, verdict)
+
+
 MIN_GEE_EVENTS = 5
 """Fewest positive (and negative) runs for which a GEE or mixed fit reports."""
 
@@ -267,7 +447,9 @@ class GeeFit(NamedTuple):
     the levels left out; the terms are estimated on the rows that remain.
     `unfitted` names the factors that still vary but were not fitted because
     fewer than `MIN_GEE_EVENTS` events or non-events remained; `terms` is
-    then empty. `degenerate` names the terms whose sandwich variance is zero
+    then empty. An interaction left out because some combination of its
+    factors' levels has no run, only events or only non-events is also named
+    there, as `f1:f2`. `degenerate` names the terms whose sandwich variance is zero
     up to rounding (no pair's outcomes differ in a way the term could explain);
     they have no standard error, so they carry no inference and are not in
     `terms`.
@@ -417,8 +599,9 @@ def _design(
     outcome: str,
     factors: Sequence[str],
     group: str,
+    interactions: Sequence[tuple[str, str]] = (),
 ) -> _Design | None:
-    """Treatment-coded main effects (no interactions), after separation.
+    """Treatment-coded main effects and `interactions`, after separation.
 
     A level with only events or only non-events would send its estimate to
     infinity (the first-edition recompute gave p≈0 for a single event), so it
@@ -428,7 +611,9 @@ def _design(
     `MIN_GEE_EVENTS` events or non-events left, nothing is fitted and the
     factors that still vary are `unfitted`. None when there is no event or no
     non-event at all, or no separated level and too few events. A factor left
-    with one level carries no term.
+    with one level carries no term. An interaction is fitted only when every
+    combination of its two factors' levels has both outcomes, because an empty
+    combination separates the product term although neither factor is.
     """
     data = list(_scored(rows, outcome))
     y = [float(r[f"score:{outcome}"]) for r in data]
@@ -454,6 +639,22 @@ def _design(
         for level in levels[1:]:
             columns.append([float(v == level) for v in values])
             names.append(f"{factor}={level}")
+    for f1, f2 in interactions:
+        if f1 not in references or f2 not in references:
+            continue
+        pairs = [(r.get(f1), r.get(f2)) for r in data]
+        first, second = (
+            factor_levels(f, (p[i] for p in pairs)) for i, f in enumerate((f1, f2))
+        )
+        outcomes: dict[Any, set[float]] = defaultdict(set)
+        for pair, value in zip(pairs, y, strict=True):
+            outcomes[pair].add(value)
+        if any(len(outcomes[c]) < 2 for c in itertools.product(first, second)):
+            unfitted.append(f"{f1}:{f2}")
+            continue
+        for l1, l2 in itertools.product(first[1:], second[1:]):
+            columns.append([float(p == (l1, l2)) for p in pairs])
+            names.append(f"{f1}={l1}:{f2}={l2}")
     return _Design(
         y,
         columns,
@@ -471,8 +672,14 @@ def gee_fit(
     factors: Sequence[str],
     group: str = "artifact_id",
     cov: GeeCov = "exchangeable",
+    interactions: Sequence[tuple[str, str]] = (),
 ) -> GeeFit | None:
     """Logistic GEE of `outcome` on main effects of `factors`, clustered by pair.
+
+    `interactions` adds, per factor pair, the products of their non-reference
+    levels as terms named `f1=l1:f2=l2`; for ("arm", factor) that term is the
+    model-based difference in differences (doc 14 §7, with `group` a scenario
+    column). With any interaction, main-effect terms are at the reference level.
 
     `cov` "exchangeable" uses exchangeable working correlation and robust
     (sandwich) errors; "independence_bias_reduced" uses independence and the
@@ -487,6 +694,9 @@ def gee_fit(
         raise ValueError(
             f"cov must be exchangeable or independence_bias_reduced: {cov!r}"
         )
+    unknown = {f for pair in interactions for f in pair} - set(factors)
+    if unknown:
+        raise ValueError(f"interactions name factors not fitted: {sorted(unknown)}")
     try:
         import numpy as np
         import statsmodels.api as sm  # type: ignore[import-untyped]
@@ -496,7 +706,7 @@ def gee_fit(
         )
     except ImportError:
         return None
-    design = _design(rows, outcome, factors, group)
+    design = _design(rows, outcome, factors, group, interactions)
     if design is None or not (design.names or design.separated):
         return None
     n_groups = len(set(design.groups))
@@ -543,6 +753,7 @@ def gee_fit(
         cov=cov,
         separated=design.separated,
         references=design.references,
+        unfitted=design.unfitted,
         degenerate=tuple(degenerate),
     )
 
@@ -732,10 +943,13 @@ class _PowerDraws(NamedTuple):
     """Whether the attack moves the pair, (n_sim, n_pairs)."""
     twin: Any
     """Per-pair twin rate over its epochs, (n_sim, n_pairs)."""
+    candidate: Any
+    """Per-pair attack - twin rate in the candidate arm, (n_sim, n_pairs);
+    0 without `did`."""
     u_attack: Any
     """Uniforms for the attack runs, (n_sim, n_pairs, epochs)."""
     flips: Any
-    """Fixed sign-flip patterns, (n_perm, n_pairs)."""
+    """Fixed sign-flip patterns, (n_perm, units): scenarios, or pairs without."""
 
 
 def _power_draws(
@@ -747,6 +961,9 @@ def _power_draws(
     n_sim: int,
     n_perm: int,
     seed: int,
+    n_scenarios: int | None,
+    icc_scenario: float,
+    did: bool,
 ) -> _PowerDraws:
     import numpy as np
 
@@ -754,17 +971,36 @@ def _power_draws(
         raise ValueError("need 0 < base_rate < 1, n_pairs >= 2, epochs >= 1")
     if not (0 <= icc < 1 and 0 < effect_concentration <= 1):
         raise ValueError("need 0 <= icc < 1 and 0 < effect_concentration <= 1")
+    if n_scenarios is None and icc_scenario:
+        raise ValueError("icc_scenario needs n_scenarios")
+    if not (icc_scenario >= 0 and icc + icc_scenario < 1):
+        raise ValueError("need icc_scenario >= 0 and icc + icc_scenario < 1")
+    units = n_pairs if n_scenarios is None else n_scenarios
+    if units < 2 or n_pairs % units:
+        raise ValueError("n_pairs must be a multiple of n_scenarios (at least 2)")
+    per_unit = n_pairs // units
     rng = np.random.default_rng(seed)
-    sigma = math.sqrt(icc / (1 - icc) * math.pi**2 / 3)
+    residual = 1 - icc - icc_scenario
+    sigma = math.sqrt(icc / residual * math.pi**2 / 3)
     logit = math.log(base_rate / (1 - base_rate)) + sigma * rng.standard_normal(
         (n_sim, n_pairs)
     )
+    if n_scenarios is not None:
+        shared = rng.standard_normal((n_sim, units))
+        sigma_scenario = math.sqrt(icc_scenario / residual * math.pi**2 / 3)
+        logit = logit + sigma_scenario * np.repeat(shared, per_unit, axis=1)
     base = 1 / (1 + np.exp(-logit))
-    affected = rng.random((n_sim, n_pairs)) < effect_concentration
+    affected = rng.random((n_sim, units)) < effect_concentration
+    affected = np.repeat(affected, per_unit, axis=1)
     twin = (rng.random((n_sim, n_pairs, epochs)) < base[..., None]).mean(axis=2)
     u_attack = rng.random((n_sim, n_pairs, epochs))
-    flips = rng.choice(np.array([-1.0, 1.0]), size=(n_perm, n_pairs))
-    return _PowerDraws(base, affected, twin, u_attack, flips)
+    flips = rng.choice(np.array([-1.0, 1.0]), size=(n_perm, units))
+    candidate = np.zeros((n_sim, n_pairs))
+    if did:
+        for sign in (1, -1):
+            runs = rng.random((n_sim, n_pairs, epochs)) < base[..., None]
+            candidate += sign * runs.mean(axis=2)
+    return _PowerDraws(base, affected, twin, candidate, u_attack, flips)
 
 
 def _power(
@@ -775,6 +1011,8 @@ def _power(
     shift = np.where(draws.affected, delta / effect_concentration, 0.0)
     attack_p = np.minimum(1.0, draws.base + shift)
     d = (draws.u_attack < attack_p[..., None]).mean(axis=2) - draws.twin
+    d = d - draws.candidate
+    d = d.reshape(d.shape[0], draws.flips.shape[1], -1).mean(axis=2)
     observed = np.abs(d.sum(axis=1))
     permuted = np.abs(d @ draws.flips.T)
     p = ((permuted >= observed[:, None] - 1e-12).sum(axis=1) + 1) / (
@@ -795,6 +1033,9 @@ def power_at(
     n_sim: int = 500,
     n_perm: int = 999,
     seed: int = 0,
+    n_scenarios: int | None = None,
+    icc_scenario: float = 0.0,
+    did: bool = False,
 ) -> float:
     """Simulated power of the study's paired test at a mean attack-minus-twin
     difference `delta`.
@@ -807,9 +1048,27 @@ def power_at(
     `delta`. Each pair runs `epochs` attack and `epochs` twin runs. The test
     is `sign_flip_test` on per-pair differences, vectorised with `n_perm`
     fixed Monte Carlo sign patterns (exact enumeration is not used here).
+
+    With `n_scenarios`, the pairs (a multiple of it) are split evenly among
+    scenarios sharing a normal intercept of intra-class correlation
+    `icc_scenario`, the effect falls on whole scenarios, and the test is on
+    scenario means (doc 14 §8). With `did`, the arm above is the reference, a
+    candidate arm on the same pairs removes its whole effect (the smallest
+    reference effect a reduction of `delta` can come from), and the test is on
+    the difference in differences.
     """
     draws = _power_draws(
-        base_rate, n_pairs, epochs, icc, effect_concentration, n_sim, n_perm, seed
+        base_rate,
+        n_pairs,
+        epochs,
+        icc,
+        effect_concentration,
+        n_sim,
+        n_perm,
+        seed,
+        n_scenarios,
+        icc_scenario,
+        did,
     )
     return _power(draws, delta, effect_concentration, alpha)
 
@@ -827,8 +1086,12 @@ def power_mde(
     icc: float = POWER_ICC,
     effect_concentration: float = POWER_EFFECT_CONCENTRATION,
     n_perm: int = 999,
+    n_scenarios: int | None = None,
+    icc_scenario: float = 0.0,
+    did: bool = False,
 ) -> float | None:
-    """Simulated minimum detectable mean attack-minus-twin difference.
+    """Simulated minimum detectable mean attack-minus-twin difference, or
+    difference in differences with `did`.
 
     The smallest `delta` on a `step` grid whose `power_at` simulation rejects
     at `alpha` in at least `power` of `n_sim` draws, or None if no `delta` up
@@ -841,7 +1104,17 @@ def power_mde(
     if step <= 0:
         raise ValueError("step must be positive")
     draws = _power_draws(
-        base_rate, n_pairs, epochs, icc, effect_concentration, n_sim, n_perm, seed
+        base_rate,
+        n_pairs,
+        epochs,
+        icc,
+        effect_concentration,
+        n_sim,
+        n_perm,
+        seed,
+        n_scenarios,
+        icc_scenario,
+        did,
     )
     top = int((1 - base_rate) / step + 1e-9)
 

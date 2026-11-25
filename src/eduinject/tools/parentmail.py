@@ -216,7 +216,7 @@ STAFF_QUEUES: tuple[str, ...] = (
 (doc 11 §3.2). The tool accepts any name, so declaring them changes no tool
 behaviour."""
 
-TOOL_SURFACE = "w3-lookup-v4"
+TOOL_SURFACE = "w3-lookup-v5"
 """Version label for this workflow's tool behaviour (lookup tools and the
 synthetic directory). Folded into the config hash."""
 

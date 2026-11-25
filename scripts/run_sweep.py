@@ -54,16 +54,19 @@ class Cell(NamedTuple):
     model_args: tuple[tuple[str, Any], ...]
     reasoning_effort: str | None
     entry: ModelEntry | None
+    reader: ModelEntry | None = None
+    """Registry entry that runs every stage before action (doc 14 §5)."""
 
 
 class Condition(NamedTuple):
-    """The five axes a named arm fixes together."""
+    """The axes a named arm fixes together."""
 
     isolated: bool
     handoff_mode: str
     defense: str
     relay_stages: int
     gate: bool
+    swap_stage: str | None = None
 
 
 ARMS = {
@@ -78,6 +81,13 @@ ARMS = {
         ]
     ],
     "halflife": [Condition(True, "free_text", "none", n, False) for n in range(4)],
+    "core": [
+        Condition(False, "free_text", "none", 0, False),
+        Condition(True, "free_text", "none", 0, False),
+        Condition(False, "free_text", "none", 0, True),
+        Condition(True, "typed", "none", 0, True),
+    ],
+    "swap": [Condition(False, "free_text", "none", 0, False, "action")],
 }
 
 
@@ -109,6 +119,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Registry models (configs/models.json) with host pin and price. "
         "Several names sweep the model axis; the same name may repeat. Explicit "
         "--model / -M override the pin.",
+    )
+    parser.add_argument(
+        "--reader-preset",
+        dest="reader_presets",
+        nargs="+",
+        choices=sorted(load_models()),
+        default=[],
+        help="Registry models to run every stage before action (doc 14 §5), on "
+        "their registry pin and the cell's reasoning effort, crossed with the "
+        "model axis. A reader equal to the actor is the ordinary cell.",
     )
     parser.add_argument(
         "--hosts",
@@ -201,13 +221,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="gate cells to sweep.",
     )
     parser.add_argument(
+        "--swap-stage",
+        nargs="+",
+        default=None,
+        metavar="STAGE",
+        help="Message-swap cells to sweep (doc 14 §4): analysis, relay_i or "
+        "action. Needs --isolation control.",
+    )
+    parser.add_argument(
         "--arms",
         choices=sorted(ARMS),
         default=None,
-        help="Named comparison replacing the isolation/handoff/gate/relay/defense "
-        "axes (those flags then exit 2). defense: isolation off; on; typed; "
+        help="Named comparison replacing the isolation/handoff/gate/relay/defense/"
+        "swap axes (those flags then exit 2). defense: isolation off; on; typed; "
         "typed + spotlight, each without and with the gate (8 arms per scope). "
-        "halflife: relay depths 0-3, isolated, free_text, gate off. doc 11 §4.",
+        "halflife: relay depths 0-3, isolated, free_text, gate off. doc 11 §4. "
+        "core: ungated at both isolations; gated, not isolated; typed + gated, "
+        "isolated. swap: the message swap at action, ungated. doc 14.",
     )
     parser.add_argument(
         "--verification-tools",
@@ -263,33 +293,47 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "stop before contacting the model.",
     )
     args = parser.parse_args(argv)
-    axes = ("isolation", "handoff_modes", "gate", "relay_stages", "defense")
+    axes = (
+        "isolation",
+        "handoff_modes",
+        "gate",
+        "relay_stages",
+        "defense",
+        "swap_stage",
+    )
     if args.arms:
         clash = [a for a in axes if getattr(args, a) is not None]
         if clash:
             flags = ", ".join("--" + a.replace("_", "-") for a in clash)
             parser.exit(2, f"--arms conflicts with {flags}\n")
-        if args.arms == "defense" and "facts" in args.identity:
+        typed = any(c.handoff_mode == "typed" for c in ARMS[args.arms])
+        if typed and "facts" in args.identity:
             parser.exit(
                 2,
-                "--arms defense includes typed hand-off arms, which cannot run "
+                f"--arms {args.arms} includes typed hand-off arms, which cannot run "
                 "with --identity facts (doc 11 §8 ruling 2); use off or guard\n",
             )
         args.conditions = ARMS[args.arms]
     else:
+        if args.swap_stage and args.isolation != "control":
+            parser.exit(2, "--swap-stage needs --isolation control (doc 14 §4)\n")
         args.conditions = [
-            Condition(iso, hand, defense, relay, gate == "on")
+            Condition(iso, hand, defense, relay, gate == "on", swap)
             for iso in ISOLATION_CHOICES[args.isolation or "both"]
             for hand in args.handoff_modes or ["free_text"]
             for defense in args.defense or ["none"]
             for relay in args.relay_stages or [0]
             for gate in args.gate or ["off"]
+            for swap in args.swap_stage or [None]
         ]
     args.cells = []
-    for name in args.model_presets or [None]:
-        entry = load_models()[name] if name else None
-        if entry and entry.todo:
+    registry = load_models()
+    for name in (*args.model_presets, *args.reader_presets):
+        if registry[name].todo:
             parser.exit(2, f"configs/models.json entry {name} has TODO fields\n")
+    readers: list[ModelEntry | None] = [registry[n] for n in args.reader_presets]
+    for name in args.model_presets or [None]:
+        entry = registry[name] if name else None
         base = list(args.model_args)
         model = args.model or (entry.model if entry else None)
         model = model or os.environ.get("INSPECT_EVAL_MODEL")
@@ -305,11 +349,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             for effort in args.reasoning_effort or [
                 entry.reasoning_effort if entry else None
             ]:
-                cell = Cell(model, tuple(model_args), effort, entry)
-                if cell in args.cells:
-                    print(f"warning: duplicate cell dropped: {cell}", file=sys.stderr)
-                else:
-                    args.cells.append(cell)
+                for reader in readers or [None]:
+                    cell = Cell(model, tuple(model_args), effort, entry, reader)
+                    if cell in args.cells:
+                        print(
+                            f"warning: duplicate cell dropped: {cell}", file=sys.stderr
+                        )
+                    else:
+                        args.cells.append(cell)
     return args
 
 
@@ -354,6 +401,11 @@ def main(argv: list[str] | None = None) -> int:
                 handoff_mode=cond.handoff_mode,
                 gate=cond.gate,
                 verification_tools=verify == "on",
+                reader_model=cell.reader.model if cell.reader else None,
+                reader_model_args=(
+                    {"provider": cell.reader.provider} if cell.reader else None
+                ),
+                swap_stage=cond.swap_stage,
             ),
         )
         for cell in args.cells
@@ -384,11 +436,21 @@ def main(argv: list[str] | None = None) -> int:
         line = " est=n/a"
         if cell.entry:
             stats = token_stats([args.log_dir], {"config_hash": meta["config_hash"]})
-            usd = estimate_usd(runs, twin_only, meta["relay_stages"], cell.entry, stats)
+            entry = cell.entry
+            # The diagonal (reader = actor) is the ordinary cell, priced as one.
+            split = cell.reader if meta["reader_model"] else None
+            if split:
+                entry = max(entry, split, key=lambda e: float(e.price_out))
+            swap = meta["swap_stage"] is not None
+            usd = estimate_usd(
+                runs, twin_only, meta["relay_stages"], entry, stats, swap
+            )
             fallback |= stats is None
             assert usd is not None  # TODO-priced entries are refused in parse_args
             usd_total += usd
             line = f" est=${usd:,.2f}"
+            if split:
+                line += " (upper bound: dearer of reader/actor)"
         print(
             f"  model={cell.model} effort={cell.reasoning_effort} "
             f"provider={dict(cell.model_args).get('provider')} "
@@ -400,6 +462,8 @@ def main(argv: list[str] | None = None) -> int:
             f"handoff={meta['handoff_mode']} "
             f"gate={meta['gate']} "
             f"verify={meta['verification_tools']} "
+            f"reader={meta['reader_model']} "
+            f"swap={meta['swap_stage']} "
             f"runs={runs:<6} "
             f"config_hash={meta['config_hash']}{line}"
         )
@@ -419,7 +483,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"governing documents still in draft: {', '.join(drafts)}")
     if args.dry_run:
         return 0
-    paid = not all(str(c.model).startswith("mockllm/") for c, _ in cells)
+    paid = not all(
+        str(m).startswith("mockllm/")
+        for c, _ in cells
+        for m in (c.model, *([c.reader.model] if c.reader else []))
+    )
     if drafts and paid and not args.allow_draft_docs:
         print(
             "refusing a paid run while governing documents are drafts: sign and "

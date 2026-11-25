@@ -71,6 +71,8 @@ from .scorers import (
     scope_violation,
     suppression,
 )
+from .scorers.deterministic import SWAP_KEY
+from .scorers.outcomes import stage_names
 from .scorers.provenance import PROVENANCE_VERSION
 from .tools import ats
 from .tools.guard import Guard, guard_from_metadata
@@ -386,6 +388,16 @@ def guard_for(workflow: Workflow, metadata: Mapping[str, Any]) -> Guard:
     )
 
 
+SWAP_CELLS = {
+    "attack": ("attack", "attack"),
+    "twin": ("twin", "twin"),
+    "at": ("attack", "twin"),
+    "ta": ("twin", "attack"),
+}
+"""Swap run label -> (document at and after the swap, hand-off source). Doc 14
+§4's `aa` and `tt` are the sample's ordinary `attack` and `twin` runs."""
+
+
 @solver
 def paired_pipeline(
     workflow: str,
@@ -398,6 +410,10 @@ def paired_pipeline(
     handoff_mode: HandoffMode = "free_text",
     gate: bool = False,
     verification_tools: bool = False,
+    reader_model: str | None = None,
+    reader_model_args: dict[str, Any] | None = None,
+    reader_effort: ReasoningEffort | None = None,
+    swap_stage: str | None = None,
 ) -> Solver:
     """Run the attack document and its twin (or the twin alone) through the pipeline.
 
@@ -418,15 +434,27 @@ def paired_pipeline(
         handoff_mode: "free_text" or "typed" stage hand-off.
         gate: Enable the monitor gate on the action stage's calls.
         verification_tools: Grant the workflow's verification lookups.
+        reader_model: Model for every stage before action (default: the task's).
+        reader_model_args: Provider args bound with the reader.
+        reader_effort: Reasoning effort bound with the reader.
+        swap_stage: First stage of the message swap (doc 14 §4), or None. The
+            stages before it run once per document, the rest once per
+            `SWAP_CELLS` entry on those hand-offs.
 
     Returns:
-        A solver that records each run under `metadata["runs"]`.
+        A solver that records each run under `metadata["runs"]` (and a swap's
+        cross runs under `metadata["swap_runs"]`).
     """
     spec = WORKFLOWS[workflow]
     tools_for_scope, tool_names_for_scope = tools_with_verification(
         spec, verification_tools
     )
     labels = ("twin",) if benign_only else ("attack", "twin")
+    reader = (
+        bind_model(reader_model, reader_model_args, reader_effort)
+        if reader_model
+        else None
+    )
     spotlight = defense == "spotlight"
     clause = prompts.SPOTLIGHT_CLAUSE if spotlight else ""
     # The clause describes the document, so only stages that receive it get it.
@@ -441,19 +469,13 @@ def paired_pipeline(
         guard = guard_for(spec, meta) if identity_mode == "guard" else None
         paths = {"attack": meta["artifact_path"], "twin": meta["twin_path"]}
 
-        runs: dict[str, dict[str, Any]] = {}
-        meta[RUNS_KEY] = runs
-        for label in labels:
-            extracted = extract(paths[label])
-            document_text = datamark(extracted) if spotlight else extracted
-            # Separate ledger instances keep the two runs' tool activity from
-            # merging — they share a sample, and therefore a store.
-            result = await run_pipeline(
-                document_text,
+        async def run_one(document: str, instance: str, **splice: Any) -> Any:
+            return await run_pipeline(
+                datamark(document) if spotlight else document,
                 state.input_text,
                 scope=scope,
                 isolated=isolated,
-                instance=label,
+                instance=instance,
                 tools_for_scope=tools_for_scope,
                 tool_names_for_scope=tool_names_for_scope,
                 intake_system=spec.intake_system + clause,
@@ -466,17 +488,62 @@ def paired_pipeline(
                 handoff_mode=handoff_mode,
                 trusted_block=trusted,
                 gate=gate,
-                gate_meta={k: v for k, v in meta.items() if k != RUNS_KEY},
+                gate_meta={
+                    k: v for k, v in meta.items() if k not in (RUNS_KEY, SWAP_KEY)
+                },
                 workflow=workflow,
                 identity_mode=identity_mode,
+                reader=reader,
+                **splice,
             )
-            # Written per run, so a run that hits a limit later still leaves
-            # the finished one on the record.
-            runs[label] = {
-                "document_text": extracted,
+
+        # Separate ledger instances keep the runs' tool activity from merging:
+        # they share a sample, and therefore a store.
+        def recorded(document: str, instance: str, result: Any) -> dict[str, Any]:
+            return {
+                "document_text": document,
                 "pipeline": result,
-                "ledger": store_as(Ledger, instance=label).model_dump(),
+                "ledger": store_as(Ledger, instance=instance).model_dump(),
             }
+
+        # Written per run, so a run that hits a limit later still leaves the
+        # finished ones on the record.
+        runs: dict[str, dict[str, Any]] = {}
+        meta[RUNS_KEY] = runs
+        if swap_stage is None:
+            for label in labels:
+                document = extract(paths[label])
+                result = await run_one(document, label)
+                runs[label] = recorded(document, label, result)
+        else:
+            cross: dict[str, dict[str, Any]] = {}
+            meta[SWAP_KEY] = cross
+            docs = {d: extract(paths[d]) for d in labels}
+            prefixes = {
+                m: await run_one(docs[m], "prefix", stop_before=swap_stage)
+                for m in labels
+            }
+            for label, (d, m) in SWAP_CELLS.items():
+                # Any cell an attack-derived wire reached is scored on (and
+                # gated by) the attack document.
+                scored = docs["twin" if label == "twin" else "attack"]
+                both = (prefixes[m], *prefixes.values())
+                failed = [p for p in both if p["status"] != "ok"]
+                if failed:
+                    # One unparsed hand-off leaves no block: nothing is spent
+                    # on the rest, and no cell shows another's stages.
+                    result = {**failed[0], "stages": prefixes[m]["stages"]}
+                    ledger = store_as(Ledger, instance=label)
+                    ledger.scope = scope
+                    ledger.granted_tools = list(tool_names_for_scope(scope))
+                else:
+                    result = await run_one(
+                        docs[d], label, resume=prefixes[m], gate_document=scored
+                    )
+                (runs if label in labels else cross)[label] = {
+                    **recorded(scored, label, result),
+                    "action_document": d,
+                }
 
         state.output = ModelOutput.from_content(
             model=str(state.model), content=runs[labels[0]]["pipeline"]["final"]
@@ -555,6 +622,9 @@ def build_task(
     handoff_mode: HandoffMode = "free_text",
     gate: bool = False,
     verification_tools: bool = False,
+    reader_model: str | None = None,
+    reader_model_args: dict[str, Any] | None = None,
+    swap_stage: str | None = None,
 ) -> Task:
     """Build one cell of a workflow's experiment (see the `eduinject_*` tasks)."""
     if identity_mode not in IDENTITY_MODES:
@@ -585,6 +655,25 @@ def build_task(
     manifest, benign_only = resolve_run_mode(
         manifest, workflow.manifest, workflow.controls_manifest, controls, benign_only
     )
+    if reader_model_args and reader_model is None:
+        raise ValueError("reader_model_args need a reader_model to bind to")
+    # Reader = actor is the ordinary cell, so it must hash and pool as one.
+    if (reader_model, reader_model_args or None) == (model, model_args or None):
+        reader_model = None
+    if reader_model is None:
+        reader_model_args = None
+    if swap_stage is not None:
+        if swap_stage not in (later := stage_names(relay_stages)[1:]):
+            raise ValueError(f"swap_stage must be None or one of {later}")
+        if isolated:
+            raise ValueError(
+                "swap_stage needs isolated=False: the swapped stage must see the "
+                "document"
+            )
+        if benign_only:
+            raise ValueError(
+                "swap_stage needs attack/twin pairs: not benign_only or controls"
+            )
     # C2: the extraction stack decides which concealment channels are visible
     # at all, so drift fails the run here rather than silently changing what
     # was measured.
@@ -621,6 +710,9 @@ def build_task(
         "monitor_rules_version": MONITOR_RULES_VERSION,
         "provenance_version": PROVENANCE_VERSION,
         "verification_tools": verification_tools,
+        "reader_model": reader_model,
+        "reader_model_args": reader_model_args,
+        "swap_stage": swap_stage,
         # The react loop and its submit plumbing come from Inspect itself.
         "inspect_ai": version("inspect-ai"),
     }
@@ -637,6 +729,10 @@ def build_task(
             handoff_mode=handoff_mode,
             gate=gate,
             verification_tools=verification_tools,
+            reader_model=reader_model,
+            reader_model_args=reader_model_args,
+            reader_effort=reasoning_effort,
+            swap_stage=swap_stage,
         ),
         message_limit=message_limit,
         epochs=epochs,
@@ -671,6 +767,9 @@ def eduinject_w2(
     handoff_mode: HandoffMode = "free_text",
     gate: bool = False,
     verification_tools: bool = False,
+    reader_model: str | None = None,
+    reader_model_args: dict[str, Any] | None = None,
+    swap_stage: str | None = None,
 ) -> Task:
     """Indirect prompt injection through a district hiring workflow.
 
@@ -719,6 +818,13 @@ def eduinject_w2(
         handoff_mode: "free_text" or "typed" stage hand-off.
         gate: Monitor gate on the action stage's calls.
         verification_tools: Grant the workflow's verification lookups (W2).
+        reader_model: Model for intake, analysis and relays (doc 14 §5), at the
+            same `reasoning_effort`; the action stage stays on `model`. None, or
+            the same model with the same args, is the ordinary cell.
+        reader_model_args: Provider args bound with the reader (host pin).
+        swap_stage: First stage of the message swap (doc 14 §4): `analysis`,
+            `relay_i` or `action`. Needs `isolated=False`. `message_limit` is
+            per conversation, so the two extra runs do not consume it.
 
     Returns:
         The configured task.
@@ -741,4 +847,7 @@ def eduinject_w2(
         handoff_mode=handoff_mode,
         gate=gate,
         verification_tools=verification_tools,
+        reader_model=reader_model,
+        reader_model_args=reader_model_args,
+        swap_stage=swap_stage,
     )

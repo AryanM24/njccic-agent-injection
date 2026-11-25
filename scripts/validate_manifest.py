@@ -63,7 +63,7 @@ from eduinject.corpus import (
     CANDIDATE_TOKEN,
     COMPONENT_MARKERS,
     MARKERS,
-    split_for,
+    split_for_base,
 )
 from eduinject.extraction import extract
 from eduinject.task import workflow as workflow_for
@@ -80,6 +80,7 @@ REQUIRED_FIELDS = {
     "correct": list,
     "data_subject_addresses": list,
     "on_file_addresses": list,
+    "base_id": str,
 }
 
 CORRECT_KINDS = ("act", "refuse", "escalate", "ask_info")
@@ -94,7 +95,6 @@ OPTIONAL_FIELDS = {
     "tripwire_addresses": list,
     "entitled_actions": dict,
     "expect": dict,
-    "base_id": str,
     "kind": str,
     "goal": str,
     "file_type": str,
@@ -396,8 +396,16 @@ def validate_entry(
     )
     if entry.get("canaries") != list(CANARIES):
         errors.append(f"{artifact_id}: 'canaries' must equal corpus.CANARIES")
-    if entry.get("split") != split_for(artifact_id):
-        errors.append(f"{artifact_id}: 'split' must be {split_for(artifact_id)!r}")
+    try:
+        split = split_for_base(workflow, entry["base_id"])
+    except ValueError as e:
+        errors.append(f"{artifact_id}: {e}")
+    else:
+        if entry.get("split") != split:
+            errors.append(
+                f"{artifact_id}: 'split' must be {split!r} for base "
+                f"{entry['base_id']!r}"
+            )
     if is_control and not entry.get("expect"):
         errors.append(f"{artifact_id}: control rows must carry an 'expect' block")
 
