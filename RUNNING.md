@@ -710,3 +710,10 @@ instead of starting over and paying twice.
       (implementation-map), so such figures are not reportable.
 - [ ] The run postdates the doc 04 §16 signing (2026-10-18), if you call it
       pre-registered.
+
+## Behaviour study (doc 14): planned flags
+
+- `run_sweep.py --swap-stage STAGE`: the message swap (four cells per block).
+- `run_sweep.py --reader-preset NAME...`: the model that runs every stage before action.
+- `run_sweep.py --split {dev,confirm}`: samples by scenario split; confirm needs a matching freeze.
+- `analyze.py endpoints`: swap effects, difference-in-differences, the primary endpoints.

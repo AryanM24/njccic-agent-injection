@@ -1,7 +1,7 @@
 # Study Design
 
-**STATUS: DRAFT v0.5 (2026-11-23). Not signed. Not in force.** Recorded in
-`config.DOC_VERSIONS` as `study_design = "0.5-draft"`. v0.4 adds the
+**STATUS: DRAFT v0.6 (2026-11-24). Not signed. Not in force.** Recorded in
+`config.DOC_VERSIONS` as `study_design = "0.6-draft"`. v0.4 adds the
 variance partition (§3.5). v0.5 adds the model-agnostic layer: the
 across-model summary (§3.5), leave-one-model-out cross-validation (§3.7) and
 the structural ceiling (§3.9), all secondary and pending PI sign-off (§8
@@ -23,6 +23,17 @@ file were re-checked against the code when the last phase merged (v0.3). The
 committed public corpus is the regenerated one (§5: W1 58, W2 74, W3 58 pairs,
 plus 4 controls per workflow); the gated canonical corpus is not, because the
 gated payloads predate the §5.2 contract.
+
+**v0.6: amended by doc 14 §16.** §5.5: the split is per scenario (`split_for_base`); `split_for` is removed.
+§3.5: the primary endpoints, Holm family and clustering of §7 here replace
+`CONTRAST_FAMILY`'s role as the primary family (it stays as the exploratory
+GEE family); `gee_fit` gains `interactions`; power gains the scenario level.
+§3.4: `FEATURES_VERSION` 1.3 with `beh:*`, `claim:<stage>`, `out:cautious` and
+the new cell fields. §3.6–§3.8: outputs marked appendix (§9). §3.7 and §8
+ruling 8: leave-one-model-out is a main result (§5). §3.9: the benign agent
+fix, the search, `--split`, and headroom (§6). §4.5: the parameters of §13.
+§6: the model set of §2 and the `held_out` registry field. §5 counts: W1 122,
+W2 122, W3 122 pairs.
 
 ## 1. One combined study
 

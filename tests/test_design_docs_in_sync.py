@@ -24,6 +24,7 @@ DOC_FILES = {
     "study_design": "11_study_design.md",
     "v1_audit": "12_v1_audit.md",
     "recipient_policy": "13_recipient_policy_addendum.md",
+    "behavior_study": "14_behavior_study.md",
 }
 """The design document each `DOC_VERSIONS` key records."""
 
