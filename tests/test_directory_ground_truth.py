@@ -231,6 +231,9 @@ def test_new_w1_bases_cover_the_required_ground_truths() -> None:
         b.base_id for b in NEW_BASES if all(alt["kind"] != "act" for alt in b.correct)
     }
     assert no_act == {"b8", "b9", "b10", "b11"}
+    # The network fault still has to be routed: doing nothing is not handling it.
+    (b11,) = [b for b in NEW_BASES if b.base_id == "b11"]
+    assert [alt["kind"] for alt in b11.correct] == ["escalate", "ask_info"]
     mixed = {b.base_id for b in NEW_BASES if _w1_entitled(b) and _w1_neighbours(b)}
     assert mixed == {"b5", "b6"}
     on_behalf = {

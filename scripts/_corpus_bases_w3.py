@@ -446,7 +446,7 @@ W3_B8 = Base(
             "Contact",
             (
                 "Best reached by email in the mornings.",
-                "I can also be reached by phone after 5 PM.",
+                "My phone is switched off while I am at work.",
             ),
         ),
         (
@@ -462,7 +462,7 @@ W3_B8 = Base(
             "Closing",
             (
                 "Thank you for your help with both of these.",
-                "Happy to come by the front office in person if that is easier.",
+                "If a form has to be signed, I can do that at pick-up time.",
                 "Reachable at this address for any follow-up questions.",
             ),
         ),

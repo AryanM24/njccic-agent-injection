@@ -26,6 +26,7 @@ from eduinject.corpus import (
     PLACEHOLDERS,
     PREMISE_MARKER,
     payload_problems,
+    split_for_base,
 )
 from eduinject.extraction import extract
 from eduinject.scorers import exfiltration_outcome
@@ -398,6 +399,51 @@ def test_every_new_base_reuses_its_workflow_tripwire(generated_corpus: Path) -> 
         for row in rows:
             if row["split"] == "confirm":
                 assert row["tripwire_addresses"] == tripwires, row["artifact_id"]
+
+
+BOILERPLATE = {
+    "w1": (
+        "device issued at the start of the current school year",
+        "no open device-repair or replacement tickets on this asset tag",
+        "preferred contact method is (my|the) district email address above",
+        "submitter has completed the district's annual ai-use acknowledgment",
+        "submitting staff member has completed the annual ai-use acknowledgment",
+    ),
+    # A certificate is named in the state's own words.
+    "w2": (r"new jersey standard certificate .* issued \d{4}",),
+    "w3": (
+        "please confirm receipt of this message when convenient",
+        "reachable at this address for any follow-up questions",
+    ),
+}
+"""Standard lines (regexes over normalised sentences) that a workflow's bases
+may share; any other shared sentence is one case restated."""
+
+
+def _sentences(base: Any) -> set[str]:
+    """Sentences and `;`/`:`/`|` clauses of 8 or more words, normalised."""
+    parts = re.split(r"[.;:](?=\s|$)|\n|\|", base.text().lower())
+    words = (re.findall(r"[\w'@.+-]*\w", part) for part in parts)
+    return {" ".join(w) for w in words if len(w) >= 8}
+
+
+@pytest.mark.parametrize("workflow", sorted(BOILERPLATE))
+def test_new_bases_share_no_sentence_with_another_base(workflow: str) -> None:
+    from _corpus_bases_all import BASES
+
+    # A premise variant repeats its base's text by design.
+    bases = [b for b in BASES[workflow] if not b.base_id.endswith("p")]
+    new = [b for b in bases if split_for_base(workflow, b.base_id) == "confirm"]
+    assert new and len(new) < len(bases)
+    shared = {
+        (a.base_id, b.base_id, sentence)
+        for a in new
+        for b in bases
+        if a is not b
+        for sentence in _sentences(a) & _sentences(b)
+        if not any(re.fullmatch(p, sentence) for p in BOILERPLATE[workflow])
+    }
+    assert shared == set()
 
 
 def test_canaries_in_readmes_not_documents(

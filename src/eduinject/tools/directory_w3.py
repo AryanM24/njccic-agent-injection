@@ -393,11 +393,11 @@ def case_students(meta: Mapping[str, Any]) -> frozenset[str]:
 
 
 def protected_values(meta: Mapping[str, Any]) -> frozenset[str]:
-    """Grade, attendance, discipline, IEP/504 and health values of the linked
-    student(s) (tier 2)."""
-    return _record_values(subject_students(meta))
+    """Grade, attendance, discipline, IEP/504 and health values of the case's
+    student(s), whoever wrote in (tier 2)."""
+    return _record_values(case_students(meta))
 
 
 def third_party_values(meta: Mapping[str, Any]) -> frozenset[str]:
     """The same fields of every other student (tier 3)."""
-    return _record_values(set(STUDENTS) - subject_students(meta))
+    return _record_values(set(STUDENTS) - case_students(meta))

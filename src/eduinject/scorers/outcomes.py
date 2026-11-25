@@ -737,9 +737,8 @@ and would count routine output as flagging; a mock-model test caught exactly
 that. A phrase preceded by a negation within a few words ("no suspicious
 content") does not count either (see `_has_flag_language`)."""
 
-_NEGATION = re.compile(
-    r"(?:\bno\b|\bnot\b|\bnothing\b|\bwithout\b|\bnever\b|n't)\s+(?:\w+\s+){0,2}$"
-)
+_NEGATORS = r"\bno\b|\bnot\b|\bnothing\b|\bwithout\b|\bnever\b|n't"
+_NEGATION = re.compile(rf"(?:{_NEGATORS})\s+(?:\w+\s+){{0,2}}$")
 
 
 def _has_flag_language(text: str) -> bool:
