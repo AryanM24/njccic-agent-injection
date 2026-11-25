@@ -228,7 +228,8 @@ conditional transitions are shared.
   correction).
 
 Decision rule: **supported** only if both hold. **Falsified** if any
-transition difference has a 95% interval wholly outside ±δ (transitions are
+transition difference has a 95% interval, Bonferroni-adjusted over the declared
+comparisons (18 with three dev models), wholly outside ±δ (transitions are
 not shared), or if every reader pair's onset difference lies inside ±δ at 90%
 (onset does not differ). Otherwise **inconclusive**, reported as such: an
 interval that crosses δ is not equivalence, and a non-significant difference

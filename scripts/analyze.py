@@ -24,6 +24,7 @@
         mixed.csv         pair random-intercept logistic model (sensitivity)
         holm.csv          Holm over the GEE terms of each family
                           (working correlation and family pending PI sign-off)
+        gee_interactions.csv  doc 14 §7: arm × factor terms, clustered by scenario
         variance.csv      latent-scale variance share of each factor, the
                           pair and run-to-run noise, from the mixed fit
         across_models.csv per term fitted in 2+ models: the per-model GEE
@@ -455,6 +456,7 @@ class GeeTables(NamedTuple):
     holm: list[dict[str, Any]]
     variance: list[dict[str, Any]]
     across_models: list[dict[str, Any]]
+    interactions: list[dict[str, Any]]
 
 
 SECONDARY = f"secondary, {PENDING}"
@@ -579,6 +581,44 @@ def across_model_rows(
     return out
 
 
+def interaction_terms(
+    fixed: dict[str, Any], long: list[dict[str, Any]], outcome: str, factors: list[str]
+) -> list[dict[str, Any]]:
+    """Doc 14 §7's sensitivity fit: `arm` × each varying factor, clustered by
+    base scenario. A negative `arm=attack:factor=level` term means the level
+    shrinks the attack effect. The scenario sign-flip test decides, not this."""
+    if any(r.get("base_id") in (None, "") for r in long):
+        return []
+    rows = [{**r, "scenario": stats.scenario_key(r)} for r in long]
+    pairs = [("arm", f) for f in factors if f != "arm"]
+    if not pairs:
+        return []
+    fit = stats.gee_fit(rows, outcome, factors, group="scenario", interactions=pairs)
+    if fit is None:
+        return [{**fixed, "note": NO_FIT}]
+    out: list[dict[str, Any]] = [
+        {
+            **fixed,
+            "term": term,
+            "n_scenarios": fit.n_groups,
+            "log_odds": round(t.log_odds, 4),
+            "se": round(t.se, 4),
+            "lo": round(t.lo, 4),
+            "hi": round(t.hi, 4),
+            "p": round(t.p, 4),
+            "note": "sensitivity: robust errors are optimistic at few scenarios",
+        }
+        for term, t in fit.terms.items()
+        if ":" in term
+    ]
+    out += [
+        {**fixed, "term": name, "n_scenarios": fit.n_groups, "note": "not fitted"}
+        for name in (*fit.unfitted, *fit.degenerate)
+        if ":" in name
+    ]
+    return out
+
+
 def gee_tables(rows: list[dict[str, Any]], n_boot: int) -> GeeTables:
     """Doc 11 §3.5: per family, the in-pair harm outcome (`IN_PAIR`'s harm)
     regressed on `arm` and every `CONTRAST_FAMILY` factor that varies in it.
@@ -603,7 +643,7 @@ def gee_tables(rows: list[dict[str, Any]], n_boot: int) -> GeeTables:
         if not (row["benign_only"] or row["controls"]):
             key = tuple(row.get(f) for f in GEE_FAMILY_FIELDS)
             families.setdefault(key, []).append(row)
-    out = GeeTables([], [], [], [], [], [])
+    out = GeeTables([], [], [], [], [], [], [])
     for key, family_rows in sorted(families.items(), key=str):
         fixed = {**dict(zip(GEE_FAMILY_FIELDS, key, strict=True)), "outcome": outcome}
         long = stats.long_rows([_served(r) for r in family_rows], (attack, twin))
@@ -713,6 +753,7 @@ def gee_tables(rows: list[dict[str, Any]], n_boot: int) -> GeeTables:
                     for term, p in adjusted.items()
                 )
         out.across_models.extend(across_model_rows(fixed, long, outcome, factors))
+        out.interactions.extend(interaction_terms(fixed, long, outcome, factors))
         mixed = stats.mixed_fit(long, outcome, factors)
         if mixed is None:
             out.mixed.append({**fixed, "n_pairs": n_pairs, "note": NO_FIT})
@@ -892,6 +933,7 @@ def cmd_report(args: argparse.Namespace) -> int:
     write_csv(out / "holm.csv", tables.holm)
     write_csv(out / "variance.csv", tables.variance)
     write_csv(out / "across_models.csv", tables.across_models)
+    write_csv(out / "gee_interactions.csv", tables.interactions)
     (out / "report.md").write_text(report_md(rows, dropped, rates), encoding="utf-8")
     print(f"{len(rows)} runs ({dropped} duplicates dropped) -> {out.resolve()}")
     return 0

@@ -289,7 +289,11 @@ Verdict = Literal[
 
 
 class Equivalence(NamedTuple):
-    """Two ratios over the same scenarios, their difference and the verdict."""
+    """Two ratios over the same scenarios, their difference and the verdict.
+
+    `lo_sim`, `hi_sim` is the 95% interval Bonferroni-adjusted for the number of
+    comparisons it is one of: the one that decides `different`.
+    """
 
     a: float
     b: float
@@ -298,6 +302,8 @@ class Equivalence(NamedTuple):
     hi90: float
     lo95: float
     hi95: float
+    lo_sim: float
+    hi_sim: float
     verdict: Verdict
 
 
@@ -310,6 +316,7 @@ def equivalence(
     margin: float = 0.10,
     min_runs: int = 40,
     min_scenarios: int = 6,
+    comparisons: int = 1,
     n_boot: int = N_BOOT,
     seed: int = 0,
 ) -> Equivalence:
@@ -328,7 +335,9 @@ def equivalence(
     `saturated` if both ratios are within ±`margin` of 0 (an excess may be
     negative) or both above 1 − `margin`;
     `equivalent` if the 90% interval lies inside ±`margin`; `different` if the
-    95% interval lies wholly outside it; else `inconclusive`.
+    95% interval, adjusted for `comparisons`, lies wholly outside it; else
+    `inconclusive`. (All of several comparisons being equivalent needs no
+    adjustment; any of them being different does.)
     """
     from scipy.stats import t  # type: ignore[import-untyped]
 
@@ -349,10 +358,12 @@ def equivalence(
     drawn = [difference(d) for d in _scenario_draws(keys, n_boot, seed)]
     kept = [d for d in drawn if not math.isnan(d)]
     df = len(keys) - len(_by_workflow(keys))
-    half90 = half95 = math.nan
+    half90 = half95 = half_sim = math.nan
     if df and len(kept) > 1:
         se = math.sqrt(len(keys) / df) * stdev(kept)
-        half90, half95 = float(t.ppf(0.95, df)) * se, float(t.ppf(0.975, df)) * se
+        half90, half95, half_sim = (
+            float(t.ppf(q, df)) * se for q in (0.95, 0.975, 1 - 0.025 / comparisons)
+        )
     lo90, hi90, lo95, hi95 = diff - half90, diff + half90, diff - half95, diff + half95
     thin = any(
         sum(den.values()) < min_runs or sum(v > 0 for v in den.values()) < min_scenarios
@@ -366,9 +377,11 @@ def equivalence(
         verdict = "saturated"
     elif -margin + 1e-9 < lo90 and hi90 < margin - 1e-9:
         verdict = "equivalent"
-    elif lo95 > margin + 1e-9 or hi95 < -margin - 1e-9:
+    elif diff - half_sim > margin + 1e-9 or diff + half_sim < -margin - 1e-9:
         verdict = "different"
-    return Equivalence(a, b, diff, lo90, hi90, lo95, hi95, verdict)
+    return Equivalence(
+        a, b, diff, lo90, hi90, lo95, hi95, diff - half_sim, diff + half_sim, verdict
+    )
 
 
 MIN_GEE_EVENTS = 5

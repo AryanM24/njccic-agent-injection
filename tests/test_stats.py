@@ -376,6 +376,29 @@ def test_report_writes_gee_tables(
     assert {r["source"] for r in variance} >= {"arm", "pair", "run"}
     assert abs(sum(float(r["share"]) for r in variance) - 1) < 1e-3
     assert read("holm.csv")[0]["p_holm"] != ""
+    assert read("gee_interactions.csv") == []  # no base_id: no scenario to cluster by
+
+
+def test_interaction_terms_cluster_by_scenario() -> None:
+    pytest.importorskip("statsmodels")
+    import analyze
+
+    rows = [
+        {
+            **r,
+            "workflow": "w1",
+            "base_id": f"b{int(r['artifact_id'][1:]) % 20}",
+            "isolated": iso,
+        }
+        for iso in (False, True)
+        for p in _pairs(200)
+        for r in stats.long_rows([_isolation_helps_some(p, iso)], HARM)
+    ]
+    table = analyze.interaction_terms(
+        {}, rows, "paired_utility.harm", ["arm", "isolated"]
+    )
+    (term,) = [r for r in table if r["term"] == "arm=attack:isolated=True"]
+    assert term["n_scenarios"] == 20 and term["log_odds"] < 0
 
 
 Y_META = [0.1, 0.5, -0.2, 0.8]
@@ -841,6 +864,17 @@ def test_analyze_power_cli_scenarios(capsys: pytest.CaptureFixture[str]) -> None
     assert "scenario ICC 0.15" in out
     with pytest.raises(ValueError, match="multiple"):
         main(args[:7] + ["--scenarios", "20"])
+
+
+def test_equivalence_different_is_adjusted_for_its_family() -> None:
+    pytest.importorskip("scipy")
+    den = {f"w{1 + i % 3}:b{i}": 20.0 for i in range(18)}
+    low = {k: 4.0 + i % 3 for i, k in enumerate(den)}
+    high = {k: 7.5 + (i * 2) % 4 for i, k in enumerate(den)}
+    alone = stats.equivalence(high, den, low, den)
+    family = stats.equivalence(high, den, low, den, comparisons=18)
+    assert alone.lo_sim == alone.lo95 and family.lo95 == alone.lo95
+    assert family.lo_sim < family.lo95
 
 
 def test_equivalence_large_negative_excess_is_not_saturated() -> None:

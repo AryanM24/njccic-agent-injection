@@ -840,12 +840,17 @@ def _inside(eq: stats.Equivalence) -> bool:
 
 
 def _outside(eq: stats.Equivalence) -> bool:
-    """The 95% interval lies wholly outside ±δ."""
-    return eq.lo95 > MARGIN + 1e-9 or eq.hi95 < -MARGIN - 1e-9
+    """The 95% interval, adjusted for its family, lies wholly outside ±δ."""
+    return eq.lo_sim > MARGIN + 1e-9 or eq.hi_sim < -MARGIN - 1e-9
 
 
 def _equivalence(
-    num_a: Values, den_a: Values, num_b: Values, den_b: Values, n_boot: int
+    num_a: Values,
+    den_a: Values,
+    num_b: Values,
+    den_b: Values,
+    n_boot: int,
+    comparisons: int = 1,
 ) -> stats.Equivalence:
     return stats.equivalence(
         num_a,
@@ -855,6 +860,7 @@ def _equivalence(
         margin=MARGIN,
         min_runs=MIN_RUNS,
         min_scenarios=MIN_SCENARIOS,
+        comparisons=comparisons,
         n_boot=n_boot,
     )
 
@@ -1000,6 +1006,9 @@ def _transition_rows(
     cells: Mapping[tuple[str, str], _Cell], models: Models, n_boot: int
 ) -> list[tuple[Table, stats.Equivalence]]:
     out = []
+    # Any one difference falsifies E3, so its interval covers the declared family.
+    k = len(models.dev)
+    declared = max(1, k * (k * (k - 1) // 2) * len(TRANSITIONS))
     readers = sorted({i for i, _ in cells} | set(models.dev))
     actors = sorted({j for _, j in cells} | set(models.dev))
     for reader in readers:
@@ -1015,6 +1024,7 @@ def _transition_rows(
                     cb.num[t] if cb else {},
                     cb.den[t] if cb else {},
                     n_boot,
+                    declared,
                 )
                 row: Table = {
                     "kind": "transition",
