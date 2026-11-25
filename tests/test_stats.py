@@ -665,6 +665,8 @@ def test_equivalence_verdicts() -> None:
     assert high.verdict == "saturated"
     opposite = stats.equivalence(*flat(twelve, 1, 20), *flat(twelve, 19, 20))
     assert opposite.verdict == "different", "one rate at each end is not saturation"
+    below = stats.equivalence(*flat(twelve, -10, 20), *flat(twelve, 1, 20))
+    assert below.verdict == "different", "a large negative excess is not saturation"
     # Exactly at the margin with no spread: neither verdict, whatever the rounding.
     edge = stats.equivalence(*flat(twelve, 9, 20), *flat(twelve, 11, 20))
     assert edge.verdict == "inconclusive"

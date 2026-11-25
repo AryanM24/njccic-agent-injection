@@ -716,4 +716,14 @@ instead of starting over and paying twice.
 - `run_sweep.py --swap-stage STAGE`: the message swap (four cells per block).
 - `run_sweep.py --reader-preset NAME...`: the model that runs every stage before action.
 - `run_sweep.py --split {dev,confirm}`: samples by scenario split; confirm needs a matching freeze.
-- `analyze.py endpoints`: swap effects, difference-in-differences, the primary endpoints.
+- `analyze.py endpoints` (built): swap effects, difference-in-differences, the
+  reader × actor grid, headroom and the primary endpoints with their calls, from
+  the feature tables. Exits 2 on rows that mix configurations, 4 on a stale table.
+
+```bash
+python scripts/build_features.py --log-dir logs/<dirs> --split confirm --swap \
+  --out logs/features/<name>.csv
+python scripts/analyze.py endpoints --features logs/features/<name>.csv \
+  --swap logs/features/<name>.swap.csv --ceiling logs/<ceiling>/ceiling.csv \
+  --split confirm --out logs/analysis-<name>
+```

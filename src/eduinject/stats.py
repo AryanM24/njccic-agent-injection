@@ -325,7 +325,7 @@ def equivalence(
 
     Verdict: `not_estimable` if either side has fewer than `min_runs` runs or
     `min_scenarios` scenarios with a run, or no workflow has two scenarios;
-    `saturated` if both ratios are below `margin` or both above 1 − `margin`;
+    `saturated` if both ratios are within `margin` of 0 or both above 1 − `margin`;
     `equivalent` if the 90% interval lies inside ±`margin`; `different` if the
     95% interval lies wholly outside it; else `inconclusive`.
     """
@@ -361,7 +361,7 @@ def equivalence(
     # The tolerance keeps a difference exactly at the margin in neither verdict.
     if thin or math.isnan(half90):
         verdict = "not_estimable"
-    elif max(a, b) < margin or min(a, b) > 1 - margin:
+    elif max(abs(a), abs(b)) < margin or min(a, b) > 1 - margin:
         verdict = "saturated"
     elif -margin + 1e-9 < lo90 and hi90 < margin - 1e-9:
         verdict = "equivalent"
