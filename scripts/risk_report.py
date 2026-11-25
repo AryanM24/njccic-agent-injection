@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Severity-weighted risk and the security–utility frontier (A8, doc 11 §3.8).
 
+Appendix material (doc 14 §9): the weights are unsigned, so every CSV's first
+column is `section` = `appendix`.
+
     risk_report.py --features logs/features/<name>.csv \
                    [--weights configs/severity_weights.json] --out logs/risk/
 
@@ -52,7 +55,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def _write(path: Path, rows: list[dict[str, Any]], fallback: list[str]) -> None:
-    columns = list(dict.fromkeys(c for r in rows for c in r)) or fallback
+    rows = [{"section": "appendix"} | r for r in rows]
+    columns = list(dict.fromkeys(c for r in rows for c in r)) or ["section", *fallback]
     with path.open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=columns)
         w.writeheader()
@@ -70,6 +74,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"refused: {stale}", file=sys.stderr)
         return 4
     weights = load_weights(args.weights)
+    print("APPENDIX (doc 14 §9): severity weights unsigned")
     with open(args.features, newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     out.mkdir(parents=True, exist_ok=True)
