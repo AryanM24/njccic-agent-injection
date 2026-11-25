@@ -768,6 +768,9 @@ noise floors. Remove `--dry-run` to run.
   reader × actor grid, headroom and the primary endpoints with their calls, from
   the feature tables. Exits 2 on rows that mix configurations, 4 on a stale table.
 
+  `--split confirm` exits 3 unless the freeze matches and names the candidate and
+  reference; `--post-hoc` allows it and stamps every row `post_hoc`.
+
 ```bash
 python scripts/build_features.py --log-dir logs/<dirs> --split confirm --swap \
   --out logs/features/<name>.csv
