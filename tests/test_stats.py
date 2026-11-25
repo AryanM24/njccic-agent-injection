@@ -568,3 +568,214 @@ def test_across_models_counts_zero_event_separation() -> None:
     }
     row = out["gate=True"]
     assert row["models"] == "m;n" and row["k_sep_zero"] == 1 and row["k_other"] == 0
+
+
+def _scenarios(*per_workflow: int) -> list[str]:
+    return [f"w{w}:b{i}" for w, n in enumerate(per_workflow, start=1) for i in range(n)]
+
+
+def test_scenario_key_and_values() -> None:
+    assert stats.scenario_key({"workflow": "w1", "base_id": "b1p"}) == "w1:b1"
+    assert stats.scenario_key({"workflow": "w2", "base_id": "b12"}) == "w2:b12"
+    values = stats.scenario_values(
+        {"p1": 0.2, "p2": 0.4, "p3": 1.0}, {"p1": "w1:b1", "p2": "w1:b1", "p3": "w1:b2"}
+    )
+    assert values == pytest.approx({"w1:b1": 0.3, "w1:b2": 1.0})
+
+
+def test_scenario_estimate_matches_hand_computation() -> None:
+    values = {"w1:b1": 0.1, "w1:b2": 0.3, "w2:b1": 0.2, "w2:b2": 0.2, "w3:b1": 0.2}
+    est = stats.scenario_estimate(values)
+    assert est is not None and est.n_scenarios == 5
+    assert est.estimate == pytest.approx(0.2)
+    # w2 and w3 resample to a constant; w1 to a mean of 0.1, 0.2 or 0.3.
+    assert est.lo == pytest.approx(0.16) and est.hi == pytest.approx(0.24)
+    assert est.p == pytest.approx(stats.sign_flip_test(list(values.values())))
+    assert stats.scenario_estimate(values) == est
+    assert stats.scenario_estimate(dict(reversed(values.items()))) == est
+    narrow = stats.scenario_estimate(
+        {k: i / 9 for i, k in enumerate(_scenarios(10))}, level=0.5
+    )
+    wide = stats.scenario_estimate({k: i / 9 for i, k in enumerate(_scenarios(10))})
+    assert narrow is not None and wide is not None
+    assert wide.lo < narrow.lo < narrow.estimate < narrow.hi < wide.hi
+    # Nothing to resample: no interval is reported rather than a zero-width one.
+    assert stats.scenario_estimate({"w1:b1": 0.1}) is None
+    assert stats.scenario_estimate({"w1:b1": 0.1, "w2:b1": 0.9}) is None
+
+
+def test_scenario_bootstrap_is_stratified() -> None:
+    values = {f"w1:b{i}": v for i, v in enumerate((0.0, 0.2, 0.4, 0.6))}
+    low = stats.scenario_estimate(values | {"w2:b1": 0.0})
+    high = stats.scenario_estimate(values | {"w2:b1": 5.0})
+    assert low is not None and high is not None
+    assert high.lo - low.lo == pytest.approx(1.0)
+    assert high.hi - low.hi == pytest.approx(1.0)
+
+
+def test_percentile_rule_equals_analysis(monkeypatch: pytest.MonkeyPatch) -> None:
+    from eduinject.analysis import percentiles
+
+    values = {f"w1:b{i}": float(i) for i in range(10)}
+    fixed = [[k] for k in values]
+    monkeypatch.setattr(stats, "_scenario_draws", lambda *a: fixed)
+    est = stats.scenario_estimate(values)
+    assert est is not None and (est.lo, est.hi) == percentiles(list(values.values()))
+
+
+def test_did_uses_shared_pairs_only() -> None:
+    assert stats.did({"a": 0.1, "b": 0.5}, {"b": 0.75, "c": 1.0}) == {"b": -0.25}
+
+
+def test_pool_models_needs_every_model() -> None:
+    pooled = stats.pool_models(
+        {"m": {"w1:b1": 0.2, "w1:b2": 0.9}, "n": {"w1:b1": 0.4, "w1:b3": 0.1}}
+    )
+    assert pooled == pytest.approx({"w1:b1": 0.3})
+    assert stats.pool_models({}) == {}
+
+
+def test_equivalence_verdicts() -> None:
+    def flat(keys: list[str], num: float, den: float) -> tuple[dict[str, float], ...]:
+        return dict.fromkeys(keys, num), dict.fromkeys(keys, den)
+
+    twelve = _scenarios(4, 4, 4)
+    same = stats.equivalence(*flat(twelve, 10, 20), *flat(twelve, 10, 20))
+    assert same.verdict == "equivalent" and same.diff == 0
+    apart = stats.equivalence(*flat(twelve, 4, 20), *flat(twelve, 16, 20))
+    assert apart.verdict == "different" and apart.diff == pytest.approx(-0.6)
+    six = _scenarios(2, 2, 2)
+    seven = dict.fromkeys(six, 7.0)
+    noisy = stats.equivalence(
+        dict(zip(six, (2, 4, 3, 3, 4, 3), strict=True)),
+        seven,
+        dict(zip(six, (5, 3, 4, 4, 3, 4), strict=True)),
+        seven,
+    )
+    assert (noisy.a, noisy.b) == pytest.approx((19 / 42, 23 / 42))
+    assert noisy.verdict == "inconclusive"
+    assert noisy.lo95 < noisy.lo90 < noisy.diff < noisy.hi90 < noisy.hi95
+    thin = stats.equivalence(*flat(six, 2.5, 5), *flat(six, 2.5, 5))
+    assert thin.verdict == "not_estimable"
+    five = stats.equivalence(*flat(six[:5], 10, 20), *flat(six, 10, 20))
+    assert five.verdict == "not_estimable"
+    low = stats.equivalence(*flat(twelve, 0.4, 20), *flat(twelve, 0.6, 20))
+    assert low.verdict == "saturated"
+    high = stats.equivalence(*flat(twelve, 19, 20), *flat(twelve, 19, 20))
+    assert high.verdict == "saturated"
+    opposite = stats.equivalence(*flat(twelve, 1, 20), *flat(twelve, 19, 20))
+    assert opposite.verdict == "different", "one rate at each end is not saturation"
+    # Exactly at the margin with no spread: neither verdict, whatever the rounding.
+    edge = stats.equivalence(*flat(twelve, 9, 20), *flat(twelve, 11, 20))
+    assert edge.verdict == "inconclusive"
+    empty = stats.equivalence(*flat(twelve, 0, 0), *flat(twelve, 1, 20))
+    assert empty.verdict == "not_estimable" and math.isnan(empty.diff)
+    singles = [f"w{i}:b1" for i in range(8)]
+    lone = stats.equivalence(*flat(singles, 10, 20), *flat(singles, 10, 20))
+    assert lone.verdict == "not_estimable", "no workflow has a second scenario"
+
+
+def test_equivalence_size_and_power_at_22_scenarios() -> None:
+    """True difference exactly at the margin: called equivalent about 5% of the
+    time (a plain percentile interval gave 7-10%); no difference: usually."""
+    import random
+
+    keys = _scenarios(8, 6, 8)
+    rng = random.Random(0)
+
+    def rate(diff: float, n_sim: int = 300) -> float:
+        hits = 0
+        for _ in range(n_sim):
+            num: tuple[dict[str, float], ...] = ({}, {})
+            den: tuple[dict[str, float], ...] = ({}, {})
+            for k in keys:
+                base = 0.45 + rng.gauss(0, 0.1)
+                for arm, p in enumerate((base, base + diff + rng.gauss(0, 0.08))):
+                    runs = rng.randint(12, 36)
+                    den[arm][k] = runs
+                    num[arm][k] = sum(rng.random() < p for _ in range(runs))
+            result = stats.equivalence(num[0], den[0], num[1], den[1], n_boot=200)
+            hits += result.verdict == "equivalent"
+        return hits / n_sim
+
+    assert rate(0.10) <= 0.08
+    assert rate(0.0) >= 0.6
+
+
+def _gated_effect(n: int, seed: int) -> list[dict[str, Any]]:
+    """`n` scenarios × gate × arm × 10 runs; the attack works only ungated."""
+    import random
+
+    rng = random.Random(seed)
+    rows = []
+    for s in range(n):
+        u = rng.gauss(0, 0.6)
+        for gate in (False, True):
+            for arm in ("attack", "twin"):
+                eta = -1 + u + (1.5 if arm == "attack" and not gate else 0.0)
+                for _ in range(10):
+                    rows.append(
+                        {
+                            "status": "scored",
+                            "artifact_id": f"s{s:02d}",
+                            "arm": arm,
+                            "gate": gate,
+                            "score:y": float(rng.random() < 1 / (1 + math.exp(-eta))),
+                        }
+                    )
+    return rows
+
+
+def test_gee_interaction_recovers_a_planted_did() -> None:
+    pytest.importorskip("statsmodels")
+    rows = _gated_effect(40, 0)
+    fit = stats.gee_fit(rows, "y", ["arm", "gate"], interactions=[("arm", "gate")])
+    assert fit is not None and fit.unfitted == ()
+    assert set(fit.terms) == {"arm=attack", "gate=True", "arm=attack:gate=True"}
+    term = fit.terms["arm=attack:gate=True"]
+    assert term.hi < 0 and term.lo < -1.5 < term.hi
+    with pytest.raises(ValueError, match="scope"):
+        stats.gee_fit(rows, "y", ["arm", "gate"], interactions=[("arm", "scope")])
+
+
+def test_gee_interaction_with_an_empty_cell_is_named_not_fitted() -> None:
+    """A combination with no events (or no runs) would send the product term to
+    infinity even though each factor's own levels have both outcomes."""
+    pytest.importorskip("statsmodels")
+    rows = _gated_effect(40, 0)
+    for r in rows:
+        if r["gate"] and r["arm"] == "twin":
+            r["score:y"] = 0.0
+    fit = stats.gee_fit(rows, "y", ["arm", "gate"], interactions=[("arm", "gate")])
+    assert fit is not None and fit.unfitted == ("arm:gate",)
+    assert set(fit.terms) == {"arm=attack", "gate=True"}
+    # A factor with one level left has no product columns and is not named.
+    one = [r for r in rows if not r["gate"]]
+    fit = stats.gee_fit(one, "y", ["arm", "gate"], interactions=[("arm", "gate")])
+    assert fit is not None and set(fit.terms) == {"arm=attack"} and fit.unfitted == ()
+
+
+GEE_BEFORE_INTERACTIONS = {
+    "exchangeable": {
+        "arm=attack": (0.86727872, 0.12623607),
+        "gate=True": (-0.77804469, 0.10887526),
+    },
+    "independence_bias_reduced": {
+        "arm=attack": (0.86335077, 0.127837),
+        "gate=True": (-0.774577, 0.11048628),
+    },
+}
+"""(log-odds, se) of `gee_fit` on `_gated_effect(40, 0)` at commit a66c93df0."""
+
+
+@pytest.mark.parametrize("cov", ["exchangeable", "independence_bias_reduced"])
+def test_gee_without_interactions_is_unchanged(cov: stats.GeeCov) -> None:
+    pytest.importorskip("statsmodels")
+    rows = _gated_effect(40, 0)
+    fit = stats.gee_fit(rows, "y", ["arm", "gate"], cov=cov)
+    assert fit is not None
+    stored = GEE_BEFORE_INTERACTIONS[cov]
+    assert set(fit.terms) == set(stored)
+    for name, (log_odds, se) in stored.items():
+        assert fit.terms[name].log_odds == pytest.approx(log_odds, abs=1e-4)
+        assert fit.terms[name].se == pytest.approx(se, abs=1e-4)
