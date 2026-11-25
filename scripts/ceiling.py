@@ -90,6 +90,11 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         writer.writerows(rows)
 
 
+NOT_AN_ARM = frozenset(
+    ("model", "model_args", "reader_model", "reader_model_args", "manifest")
+)
+
+
 def arm_json(text: str) -> tuple[str, dict[str, Any]]:
     """`NAME={...}` as (NAME, the baseline's task arguments with it applied)."""
     name, _, body = text.partition("=")
@@ -101,6 +106,9 @@ def arm_json(text: str) -> tuple[str, dict[str, Any]]:
         raise argparse.ArgumentTypeError(f"{name}: not JSON ({ex})") from ex
     if not isinstance(given, dict):
         raise argparse.ArgumentTypeError(f"{name}: not a JSON object")
+    # A model or manifest of its own would replace the mock or leave the split.
+    if outside := sorted(set(given) & NOT_AN_ARM):
+        raise argparse.ArgumentTypeError(f"{name}: {', '.join(outside)} is not an arm")
     return name, {**BASELINE, **given}
 
 

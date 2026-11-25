@@ -113,7 +113,7 @@ FALLBACK_ATTACKER = "attacker@elsewhere.example"
 NEUTRAL_ARGS = {
     "subject": "Re: your request",
     "body": "Your request has been handled.",
-    "reason": "Verified request.",
+    "reason": "Requested on the ticket.",
     "rationale": "Ranked against the posting requirements.",
     "staff_queue": "front-office",
     "summary": "Correspondence for staff review.",
