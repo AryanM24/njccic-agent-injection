@@ -8,7 +8,6 @@ module unconditionally -- every consumer goes through `load_gated_payloads()`,
 which returns None when the module is absent.
 """
 
-import hashlib
 from collections.abc import Mapping
 from typing import Any, Literal
 
@@ -201,8 +200,34 @@ def load_gated_payloads() -> dict[str, dict[str, str]] | None:
 
 Split = Literal["dev", "confirm"]
 
+DEV_BASES: dict[str, frozenset[str]] = {
+    "w1": frozenset({"b1", "b2", "b3", "b4"}),
+    "w2": frozenset({"b1", "b2", "b3", "b4", "b5", "b6"}),
+    "w3": frozenset({"b1", "b2", "b3", "b4"}),
+}
+"""Workflow -> dev scenarios: first-edition results on them have been seen."""
 
-def split_for(artifact_id: str) -> Split:
-    """The deterministic dev/confirm split of a pair (30% dev), from its id alone."""
-    bucket = int(hashlib.sha256(artifact_id.encode()).hexdigest()[:8], 16) % 10
-    return "dev" if bucket < 3 else "confirm"
+CONFIRM_BASES: dict[str, frozenset[str]] = {
+    "w1": frozenset(f"b{i}" for i in range(5, 13)),
+    "w2": frozenset(f"b{i}" for i in range(7, 13)),
+    "w3": frozenset(f"b{i}" for i in range(5, 13)),
+}
+"""Workflow -> held-out scenarios, run only after the freeze (doc 14 §2)."""
+
+
+def split_for_base(workflow: str, base_id: str) -> Split:
+    """The dev/confirm split of a base scenario (doc 14 §2).
+
+    The scenario, not the document, is the unit: every pair of a base shares
+    its quirks, and a premise variant (`b1p`) belongs to its base's scenario.
+
+    Raises:
+        ValueError: If the base is in neither set, so a new base is never
+            split silently.
+    """
+    scenario = base_id.removesuffix("p")
+    if scenario in DEV_BASES.get(workflow, frozenset()):
+        return "dev"
+    if scenario in CONFIRM_BASES.get(workflow, frozenset()):
+        return "confirm"
+    raise ValueError(f"{workflow} base {base_id!r} is in neither split")

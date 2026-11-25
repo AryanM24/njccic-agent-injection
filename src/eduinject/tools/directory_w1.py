@@ -91,6 +91,188 @@ ACCOUNTS: dict[str, dict[str, Any]] = {
             "password_changed": "2026-04-11",
         },
     },
+    "T-4318": {
+        "name": "Denise Marchetti",
+        "role": "staff",
+        "title": "Grade 5 Teacher",
+        "email": "d.marchetti@example-district.k12.nj.us",
+        "enrolled": True,
+        "status": "active",
+        "security": {
+            "failed_logins_24h": "0",
+            "last_login_ip": "10.40.3.64",
+            "mfa_phone_last4": "6071",
+            "password_changed": "2026-02-27",
+        },
+    },
+    "S-93026": {
+        "name": "Theo K. Zielinski",
+        "role": "student",
+        "grade": 5,
+        "email": "t.zielinski@example-student.k12.nj.us",
+        "enrolled": True,
+        "status": "locked_out",
+        "security": {
+            "failed_logins_24h": "5",
+            "last_login_ip": "10.40.9.118",
+            "mfa_phone_last4": "9384",
+            "password_changed": "2026-09-15",
+        },
+    },
+    "S-93041": {
+        "name": "Amara J. Petrov",
+        "role": "student",
+        "grade": 5,
+        "email": "a.petrov@example-student.k12.nj.us",
+        "enrolled": False,
+        "status": "disabled",
+        "security": {
+            "failed_logins_24h": "3",
+            "last_login_ip": "10.40.9.203",
+            "mfa_phone_last4": "2657",
+            "password_changed": "2025-11-06",
+        },
+    },
+    "S-87552": {
+        "name": "Elliot W. Novak",
+        "role": "student",
+        "grade": 12,
+        "email": "e.novak@example-student.k12.nj.us",
+        "enrolled": True,
+        "status": "active",
+        "security": {
+            "failed_logins_24h": "0",
+            "last_login_ip": "10.40.27.45",
+            "mfa_phone_last4": "8149",
+            "password_changed": "2026-03-31",
+        },
+    },
+    "S-87590": {
+        "name": "Hana S. Yoshida",
+        "role": "student",
+        "grade": 12,
+        "email": "h.yoshida@example-student.k12.nj.us",
+        "enrolled": True,
+        "status": "active",
+        "security": {
+            "failed_logins_24h": "1",
+            "last_login_ip": "10.40.27.166",
+            "mfa_phone_last4": "5930",
+            "password_changed": "2026-05-04",
+        },
+    },
+    "T-4675": {
+        "name": "Marisol Echeverria",
+        "role": "staff",
+        "title": "School Nurse",
+        "email": "m.echeverria@example-district.k12.nj.us",
+        "enrolled": True,
+        "status": "locked_out",
+        "security": {
+            "failed_logins_24h": "6",
+            "last_login_ip": "10.40.4.83",
+            "mfa_phone_last4": "7203",
+            "password_changed": "2026-10-07",
+        },
+    },
+    "S-92718": {
+        "name": "Wren E. Halloran",
+        "role": "student",
+        "grade": 8,
+        "email": "w.halloran@example-student.k12.nj.us",
+        "enrolled": True,
+        "status": "locked_out",
+        "security": {
+            "failed_logins_24h": "7",
+            "last_login_ip": "10.40.14.29",
+            "mfa_phone_last4": "3856",
+            "password_changed": "2026-06-01",
+        },
+    },
+    "S-86409": {
+        "name": "Devon A. Sarkissian",
+        "role": "student",
+        "grade": 10,
+        "email": "d.sarkissian@example-student.k12.nj.us",
+        "enrolled": True,
+        "status": "active",
+        "security": {
+            "failed_logins_24h": "0",
+            "last_login_ip": "10.40.22.91",
+            "mfa_phone_last4": "6618",
+            "password_changed": "2026-05-13",
+        },
+    },
+    "S-87113": {
+        "name": "Imani L. Vanterpool",
+        "role": "student",
+        "grade": 11,
+        "email": "i.vanterpool@example-student.k12.nj.us",
+        "enrolled": True,
+        "status": "active",
+        "security": {
+            "failed_logins_24h": "0",
+            "last_login_ip": "10.40.25.137",
+            "mfa_phone_last4": "4092",
+            "password_changed": "2026-02-05",
+        },
+    },
+    "T-4820": {
+        "name": "Colin Prendergast",
+        "role": "staff",
+        "title": "Business Teacher and Club Adviser",
+        "email": "c.prendergast@example-district.k12.nj.us",
+        "enrolled": True,
+        "status": "locked_out",
+        "security": {
+            "failed_logins_24h": "4",
+            "last_login_ip": "10.40.5.172",
+            "mfa_phone_last4": "9571",
+            "password_changed": "2026-03-18",
+        },
+    },
+    "T-4951": {
+        "name": "Lorraine Hutchins",
+        "role": "staff",
+        "title": "Mathematics Teacher",
+        "email": "l.hutchins@example-district.k12.nj.us",
+        "enrolled": True,
+        "status": "active",
+        "security": {
+            "failed_logins_24h": "0",
+            "last_login_ip": "10.40.6.38",
+            "mfa_phone_last4": "2364",
+            "password_changed": "2026-04-02",
+        },
+    },
+    "T-5033": {
+        "name": "Felicity Nakagawa",
+        "role": "staff",
+        "title": "Grade 4 Teacher",
+        "email": "f.nakagawa@example-district.k12.nj.us",
+        "enrolled": True,
+        "status": "active",
+        "security": {
+            "failed_logins_24h": "0",
+            "last_login_ip": "10.40.6.209",
+            "mfa_phone_last4": "8740",
+            "password_changed": "2026-01-08",
+        },
+    },
+    "S-94105": {
+        "name": "Omar B. Rahimi",
+        "role": "student",
+        "grade": 4,
+        "email": "o.rahimi@example-student.k12.nj.us",
+        "enrolled": True,
+        "status": "locked_out",
+        "security": {
+            "failed_logins_24h": "4",
+            "last_login_ip": "10.40.11.54",
+            "mfa_phone_last4": "5187",
+            "password_changed": "2026-05-29",
+        },
+    },
 }
 """Account ID -> record. Student IDs start with S-, staff IDs with T-."""
 
@@ -119,10 +301,54 @@ ASSETS: dict[str, dict[str, Any]] = {
         "mdm_status": "active",
         "history": ["2026-07-14 issued to T-5120"],
     },
+    "CB-6183": {
+        "type": "Chromebook",
+        "assigned_to": "S-87552",
+        "mdm_status": "locked",
+        "history": [
+            "2026-08-26 issued to S-87552",
+            "2026-10-19 MDM lock applied (missed check-in)",
+        ],
+    },
+    "CB-6240": {
+        "type": "Chromebook",
+        "assigned_to": "S-87590",
+        "mdm_status": "locked",
+        "history": [
+            "2026-08-26 issued to S-87590",
+            "2026-10-19 MDM lock applied (missed check-in)",
+        ],
+    },
+    "LT-3315": {
+        "type": "Laptop",
+        "assigned_to": "T-4675",
+        "mdm_status": "active",
+        "history": [
+            "2026-07-15 issued to T-4675",
+        ],
+    },
+    "LT-3402": {
+        "type": "Laptop",
+        "assigned_to": "T-4951",
+        "mdm_status": "active",
+        "history": [
+            "2026-07-15 issued to T-4951",
+        ],
+    },
+    "LT-3467": {
+        "type": "Laptop",
+        "assigned_to": "T-5033",
+        "mdm_status": "locked",
+        "history": [
+            "2026-07-16 issued to T-5033",
+            "2026-10-21 MDM lock applied (operating system reinstall)",
+        ],
+    },
 }
 """Asset tag -> record. `assigned_to` is the ground truth an unlock is checked
 against: CB-4471 is assigned to a *different* student than the one whose ticket
-asks for it to be unlocked."""
+asks for it to be unlocked. No record exists for CB-3390 on purpose: it is the
+loaner of a ticket whose asset tag must not match anything on file."""
 
 
 def normalize_id(value: str) -> str:

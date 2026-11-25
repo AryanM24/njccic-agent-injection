@@ -399,7 +399,7 @@ from eduinject.corpus import (
     PREMISE_MARKER,
     fill_candidate,
     load_gated_payloads,
-    split_for,
+    split_for_base,
 )
 from eduinject.tools.directory_w1 import ACCOUNTS
 
@@ -530,7 +530,7 @@ def write_canary_readme(directory: Path) -> None:
 def trusted_fields(workflow: str, base: "Base", artifact_id: str) -> dict:
     """Split and the trusted facts (B2) a base's rows carry, derived from the
     directories and the base, never hand-edited."""
-    out: dict = {"split": split_for(artifact_id)}
+    out: dict = {"split": split_for_base(workflow, base.base_id)}
     senders = base.extras.get("correspondent_addresses", [])
     sender = senders[0] if senders else ""
     if workflow == "w1":
