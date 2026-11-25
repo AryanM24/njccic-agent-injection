@@ -839,3 +839,12 @@ def test_analyze_power_cli_scenarios(capsys: pytest.CaptureFixture[str]) -> None
     assert "scenario ICC 0.15" in out
     with pytest.raises(ValueError, match="multiple"):
         main(args[:7] + ["--scenarios", "20"])
+
+
+def test_equivalence_large_negative_excess_is_not_saturated() -> None:
+    pytest.importorskip("scipy")
+    den = {f"w{1 + i % 3}:b{i}": 20.0 for i in range(18)}
+    num = {k: -10.0 for k in den}
+    assert stats.equivalence(num, den, num, den).verdict == "equivalent"
+    small = {k: -0.5 for k in den}
+    assert stats.equivalence(small, den, small, den).verdict == "saturated"
