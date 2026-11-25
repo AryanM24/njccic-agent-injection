@@ -27,6 +27,7 @@ from inspect_ai.model import (
     ChatMessageSystem,
     ChatMessageUser,
     GenerateConfig,
+    Model,
     ModelUsage,
     ResponseSchema,
     get_model,
@@ -35,7 +36,7 @@ from inspect_ai.tool import Tool
 from inspect_ai.util import json_schema, store_as
 from pydantic import BaseModel
 
-from ..scorers.outcomes import action_text
+from ..scorers.outcomes import action_text, stage_names
 from ..tools.gate import GateContext, gate_context, gated_tools, note_message
 from ..tools.guard import Guard
 from ..tools.ledger import Ledger
@@ -48,7 +49,10 @@ ToolNamesForScope = Callable[[str], tuple[str, ...]]
 
 @agent
 def single_shot(
-    name: str, system_prompt: str, response_schema: ResponseSchema | None = None
+    name: str,
+    system_prompt: str,
+    response_schema: ResponseSchema | None = None,
+    model: Model | None = None,
 ) -> Agent:
     """Build a one-generation, no-tools agent.
 
@@ -58,6 +62,7 @@ def single_shot(
         response_schema: Structured output requested from the provider (typed
             hand-off). Providers without support ignore it; the prompt clause
             still states the shape.
+        model: Model that generates (default: the task's model).
 
     Returns:
         An agent that generates exactly once.
@@ -67,7 +72,10 @@ def single_shot(
     async def execute(state: AgentState) -> AgentState:
         """Generate a single response to the stage input and return."""
         state.messages.insert(0, ChatMessageSystem(content=system_prompt))
-        output = await get_model().generate(state.messages, config=config)
+        # cache=False: equal inputs (epochs, swap cells) must be separate draws.
+        output = await (model or get_model()).generate(
+            state.messages, config=config, cache=False
+        )
         state.output = output
         state.messages.append(output.message)
         return state
@@ -103,7 +111,7 @@ def action_agent(
 
     async def generate(state: AgentState, tools: list[Tool]) -> AgentState:
         """react()'s default generation step, recording each turn's usage."""
-        output = await get_model().generate(state.messages, tools)
+        output = await get_model().generate(state.messages, tools, cache=False)
         if usage is not None and output.usage is not None:
             usage.append(output.usage)
         if gate is not None:
@@ -160,6 +168,13 @@ def _total(usages: list[ModelUsage]) -> Usage | None:
     }
 
 
+class Prefix(TypedDict):
+    """The stages a stopped run finished, and the hand-off the next one gets."""
+
+    stages: list[Stage]
+    prev: str
+
+
 class _HandoffParseError(Exception):
     """A typed stage's output failed validation; carries the stage name."""
 
@@ -195,6 +210,10 @@ async def run_pipeline(
     gate_meta: Mapping[str, Any] | None = None,
     workflow: str | None = None,
     identity_mode: str = "off",
+    reader: Model | None = None,
+    stop_before: str | None = None,
+    resume: Prefix | None = None,
+    gate_document: str | None = None,
 ) -> dict[str, Any]:
     """Run one document through intake -> analysis -> relays -> action.
 
@@ -242,6 +261,18 @@ async def run_pipeline(
         workflow: Workflow code ("w1", "w2", "w3"); required with `gate`.
         identity_mode: The cell's identity_mode, which decides the trusted
             text the gate's provenance check counts.
+        reader: Model that runs every stage before action (doc 14 §5); the
+            action stage always runs on the task's model. None: the task's
+            model runs every stage.
+        stop_before: Run only the stages before this one and return the hand-off
+            (`stages`, `prev`, `status`) without an action stage, tools or a
+            ledger. Pass that result back as `resume`.
+        resume: Stages already run. They are not rerun; the remaining stages run
+            on this call's `document_text`, starting from the prefix's hand-off.
+        gate_document: The document the gate's provenance reads (default:
+            `document_text`). A spliced run whose prefix read another document
+            passes the one its record is scored on, so the gate still sees what
+            the offline monitor sees.
 
     Returns:
         `stages` (one `Stage` per stage, in order: `intake`, `analysis`,
@@ -259,11 +290,21 @@ async def run_pipeline(
         raise ValueError("typed hand-off needs trusted_block and no task_facts")
     if gate and (gate_meta is None or workflow is None):
         raise ValueError("gate needs gate_meta and workflow")
-    ledger = store_as(Ledger, instance=instance)
-    ledger.scope = scope
-    ledger.granted_tools = list(tool_names_for_scope(scope))
-    source = "" if isolated else f"\n\nSOURCE DOCUMENT:\n{document_text}"
+    names = stage_names(relay_stages)
+    if stop_before is not None and stop_before not in names[1:]:
+        raise ValueError(f"stop_before must be None or one of {names[1:]}")
     stages: list[Stage] = []
+    prev = ""
+    if resume is not None:
+        stages = [s.copy() for s in resume["stages"]]
+        prev = resume["prev"]
+        if tuple(s["name"] for s in stages) != names[:-1][: len(stages)]:
+            raise ValueError(f"resume must hold the first stages of {names}")
+    if stop_before is None:
+        ledger = store_as(Ledger, instance=instance)
+        ledger.scope = scope
+        ledger.granted_tools = list(tool_names_for_scope(scope))
+    source = "" if isolated else f"\n\nSOURCE DOCUMENT:\n{document_text}"
 
     async def text_stage(name: str, kind: str, system: str, stage_input: str) -> str:
         schema = HANDOFF_SCHEMAS[kind] if typed else None
@@ -276,6 +317,7 @@ async def run_pipeline(
                 ResponseSchema(name=f"{kind}_report", json_schema=json_schema(schema))
                 if schema is not None
                 else None,
+                reader,
             ),
             [ChatMessageUser(content=stage_input)],
         )
@@ -295,27 +337,25 @@ async def run_pipeline(
             raise _HandoffParseError(name)
         return parsed.model_dump_json()
 
+    def stage_input(name: str, prev: str) -> str:
+        if name == "intake":
+            return (
+                f"OPERATOR REQUEST:\n{operator_request}\n\n"
+                f"SUBMITTED DOCUMENT (extracted):\n{document_text}"
+            )
+        label = "INTAKE OUTPUT" if name == "analysis" else "PREVIOUS STAGE OUTPUT"
+        return f"{label}:\n{prev}\n\nOPERATOR REQUEST:\n{operator_request}{source}"
+
+    systems = {"intake": intake_system, "analysis": analysis_system}
     try:
-        prev = await text_stage(
-            "intake",
-            "intake",
-            intake_system,
-            f"OPERATOR REQUEST:\n{operator_request}\n\n"
-            f"SUBMITTED DOCUMENT (extracted):\n{document_text}",
-        )
-        prev = await text_stage(
-            "analysis",
-            "analysis",
-            analysis_system,
-            f"INTAKE OUTPUT:\n{prev}\n\nOPERATOR REQUEST:\n{operator_request}{source}",
-        )
-        for i in range(1, relay_stages + 1):
+        for name in names[len(stages) : -1]:
+            if name == stop_before:
+                break
             prev = await text_stage(
-                f"relay_{i}",
-                "analysis",
-                relay_system or "",
-                f"PREVIOUS STAGE OUTPUT:\n{prev}\n\n"
-                f"OPERATOR REQUEST:\n{operator_request}{source}",
+                name,
+                "intake" if name == "intake" else "analysis",
+                systems.get(name, relay_system or ""),
+                stage_input(name, prev),
             )
     except _HandoffParseError as failed:
         return {
@@ -325,6 +365,8 @@ async def run_pipeline(
             "status": "handoff_parse_error",
             "failed_stage": str(failed),
         }
+    if stop_before is not None:
+        return {"stages": stages, "prev": prev, "status": "ok"}
 
     if typed:
         s3_input = (
@@ -346,7 +388,7 @@ async def run_pipeline(
             handoff_mode,
             gate_meta or {},
             operator_request,
-            document_text,
+            document_text if gate_document is None else gate_document,
             [(st["name"], st["output"]) for st in stages],
         )
         if gate

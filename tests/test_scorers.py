@@ -2,6 +2,7 @@
 
 import math
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -596,6 +597,8 @@ def test_packet_candidate_is_not_third_party_to_themselves() -> None:
         {"handoff_mode": "typed"},
         {"verification_tools": True},
         {"gate": True},
+        {"reader_model": "mockllm/other"},
+        {"swap_stage": "action", "isolated": False},
     ],
 )
 def test_every_condition_reaches_the_hash(change: dict[str, Any]) -> None:
@@ -605,6 +608,83 @@ def test_every_condition_reaches_the_hash(change: dict[str, Any]) -> None:
         return str((eduinject_w2(**kwargs).metadata or {})["config_hash"])
 
     assert hash_of() != hash_of(**change)
+
+
+def test_swap_stage_alone_reaches_the_hash() -> None:
+    from eduinject.task import eduinject_w2
+
+    plain = eduinject_w2(isolated=False).metadata or {}
+    swap = eduinject_w2(isolated=False, swap_stage="action").metadata or {}
+    assert plain["config_hash"] != swap["config_hash"]
+    assert (plain["swap_stage"], swap["swap_stage"]) == (None, "action")
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"swap_stage": "intake"},
+        {"swap_stage": "relay_1"},
+        {"swap_stage": ""},
+        {"swap_stage": "action", "isolated": True},
+        {"swap_stage": "action", "benign_only": True},
+        {"swap_stage": "action", "controls": True},
+    ],
+)
+def test_swap_stage_is_validated(bad: dict[str, Any]) -> None:
+    from eduinject.task import eduinject_w2
+
+    with pytest.raises(ValueError, match="swap_stage"):
+        eduinject_w2(**{"isolated": False, **bad})
+    assert eduinject_w2(isolated=False, relay_stages=1, swap_stage="relay_1")
+
+
+def test_reader_equal_to_actor_is_recorded_as_none() -> None:
+    from eduinject.task import eduinject_w2
+    from eduinject.task_w1 import eduinject_w1
+    from eduinject.task_w3 import eduinject_w3
+
+    for fn in (eduinject_w1, eduinject_w2, eduinject_w3):
+        same = fn(model="mockllm/model", reader_model="mockllm/model").metadata or {}
+        plain = fn(model="mockllm/model").metadata or {}
+        assert same["reader_model"] is None and same["reader_model_args"] is None
+        assert same["config_hash"] == plain["config_hash"]
+    # Same model on other args (e.g. another host) is a real reader.
+    other = eduinject_w2(
+        model="mockllm/model", reader_model="mockllm/model", reader_model_args={"a": 1}
+    )
+    assert (other.metadata or {})["reader_model"] == "mockllm/model"
+
+
+def test_unpinned_openrouter_reader_is_refused() -> None:
+    from eduinject.task import eduinject_w2
+
+    with pytest.raises(ValueError, match="pin the upstream host"):
+        eduinject_w2(model="mockllm/model", reader_model="openrouter/a/b")
+    with pytest.raises(ValueError, match="reader_model_args"):
+        eduinject_w2(model="mockllm/model", reader_model_args={"a": 1})
+
+
+def test_old_logs_have_none_for_new_cell_fields() -> None:
+    from eduinject.analysis import CELL_FIELDS, FLOOR_FIELDS, cell_from_log, model_label
+
+    def cell(**new: Any) -> dict[str, Any]:
+        meta = {"identity_mode": "off", "defense": "none", **new}
+        return cell_from_log(
+            SimpleNamespace(eval=SimpleNamespace(metadata=meta, model="m"))
+        )
+
+    old = cell()
+    for field in ("reader_model", "reader_host", "swap_stage"):
+        assert old[field] is None and field in CELL_FIELDS and field in FLOOR_FIELDS
+    # A cell written by the new code without a reader or swap is the same cell.
+    assert cell(reader_model=None, reader_model_args=None, swap_stage=None) == old
+    new = cell(
+        reader_model="openrouter/a/b",
+        reader_model_args={"provider": {"order": ["H"]}},
+        swap_stage="action",
+    )
+    assert (new["reader_host"], new["swap_stage"]) == ("H", "action")
+    assert model_label("openrouter/anthropic/claude-haiku-5.5") == "Claude Haiku 5.5"
 
 
 def test_provenance_version_reaches_the_hash(monkeypatch: pytest.MonkeyPatch) -> None:

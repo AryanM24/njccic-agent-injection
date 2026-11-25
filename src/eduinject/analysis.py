@@ -43,6 +43,9 @@ CELL_FIELDS: tuple[str, ...] = (
     "handoff_mode",
     "gate",
     "verification_tools",
+    "reader_model",
+    "reader_host",
+    "swap_stage",
 )
 """Fields that identify one experimental condition. Rows that differ in any of
 these are never pooled: `corpus_digest`, `tool_surface` and `prompts_version`
@@ -79,6 +82,7 @@ MODEL_LABELS = (
     ("deepseek-v4-flash", "DeepSeek"),
     ("deepseek-v4.1-flash", "DeepSeek V4.1"),
     ("gemini-3.8-flash", "Gemini 3.8 Flash"),
+    ("claude-haiku-5.5", "Claude Haiku 5.5"),
 )
 """Model-slug fragment -> table label. The longest matching fragment wins, so
 `deepseek-v4.1-flash` is not labelled as the first-edition DeepSeek."""
@@ -171,6 +175,13 @@ def cell_from_log(log: Any) -> dict[str, Any]:
         "handoff_mode": meta.get("handoff_mode"),
         "gate": meta.get("gate"),
         "verification_tools": meta.get("verification_tools"),
+        "reader_model": meta.get("reader_model"),
+        "reader_host": (
+            provider_host(meta.get("reader_model_args"))
+            if meta.get("reader_model")
+            else None
+        ),
+        "swap_stage": meta.get("swap_stage"),
     }
 
 

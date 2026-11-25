@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from estimate_cost import TokenStats, estimate_usd, token_stats
+from estimate_cost import SWAP_PAIR_FACTOR, TokenStats, estimate_usd, token_stats
 
 from eduinject.models import load_models
 
@@ -38,3 +38,16 @@ def test_token_stats_from_mock_log(tmp_path: Path) -> None:
     assert stats is not None and stats.n_samples == 1 and stats.mean_in > 0
     assert token_stats([tmp_path], {"k": 2}) is None
     assert token_stats([tmp_path / "missing"]) is None
+
+
+def test_swap_scales_the_fallback_only() -> None:
+    luna = load_models()["luna"]
+    base = estimate_usd(10, False, 1, luna, None)
+    assert base is not None
+    swap = estimate_usd(10, False, 1, luna, None, swap=True)
+    assert swap is not None and abs(swap - SWAP_PAIR_FACTOR * base) < 1e-12
+    assert SWAP_PAIR_FACTOR == 1.6
+    measured = TokenStats(1, 1e6, 1e6)
+    assert estimate_usd(2, False, 0, luna, measured, swap=True) == estimate_usd(
+        2, False, 0, luna, measured
+    )
