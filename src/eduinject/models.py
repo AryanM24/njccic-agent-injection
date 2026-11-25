@@ -29,6 +29,8 @@ class ModelEntry(NamedTuple):
     price_source: str
     note: str
     todo: bool
+    held_out: bool = False
+    """Never run on dev scenarios; needs a matching freeze (doc 14 §10)."""
 
 
 def load_models(path: Path = CONFIGS / "models.json") -> dict[str, ModelEntry]:
