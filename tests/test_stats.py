@@ -779,3 +779,63 @@ def test_gee_without_interactions_is_unchanged(cov: stats.GeeCov) -> None:
     for name, (log_odds, se) in stored.items():
         assert fit.terms[name].log_odds == pytest.approx(log_odds, abs=1e-4)
         assert fit.terms[name].se == pytest.approx(se, abs=1e-4)
+
+
+SCENARIO_DESIGN: dict[str, Any] = {"n_scenarios": 22, "icc_scenario": 0.15}
+
+
+def test_power_without_scenarios_is_unchanged() -> None:
+    assert stats.power_at(0.05, 0.1, 176, 10) == pytest.approx(0.982, abs=0.005)
+    other = stats.power_at(
+        0.08, 0.2, 60, 3, icc=0.4, effect_concentration=0.3, n_sim=300, seed=3
+    )
+    assert other == pytest.approx(107 / 300, abs=0.01)
+
+
+def test_scenario_icc_lowers_power() -> None:
+    with_icc = stats.power_at(0.05, 0.1, 176, 10, **SCENARIO_DESIGN)
+    assert with_icc < stats.power_at(0.05, 0.1, 176, 10, n_scenarios=22)
+
+
+def test_size_is_near_alpha() -> None:
+    for did in (False, True):
+        size = stats.power_at(0.0, 0.1, 176, 10, n_sim=500, did=did, **SCENARIO_DESIGN)
+        assert 0.02 <= size <= 0.09
+
+
+def test_fewer_scenarios_lower_power() -> None:
+    few, many = (
+        stats.power_at(0.05, 0.1, 264, 10, n_scenarios=n, icc_scenario=0.15)
+        for n in (12, 22)
+    )
+    assert few < many
+
+
+def test_did_needs_a_larger_effect() -> None:
+    plain = stats.power_mde(0.1, 176, 10, n_sim=200, **SCENARIO_DESIGN)
+    did = stats.power_mde(0.1, 176, 10, n_sim=200, did=True, **SCENARIO_DESIGN)
+    assert plain is not None and did is not None and did > plain
+
+
+def test_pairs_must_divide() -> None:
+    with pytest.raises(ValueError, match="multiple"):
+        stats.power_at(0.05, 0.1, 176, 10, n_scenarios=12)
+    with pytest.raises(ValueError, match="n_scenarios"):
+        stats.power_at(0.05, 0.1, 176, 10, icc_scenario=0.1)
+    with pytest.raises(ValueError, match="icc"):
+        stats.power_at(0.05, 0.1, 176, 10, icc=0.5, n_scenarios=22, icc_scenario=0.5)
+
+
+def test_analyze_power_cli_scenarios(capsys: pytest.CaptureFixture[str]) -> None:
+    from analyze import main
+
+    args = ["power", "--base-rate", "0.1", "--pairs", "44", "--epochs", "2"]
+    args += ["--scenarios", "22", "--icc-scenario", "0.15", "--did", "--n-sim", "100"]
+    assert main(args) == 0
+    out = capsys.readouterr().out
+    expected = stats.power_mde(0.1, 44, 2, n_sim=100, did=True, **SCENARIO_DESIGN)
+    assert f"{expected:.2f}" in out and "difference in differences" in out
+    assert "22 scenarios" in out and "50% of scenarios" in out
+    assert "scenario ICC 0.15" in out
+    with pytest.raises(ValueError, match="multiple"):
+        main(args[:7] + ["--scenarios", "20"])

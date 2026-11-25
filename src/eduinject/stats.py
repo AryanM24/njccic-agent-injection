@@ -943,10 +943,13 @@ class _PowerDraws(NamedTuple):
     """Whether the attack moves the pair, (n_sim, n_pairs)."""
     twin: Any
     """Per-pair twin rate over its epochs, (n_sim, n_pairs)."""
+    candidate: Any
+    """Per-pair attack - twin rate in the candidate arm, (n_sim, n_pairs);
+    0 without `did`."""
     u_attack: Any
     """Uniforms for the attack runs, (n_sim, n_pairs, epochs)."""
     flips: Any
-    """Fixed sign-flip patterns, (n_perm, n_pairs)."""
+    """Fixed sign-flip patterns, (n_perm, units): scenarios, or pairs without."""
 
 
 def _power_draws(
@@ -958,6 +961,9 @@ def _power_draws(
     n_sim: int,
     n_perm: int,
     seed: int,
+    n_scenarios: int | None,
+    icc_scenario: float,
+    did: bool,
 ) -> _PowerDraws:
     import numpy as np
 
@@ -965,17 +971,36 @@ def _power_draws(
         raise ValueError("need 0 < base_rate < 1, n_pairs >= 2, epochs >= 1")
     if not (0 <= icc < 1 and 0 < effect_concentration <= 1):
         raise ValueError("need 0 <= icc < 1 and 0 < effect_concentration <= 1")
+    if n_scenarios is None and icc_scenario:
+        raise ValueError("icc_scenario needs n_scenarios")
+    if not (icc_scenario >= 0 and icc + icc_scenario < 1):
+        raise ValueError("need icc_scenario >= 0 and icc + icc_scenario < 1")
+    units = n_pairs if n_scenarios is None else n_scenarios
+    if units < 2 or n_pairs % units:
+        raise ValueError("n_pairs must be a multiple of n_scenarios (at least 2)")
+    per_unit = n_pairs // units
     rng = np.random.default_rng(seed)
-    sigma = math.sqrt(icc / (1 - icc) * math.pi**2 / 3)
+    residual = 1 - icc - icc_scenario
+    sigma = math.sqrt(icc / residual * math.pi**2 / 3)
     logit = math.log(base_rate / (1 - base_rate)) + sigma * rng.standard_normal(
         (n_sim, n_pairs)
     )
+    if n_scenarios is not None:
+        shared = rng.standard_normal((n_sim, units))
+        sigma_scenario = math.sqrt(icc_scenario / residual * math.pi**2 / 3)
+        logit = logit + sigma_scenario * np.repeat(shared, per_unit, axis=1)
     base = 1 / (1 + np.exp(-logit))
-    affected = rng.random((n_sim, n_pairs)) < effect_concentration
+    affected = rng.random((n_sim, units)) < effect_concentration
+    affected = np.repeat(affected, per_unit, axis=1)
     twin = (rng.random((n_sim, n_pairs, epochs)) < base[..., None]).mean(axis=2)
     u_attack = rng.random((n_sim, n_pairs, epochs))
-    flips = rng.choice(np.array([-1.0, 1.0]), size=(n_perm, n_pairs))
-    return _PowerDraws(base, affected, twin, u_attack, flips)
+    flips = rng.choice(np.array([-1.0, 1.0]), size=(n_perm, units))
+    candidate = np.zeros((n_sim, n_pairs))
+    if did:
+        for sign in (1, -1):
+            runs = rng.random((n_sim, n_pairs, epochs)) < base[..., None]
+            candidate += sign * runs.mean(axis=2)
+    return _PowerDraws(base, affected, twin, candidate, u_attack, flips)
 
 
 def _power(
@@ -986,6 +1011,8 @@ def _power(
     shift = np.where(draws.affected, delta / effect_concentration, 0.0)
     attack_p = np.minimum(1.0, draws.base + shift)
     d = (draws.u_attack < attack_p[..., None]).mean(axis=2) - draws.twin
+    d = d - draws.candidate
+    d = d.reshape(d.shape[0], draws.flips.shape[1], -1).mean(axis=2)
     observed = np.abs(d.sum(axis=1))
     permuted = np.abs(d @ draws.flips.T)
     p = ((permuted >= observed[:, None] - 1e-12).sum(axis=1) + 1) / (
@@ -1006,6 +1033,9 @@ def power_at(
     n_sim: int = 500,
     n_perm: int = 999,
     seed: int = 0,
+    n_scenarios: int | None = None,
+    icc_scenario: float = 0.0,
+    did: bool = False,
 ) -> float:
     """Simulated power of the study's paired test at a mean attack-minus-twin
     difference `delta`.
@@ -1018,9 +1048,27 @@ def power_at(
     `delta`. Each pair runs `epochs` attack and `epochs` twin runs. The test
     is `sign_flip_test` on per-pair differences, vectorised with `n_perm`
     fixed Monte Carlo sign patterns (exact enumeration is not used here).
+
+    With `n_scenarios`, the pairs (a multiple of it) are split evenly among
+    scenarios sharing a normal intercept of intra-class correlation
+    `icc_scenario`, the effect falls on whole scenarios, and the test is on
+    scenario means (doc 14 §8). With `did`, the arm above is the reference, a
+    candidate arm on the same pairs removes its whole effect (the smallest
+    reference effect a reduction of `delta` can come from), and the test is on
+    the difference in differences.
     """
     draws = _power_draws(
-        base_rate, n_pairs, epochs, icc, effect_concentration, n_sim, n_perm, seed
+        base_rate,
+        n_pairs,
+        epochs,
+        icc,
+        effect_concentration,
+        n_sim,
+        n_perm,
+        seed,
+        n_scenarios,
+        icc_scenario,
+        did,
     )
     return _power(draws, delta, effect_concentration, alpha)
 
@@ -1038,8 +1086,12 @@ def power_mde(
     icc: float = POWER_ICC,
     effect_concentration: float = POWER_EFFECT_CONCENTRATION,
     n_perm: int = 999,
+    n_scenarios: int | None = None,
+    icc_scenario: float = 0.0,
+    did: bool = False,
 ) -> float | None:
-    """Simulated minimum detectable mean attack-minus-twin difference.
+    """Simulated minimum detectable mean attack-minus-twin difference, or
+    difference in differences with `did`.
 
     The smallest `delta` on a `step` grid whose `power_at` simulation rejects
     at `alpha` in at least `power` of `n_sim` draws, or None if no `delta` up
@@ -1052,7 +1104,17 @@ def power_mde(
     if step <= 0:
         raise ValueError("step must be positive")
     draws = _power_draws(
-        base_rate, n_pairs, epochs, icc, effect_concentration, n_sim, n_perm, seed
+        base_rate,
+        n_pairs,
+        epochs,
+        icc,
+        effect_concentration,
+        n_sim,
+        n_perm,
+        seed,
+        n_scenarios,
+        icc_scenario,
+        did,
     )
     top = int((1 - base_rate) / step + 1e-9)
 
