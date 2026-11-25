@@ -180,5 +180,31 @@ def test_components_reported_beside_composite(
         front = {r["workflow"]: r["pareto_optimal"] for r in csv.DictReader(f)}
     assert front == {"w1": "True", "w2": "True"}
     assert float(risk_rows["w1"]["utility"]) < float(row["utility"])
-    header = (out / "sensitivity.csv").read_text().splitlines()[0]
-    assert header.startswith("workflow,")
+
+
+def test_risk_csvs_are_marked_appendix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import risk_report
+
+    monkeypatch.setattr(risk_report, "LOGS", tmp_path)
+    features = tmp_path / "f.csv"
+    roles = features.with_suffix(".roles.json")
+    roles.write_text(json.dumps({"features_version": FEATURES_VERSION}))
+    rows = [{f: r.get(f, "") for f in CELL_FIELDS} | r for r in _cell()]
+    for name, kept in (("full", rows), ("empty", [])):
+        with features.open("w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=list(rows[0]))
+            w.writeheader()
+            w.writerows(kept)
+        out = tmp_path / name
+        args = ["--features", str(features), "--out", str(out), "--n-boot", "20"]
+        assert risk_report.main([*args, "--n-draws", "5"]) == 0
+        first = capsys.readouterr().out.splitlines()[0]
+        assert first == "APPENDIX (doc 14 §9): severity weights unsigned"
+        for table in ("risk", "frontier", "sensitivity"):
+            with (out / f"{table}.csv").open(newline="", encoding="utf-8") as f:
+                header, *body = list(csv.reader(f))
+            assert header[0] == "section" and len(header) > 1
+            assert all(r[0] == "appendix" for r in body)
+    assert len((tmp_path / "full" / "risk.csv").read_text().splitlines()) == 2
