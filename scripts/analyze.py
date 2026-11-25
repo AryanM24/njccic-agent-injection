@@ -34,7 +34,9 @@
         report.md         a readable summary of the above
 
     analyze.py power --base-rate R --pairs N --epochs E
-        Simulated minimum detectable attack - twin difference at 80% power.
+        Simulated minimum detectable attack - twin difference at 80% power;
+        --scenarios N --icc-scenario I test scenario means, --did a difference
+        in differences.
 
     analyze.py sample-human LOG_DIR... [--fraction 0.10] [--out DIR]
         coding_sheet.csv  stratified sample with blank coding columns
@@ -1062,14 +1064,25 @@ def cmd_power(args: argparse.Namespace) -> int:
         seed=args.seed,
         icc=args.icc,
         effect_concentration=args.effect_concentration,
+        n_scenarios=args.scenarios,
+        icc_scenario=args.icc_scenario,
+        did=args.did,
     )
+    scenarios = args.scenarios is not None
+    measured = "difference in differences" if args.did else "attack - twin difference"
     found = f"{delta:.2f}" if delta is not None else "none (not reachable)"
-    print(f"minimum detectable mean attack - twin difference: {found}")
+    print(f"minimum detectable mean {measured}: {found}")
     print(
         "assumptions: "
-        f"twin base rate {args.base_rate} on the logit scale with pair ICC {args.icc}; "
-        f"effect in {args.effect_concentration:.0%} of pairs (capped at rate 1); "
-        f"{args.pairs} pairs x {args.epochs} epochs per arm; paired sign-flip test "
+        f"twin base rate {args.base_rate} on the logit scale with pair ICC {args.icc}"
+        f"{f' and scenario ICC {args.icc_scenario}' if scenarios else ''}; "
+        f"effect in {args.effect_concentration:.0%} of "
+        f"{'scenarios' if scenarios else 'pairs'} (capped at rate 1); "
+        f"{args.pairs} pairs "
+        f"{f'in {args.scenarios} scenarios ' if scenarios else ''}"
+        f"x {args.epochs} epochs per arm; "
+        f"{'a candidate arm that removes the effect; ' if args.did else ''}"
+        f"{'scenario-level' if scenarios else 'paired'} sign-flip test "
         f"(999 fixed patterns), alpha 0.05, 80% power, {args.n_sim} simulations, "
         f"seed {args.seed}"
     )
@@ -1164,7 +1177,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--effect-concentration",
         type=float,
         default=stats.POWER_EFFECT_CONCENTRATION,
-        help="share of pairs the attack moves",
+        help="share of pairs (with --scenarios, of scenarios) the attack moves",
+    )
+    power.add_argument("--scenarios", type=int, help="test scenario means (doc 14 §8)")
+    power.add_argument("--icc-scenario", type=float, default=0.0)
+    power.add_argument(
+        "--did", action="store_true", help="difference in differences of two arms"
     )
     power.add_argument("--n-sim", type=int, default=500)
     power.add_argument("--seed", type=int, default=0)
