@@ -8,11 +8,12 @@ no model.
 """
 
 import json
-from collections.abc import Iterator, Mapping, Sequence
+from collections import defaultdict
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from types import MappingProxyType
 from typing import Any, Literal, NamedTuple
 
-from eduinject.analysis import finished_samples
+from eduinject.analysis import cell_from_log, winning_samples
 from eduinject.defense import unmark
 from eduinject.scorers.deterministic import RUNS_KEY, SWAP_KEY
 
@@ -30,6 +31,9 @@ NOT_EXECUTED = "not_executed"
 rejected its arguments)."""
 
 Status = Literal["ok", "doc_unavailable", "handoff_parse_error", "unfinished"]
+Ended = Literal["finished", "parse_error", "limit", "missing"]
+"""How one run ended, whatever its sample's other runs did (doc 14 §7):
+`missing` is a run of a started sample whose outcome the log cannot give."""
 
 
 class CallView(NamedTuple):
@@ -77,6 +81,8 @@ class RunRecord(NamedTuple):
     """The action stage called `submit`."""
     swap: str = ""
     """The message-swap cell (`SWAP_CELLS`); empty for an ordinary run."""
+    ended: Ended = "finished"
+    """`status` is the sample's; this is the run's own (intention to treat)."""
 
 
 def message_text(content: Any) -> str:
@@ -151,16 +157,27 @@ def _record(
     pipeline = run.get("pipeline") or {}
     ledger = run.get("ledger") or {}
     doc = run.get("document_text")
-    finished = sample.error is None and sample.limit is None
     status: Status = (
         "unfinished"
-        if not finished or not pipeline
+        if not _finished(sample) or not pipeline
         else "handoff_parse_error"
         if pipeline.get("status") == "handoff_parse_error"
         else "doc_unavailable"
         if doc is None
         else "ok"
     )
+    ended: Ended = "missing"
+    if pipeline.get("status") == "handoff_parse_error":
+        ended = "parse_error"
+    elif pipeline:
+        ended = "missing" if doc is None else "finished"
+    # Without the document no verdict on a message (misdirection) is possible.
+    elif (
+        sample.limit is not None
+        and ledger
+        and (doc is not None or not ledger.get("attempted_egress"))
+    ):
+        ended = "limit"
     return RunRecord(
         label=label,
         sample_id=str(sample.id),
@@ -202,7 +219,53 @@ def _record(
             for tc in m.get("tool_calls") or []
         ),
         swap=swap,
+        ended=ended,
     )
+
+
+INTAKE_DOCUMENT = "SUBMITTED DOCUMENT (extracted):\n"
+"""What precedes the document in the intake stage's input (`agents.pipeline`)."""
+
+
+def _cut_off(sample: Any) -> dict[str, dict[str, Any]]:
+    """What an unfinished sample's log still holds of each unrecorded run.
+
+    A run is written to the metadata when it ends. One cut off before that
+    leaves its ledger in the sample's store and its document in the intake
+    stage's input; attack and twin documents are read in that order.
+    """
+    documents: dict[str, None] = {}
+    for event in sample.events:
+        for message in event.input if event.event == "model" else []:
+            text = message.text
+            if text.startswith("attachment://"):
+                text = sample.attachments.get(text.removeprefix("attachment://"), "")
+            if message.role == "user" and INTAKE_DOCUMENT in text:
+                documents[text.split(INTAKE_DOCUMENT, 1)[1]] = None
+    runs: dict[str, dict[str, Any]] = defaultdict(dict)
+    for key, value in sample.store.items():
+        if key.startswith("Ledger:") and key.count(":") == 2:
+            _, instance, field = key.split(":")
+            runs[instance].setdefault("ledger", {})[field] = value
+    if "twin" in runs and "attack" not in runs:  # a twin-only cell
+        documents = {"": None, **documents}
+    found = dict(zip(("attack", "twin"), documents))
+    for instance, run in runs.items():
+        # A cross cell is scored on the attack document (doc 14 §4).
+        run["document_text"] = found.get("twin" if instance == "twin" else "attack")
+    return runs
+
+
+def _finished(sample: Any) -> bool:
+    return sample.error is None and sample.limit is None
+
+
+def _with_cut_off(
+    sample: Any, runs: Mapping[str, Any], expected: Sequence[str]
+) -> dict[str, Any]:
+    """`runs` with an entry for every `expected` run of an unfinished sample."""
+    cut = _cut_off(sample)
+    return {name: runs.get(name) or cut.get(name, {}) for name in expected}
 
 
 def _runs(sample: Any) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
@@ -216,9 +279,9 @@ def _runs(sample: Any) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 def records_from_sample(sample: Any, cell: Mapping[str, Any]) -> list[RunRecord]:
     """The run records of one sample epoch, attack before twin.
 
-    A label absent from `metadata["runs"]` (benign-only cells, or a run cut
-    off before it was written) yields no record. A swap sample's cross runs
-    are `swap_records`' business.
+    A benign-only cell has no attack run. Every run of an unfinished sample has
+    a record, a run that was cut off or never reached included (`ended`). A swap
+    sample's cross runs are `swap_records`' business.
 
     Args:
         sample: An Inspect `EvalSample`.
@@ -226,59 +289,73 @@ def records_from_sample(sample: Any, cell: Mapping[str, Any]) -> list[RunRecord]
     """
     smeta, runs, _ = _runs(sample)
     labels: tuple[Literal["attack", "twin"], ...] = ("attack", "twin")
+    if not _finished(sample):
+        expected = labels[cell.get("benign_only") is True :]
+        runs = _with_cut_off(sample, runs, expected)
     return [
         _record(sample, smeta, cell, run, label)
         for label in labels
-        if (run := runs.get(label))
+        if (run := runs.get(label)) is not None
     ]
 
 
 def swap_records(sample: Any, cell: Mapping[str, Any]) -> list[RunRecord]:
     """The four message-swap records of one sample epoch, in `SWAP_CELLS` order.
 
-    Empty for a sample without recorded cross runs; a cell whose run is absent
-    yields no record.
+    Empty for a sample that is no swap sample. Every cell of an unfinished
+    sample has a record, as in `records_from_sample`.
 
     Args:
         sample: An Inspect `EvalSample`.
         cell: The sample's `CELL_FIELDS` (`analysis.cell_from_log`).
     """
     smeta, runs, cross = _runs(sample)
+    if not _finished(sample) and (cross or cell.get("swap_stage")):
+        names = ("attack", "twin", "at", "ta")
+        runs = _with_cut_off(sample, runs | cross, names)
+        cross = {name: runs[name] for name in ("at", "ta")}
     if not cross:
         return []
     by_cell = {"tt": runs.get("twin"), "aa": runs.get("attack"), **cross}
     return [
         _record(sample, smeta, cell, run, label, name)
         for name, label in SWAP_CELLS
-        if (run := by_cell.get(name))
+        if (run := by_cell.get(name)) is not None
     ]
+
+
+def _logged(
+    read: Callable[[Any, Mapping[str, Any]], list[RunRecord]],
+    log_dirs: Sequence[str],
+    split: str | None,
+) -> Iterator[RunRecord]:
+    cells: dict[str, dict[str, Any]] = {}
+    for log, sample in winning_samples(log_dirs, finished=False):
+        cell = cells.setdefault(log.location, cell_from_log(log))
+        for rec in read(sample, cell):
+            if split is None or rec.coords["split"] == split:
+                yield rec
 
 
 def records_from_logs(
     log_dirs: Sequence[str], split: str | None = None
 ) -> Iterator[RunRecord]:
-    """Run records of every winning finished sample under `log_dirs`.
+    """Run records of every winning started sample under `log_dirs`.
 
     Args:
         log_dirs: Log directories (local, file:// or s3://).
         split: Keep only samples whose manifest `split` equals this.
     """
-    for cell, sample in finished_samples(log_dirs):
-        for rec in records_from_sample(sample, cell):
-            if split is None or rec.coords["split"] == split:
-                yield rec
+    return _logged(records_from_sample, log_dirs, split)
 
 
 def swap_records_from_logs(
     log_dirs: Sequence[str], split: str | None = None
 ) -> Iterator[RunRecord]:
-    """`swap_records` of every winning finished sample under `log_dirs`.
+    """`swap_records` of every winning started sample under `log_dirs`.
 
     Args:
         log_dirs: Log directories (local, file:// or s3://).
         split: Keep only samples whose manifest `split` equals this.
     """
-    for cell, sample in finished_samples(log_dirs):
-        for rec in swap_records(sample, cell):
-            if split is None or rec.coords["split"] == split:
-                yield rec
+    return _logged(swap_records, log_dirs, split)

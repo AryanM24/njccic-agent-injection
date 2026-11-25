@@ -46,7 +46,7 @@ from statistics import mean
 from typing import Any, get_args
 
 from eduinject.analysis import N_BOOT, mean_with_ci
-from eduinject.behavior.ladder import ATTACK_ONLY, BEHAVIOURS, scenario
+from eduinject.behavior.ladder import ATTACK_ONLY, BEHAVIOURS, num
 from eduinject.behavior.predictors import (
     SERVED_FIELDS,
     TARGETS,
@@ -70,6 +70,7 @@ from eduinject.behavior.propagation_model import (
     survival,
 )
 from eduinject.features import stale_features
+from eduinject.stats import scenario_key
 
 LOGS = Path(__file__).resolve().parents[1] / "logs"
 _COMPONENT = re.compile(r"carry:analysis:(?P<c>[^:]+)")
@@ -115,13 +116,9 @@ def _write(path: Path, rows: list[dict[str, Any]]) -> None:
 Rows = Sequence[Mapping[str, Any]]
 
 
-def _num(value: Any) -> float:
-    return float("nan") if value in ("", None) else float(value)
-
-
 def _per_scenario(values: Mapping[str, list[float]], rows: Rows) -> dict[Any, float]:
     """Pair values (mean over epochs) averaged within each base scenario."""
-    of = {str(r["artifact_id"]): scenario(r) for r in rows}
+    of = {str(r["artifact_id"]): scenario_key(r) for r in rows}
     groups: dict[Any, list[float]] = defaultdict(list)
     for pair, v in values.items():
         groups[of[pair]].append(mean(v))
@@ -136,7 +133,7 @@ def _ladder(
         for name in BEHAVIOURS:
             blocks: dict[tuple[str, str], dict[str, float]] = defaultdict(dict)
             for r in rows:
-                if not math.isnan(y := _num(r.get(f"beh:{name}"))):
+                if not math.isnan(y := num(r.get(f"beh:{name}"))):
                     block = (str(r["artifact_id"]), str(r["epoch"]))
                     blocks[block][str(r["label"])] = y
             alone = name in ATTACK_ONLY
@@ -187,10 +184,10 @@ def _hits(rows: Rows, label: str, frm: str, to: str) -> dict[str, list[float]]:
     """Per pair: `state:to` on its `label` runs where `state:frm` holds."""
     hits: dict[str, list[float]] = defaultdict(list)
     for r in rows:
-        y = _num(r.get(f"state:{to}"))
+        y = num(r.get(f"state:{to}"))
         if math.isnan(y) or r["label"] != label:
             continue
-        if _num(r.get(f"state:{frm}")) == 1.0:
+        if num(r.get(f"state:{frm}")) == 1.0:
             hits[str(r["artifact_id"])].append(y)
     return hits
 

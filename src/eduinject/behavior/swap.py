@@ -9,7 +9,10 @@ import math
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from statistics import mean
+from types import MappingProxyType
 from typing import Any, NamedTuple
+
+from .ladder import num
 
 CELLS = ("tt", "at", "ta", "aa")
 
@@ -27,17 +30,19 @@ class SwapEffects(NamedTuple):
     """Y_aa - Y_at - Y_ta + Y_tt."""
 
 
-def block_effects(
+def _effects(y: Mapping[str, float]) -> SwapEffects:
+    return SwapEffects(
+        te=y["aa"] - y["tt"],
+        de=y["at"] - y["tt"],
+        le=y["ta"] - y["tt"],
+        interaction=y["aa"] - y["at"] - y["ta"] + y["tt"],
+    )
+
+
+def _blocks(
     rows: Iterable[Mapping[str, Any]], outcome: str
-) -> dict[tuple[str, int], SwapEffects]:
-    """Effects on `outcome` per block, keyed `(artifact_id, epoch)`.
-
-    A block missing any of its four cells, or with `outcome` undefined in one,
-    is omitted.
-
-    Args:
-        rows: Swap feature rows of one experimental cell.
-        outcome: A numeric feature column, e.g. `beh:attempt`.
+) -> dict[tuple[str, int], dict[str, float]]:
+    """(artifact_id, epoch) -> swap cell -> `outcome`.
 
     Raises:
         ValueError: Two rows share a block and swap cell, so the rows span more
@@ -50,18 +55,70 @@ def block_effects(
             raise ValueError(f"unknown swap cell {cell!r} in block {key}")
         if cell in blocks[key]:
             raise ValueError(f"two {cell} rows for block {key}: group by cell first")
-        blocks[key][cell] = float(r[outcome])
-    out = {}
-    for key, y in blocks.items():
-        if len(y) < len(CELLS) or any(math.isnan(v) for v in y.values()):
-            continue
-        out[key] = SwapEffects(
-            te=y["aa"] - y["tt"],
-            de=y["at"] - y["tt"],
-            le=y["ta"] - y["tt"],
-            interaction=y["aa"] - y["at"] - y["ta"] + y["tt"],
-        )
-    return out
+        blocks[key][cell] = num(r[outcome])
+    return blocks
+
+
+def block_effects(
+    rows: Iterable[Mapping[str, Any]], outcome: str
+) -> dict[tuple[str, int], SwapEffects]:
+    """Effects on `outcome` per complete block, keyed `(artifact_id, epoch)`.
+
+    A block missing any of its four cells, or with `outcome` undefined in one,
+    is omitted.
+
+    Args:
+        rows: Swap feature rows of one experimental cell.
+        outcome: A numeric feature column, e.g. `beh:attempt`.
+    """
+    return {
+        key: _effects(y)
+        for key, y in _blocks(rows, outcome).items()
+        if len(y) == len(CELLS) and not any(math.isnan(v) for v in y.values())
+    }
+
+
+class Pairs(NamedTuple):
+    """Each pair's effects, and how many of its blocks' cells were undefined."""
+
+    effects: dict[str, SwapEffects]
+    n_missing: int
+
+
+def itt_effects(
+    rows: Iterable[Mapping[str, Any]],
+    outcome: str,
+    fill: Mapping[str, float] = MappingProxyType({}),
+) -> Pairs:
+    """Each pair's effects from its four cell means, over every defined run.
+
+    A block with one undefined cell keeps the other three (leaving it out would
+    condition on what the run did). Equal to the mean of `block_effects` when
+    nothing is undefined. A pair with a cell that no run defines is omitted.
+
+    Args:
+        rows: Swap feature rows of one experimental cell.
+        outcome: A numeric feature column, e.g. `itt:attempt`.
+        fill: Value of an undefined run, by swap cell (a bound).
+    """
+    cells: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+    n_missing = 0
+    for (pair, _), y in _blocks(rows, outcome).items():
+        for cell in CELLS:
+            value = y.get(cell, math.nan)
+            if math.isnan(value):
+                n_missing += 1
+                value = fill.get(cell, math.nan)
+            if not math.isnan(value):
+                cells[pair][cell].append(value)
+    return Pairs(
+        {
+            p: _effects({c: mean(v) for c, v in own.items()})
+            for p, own in cells.items()
+            if len(own) == len(CELLS)
+        },
+        n_missing,
+    )
 
 
 def pair_effects(

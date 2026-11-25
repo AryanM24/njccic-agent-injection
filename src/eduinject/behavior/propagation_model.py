@@ -15,6 +15,7 @@ from typing import Any, Literal, NamedTuple, TypeVar, cast, get_args
 
 from ..analysis import CELL_FIELDS, N_BOOT, percentiles
 from ..scorers.outcomes import CarryState
+from .ladder import num
 
 Outcome = Literal["no_act", "benign_act", "harmful_act"]
 GROUP_FIELDS = CELL_FIELDS
@@ -100,18 +101,11 @@ def _column(column: str, stage: str) -> str:
     return f"{family}:{stage}" + (f":{suffix}" if suffix else "")
 
 
-def _num(value: Any) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return math.nan
-
-
 def is_on(value: Any) -> bool:
     """Carried (any carry state but `absent`) or, for a flag column, flagged."""
     if value in _STATES:
         return bool(value != "absent")
-    return _num(value) == 1.0
+    return num(value) == 1.0
 
 
 def scored_attacks(rows: Iterable[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
@@ -121,7 +115,7 @@ def scored_attacks(rows: Iterable[Mapping[str, Any]]) -> list[Mapping[str, Any]]
         for r in rows
         if r.get("label") == "attack"
         and r.get("status") == "ok"
-        and not math.isnan(_num(r.get("out:harm_completed")))
+        and not math.isnan(num(r.get("out:harm_completed")))
     ]
 
 
@@ -149,9 +143,9 @@ def paths_from_features(
         states = tuple(cast(CarryState, v) for v in values)
         outcome: Outcome = (
             "harmful_act"
-            if _num(r["out:harm_completed"]) == 1.0
+            if num(r["out:harm_completed"]) == 1.0
             else "benign_act"
-            if _num(r.get("calls")) > 0
+            if num(r.get("calls")) > 0
             else "no_act"
         )
         paths.append(RunPath(str(r["artifact_id"]), states, outcome))

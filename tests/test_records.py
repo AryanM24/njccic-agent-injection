@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from inspect_ai.log import EvalSample, EvalSampleLimit
+from inspect_ai.log import EvalError, EvalSample, EvalSampleLimit
 from inspect_ai.model import ChatMessageAssistant, ChatMessageTool, ChatMessageUser
 from inspect_ai.tool import ToolCall, ToolCallError
 
@@ -188,7 +188,63 @@ def test_unfinished_run_status() -> None:
     limited = _sample(
         {"attack": _simple_run()}, limit=EvalSampleLimit(type="message", limit=10)
     )
-    assert [r.status for r in records_from_sample(limited, CELL)] == ["unfinished"]
+    recs = records_from_sample(limited, CELL)
+    assert [(r.label, r.status, r.ended) for r in recs] == [
+        ("attack", "unfinished", "finished"),
+        ("twin", "unfinished", "missing"),
+    ]
+    (twin,) = records_from_sample(
+        limited.model_copy(update={"metadata": {}}), CELL | {"benign_only": True}
+    )
+    assert (twin.label, twin.ended) == ("twin", "missing")
+
+
+LEDGER = {
+    "Ledger:attack:instance": "attack",
+    "Ledger:attack:granted_tools": ["send_notification"],
+    "Ledger:attack:calls": [{"tool": "lookup_account", "args": {}, "outcome": "ok"}],
+}
+
+
+def test_a_run_cut_off_by_a_limit_keeps_its_ledger() -> None:
+    limit = EvalSampleLimit(type="message", limit=10)
+    cut = _sample({}, limit=limit).model_copy(update={"store": LEDGER})
+    attack, twin = records_from_sample(cut, CELL)
+    assert (attack.ended, twin.ended) == ("limit", "missing")
+    assert attack.ledger_calls == tuple(LEDGER["Ledger:attack:calls"])
+    assert attack.granted_tools == ("send_notification",) and attack.stages == ()
+    # A message with no document to judge it against has no verdict.
+    sent = LEDGER | {"Ledger:attack:attempted_egress": [{"to": "a@b.example"}]}
+    cut = cut.model_copy(update={"store": sent})
+    assert records_from_sample(cut, CELL)[0].ended == "missing"
+    # A failed sample was stopped by the harness, not by the run.
+    failed = EvalError(message="m", traceback="t", traceback_ansi="t")
+    cut = cut.model_copy(update={"store": LEDGER, "limit": None, "error": failed})
+    assert [r.ended for r in records_from_sample(cut, CELL)] == ["missing"] * 2
+
+
+def test_how_a_recorded_run_ended() -> None:
+    runs = {"attack": _simple_run(), "twin": _simple_run(status="handoff_parse_error")}
+    attack, twin = records_from_sample(_sample(runs), CELL)
+    assert (attack.ended, twin.ended) == ("finished", "parse_error")
+    (blind,) = records_from_sample(
+        _sample({"attack": _simple_run(document_text=None)}), CELL
+    )
+    assert blind.ended == "missing"
+
+
+def test_an_unfinished_swap_sample_has_all_four_cells() -> None:
+    sample = _swap_sample()
+    del sample.metadata["swap_runs"]["ta"]
+    sample.limit = EvalSampleLimit(type="time", limit=10)
+    assert {r.swap: r.ended for r in swap_records(sample, CELL)} == {
+        **dict.fromkeys(("tt", "at", "aa"), "finished"),
+        "ta": "missing",
+    }
+    sample.metadata = {}
+    assert swap_records(sample, CELL) == []
+    cut = swap_records(sample, CELL | {"swap_stage": "action"})
+    assert [r.ended for r in cut] == ["missing"] * 4
 
 
 def test_document_text_is_unmarked() -> None:

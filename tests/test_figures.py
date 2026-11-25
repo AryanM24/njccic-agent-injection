@@ -137,6 +137,7 @@ def headroom_rows(workflows: tuple[str, ...]) -> list[dict[str, object]]:
             "observed_lo": observed - 0.1,
             "observed_hi": observed + 0.1,
             "zero_upper": "",
+            "excess": observed - 0.05,
             "structural": 0.9 - ceiling,
             "behavioural": ceiling - observed,
             "bound_ok": True,
@@ -213,11 +214,18 @@ def grid_rows() -> list[dict[str, object]]:
         for j in DEV
     ]
     compared: list[dict[str, object]] = [
-        {"kind": "transition", "reader": i, "actor": DEV[0], "actor_b": DEV[1]}
-        | {"component": t, "verdict": "not_estimable" if i == DEV[1] else ""}
-        | ({} if i == DEV[1] else diff)
+        {"kind": "actors", "actor": DEV[0], "actor_b": DEV[1], "reader": ""}
+        | {"component": t, "verdict": "not_estimable" if wf == "w2" else ""}
+        | {"workflow": wf, "n_scenarios": 8}
+        | ({} if wf == "w2" else diff)
         for t in ("adopt", "attempt")
-        for i in DEV
+        for wf in (endpoints.ALL, "w1", "w2", "w3")
+    ]
+    # Descriptive: one reader's own comparison is in no test and not drawn.
+    compared += [
+        {"kind": "transition", "reader": DEV[0], "actor": DEV[0], "in_test": False}
+        | {"actor_b": DEV[1], "component": "adopt"}
+        | diff
     ]
     onset: list[dict[str, object]] = [
         {"kind": "onset", "reader": DEV[0], "reader_b": DEV[1], "n_scenarios": 8}
@@ -406,6 +414,8 @@ def test_stage_survival_shows_relays(
 ) -> None:
     figs = _captured(monkeypatch)
     row = {
+        "workflow": "w1",
+        "base_id": "b1",
         "model": "m1",
         "label": "attack",
         "status": "ok",

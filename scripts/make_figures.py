@@ -50,10 +50,11 @@ from matplotlib.colors import LinearSegmentedColormap, Normalize
 
 from eduinject import endpoints
 from eduinject.analysis import CELL_FIELDS, mean_with_ci
-from eduinject.behavior.ladder import ATTACK_ONLY, BEHAVIOURS, scenario
+from eduinject.behavior.ladder import ATTACK_ONLY, BEHAVIOURS, num
 from eduinject.behavior.predictors import SERVED_FIELDS
 from eduinject.behavior.propagation_model import is_on, stage_order, stages_of
 from eduinject.models import load_models
+from eduinject.stats import scenario_key
 
 ROOT = Path(__file__).resolve().parents[1]
 LOGS = ROOT / "logs"
@@ -122,13 +123,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if args.by and not args.appendix:
         ap.error("--by needs --appendix")
     return args
-
-
-def num(v: str | None) -> float:
-    try:
-        return float(v) if v not in (None, "") else math.nan
-    except ValueError:
-        return math.nan
 
 
 def slug(text: str) -> str:
@@ -371,8 +365,9 @@ def pool_note(rows: Sequence[Row]) -> list[Any]:
 
 def headroom(rows: list[Row], out: Path) -> Path:
     """Per workflow and arm, one bar as long as the reference ceiling, split
-    into observed harm, harm permitted but not done, and harm the arm blocks;
-    each model's own observed harm is a hollow mark under the bar."""
+    into harm observed on attack runs, harm permitted but not done, and harm the
+    arm blocks; the excess over the twin is a tick on the bar, and each model's
+    own observed harm a hollow mark under it."""
     groups = by_workflow(rows)
     arms = {}
     for wf, rs in groups.items():
@@ -424,6 +419,8 @@ def headroom(rows: list[Row], out: Path) -> Path:
                 color="k", marker="", capsize=2,
             ):  # fmt: skip
                 ax.text(0, y, " not estimable", va="center", fontsize=6)
+            if not math.isnan(excess := num(r.get("excess"))):
+                ax.plot([excess] * 2, [y - 0.25, y + 0.25], color="w", lw=1.2)
             if r.get("zero_upper"):  # none seen: the interval alone would be a point
                 ax.plot([0, num(r["zero_upper"])], [y, y], color="k", lw=1, ls=":")
             for m in models:
@@ -459,7 +456,7 @@ def headroom(rows: list[Row], out: Path) -> Path:
     parts = [
         plt.Rectangle((0, 0), 1, 1, color=c, label=t)
         for c, t in (
-            (DONE, "observed (attack − twin, 95% interval)"),
+            (DONE, "observed on attack runs (95% interval; white tick: less twin)"),
             (PERMITTED, "behavioural: permitted, not done"),
             (BLOCKED, "structural: blocked by the arm"),
         )
@@ -688,8 +685,8 @@ def grid(rows: list[Row], out: Path) -> list[Path]:
 
 
 def grid_comparisons(rows: list[Row], out: Path) -> Path:
-    """The declared actor-pair (T, A) and reader-pair (onset) differences behind
-    H-main, against the ±δ margin of doc 14 §5."""
+    """The declared actor-pair (T, A; averaged over readers) and reader-pair
+    (onset) differences behind H-main, against the ±δ margin of doc 14 §5."""
     tested = [r for r in rows if r.get("in_test") == "True" and r["kind"] != "cell"]
     names = model_names(
         {
@@ -699,39 +696,25 @@ def grid_comparisons(rows: list[Row], out: Path) -> Path:
             if r.get(c)
         }
     )
-    cells = [
-        r
-        for r in rows
-        if r["kind"] == "cell"
-        and r["workflow"] == endpoints.ALL
-        and r["in_test"] == "True"
-    ]
     parts = [
         (
-            "T: adopt given relay",
+            "T: adopt given relay (readers averaged)",
             [r for r in tested if r.get("component") == "adopt"],
-            "adopt_scenarios",
         ),
         (
-            "A: attempt given relay",
+            "A: attempt given relay (not tested)",
             [r for r in tested if r.get("component") == "attempt"],
-            "attempt_scenarios",
         ),
-        (
-            "Onset: relay",
-            [r for r in tested if r["kind"] == "onset"],
-            "",
-        ),
+        ("Onset: relay", [r for r in tested if r["kind"] == "onset"]),
     ]
-    # A reader's comparisons sit under its name; onset's are the readers'.
+    # A workflow's comparisons sit under its name; onset's are pooled.
     lines: list[list[Row | str]] = []
-    for _, rs, _ in parts:
+    for _, rs in parts:
         own: list[Row | str] = []
-        for reader in names:
-            group = [r for r in rs if r["reader"] == reader]
-            if group and group[0]["kind"] != "onset":
-                own.append(reader)
-            own += group
+        for wf in dict.fromkeys(r["workflow"] for r in rs):
+            if wf:
+                own.append(NAMES.get(wf, wf))
+            own += [r for r in rs if r["workflow"] == wf]
         lines.append(own)
     heights = [len(own) + 1.5 for own in lines]
     fig, axes = plt.subplots(
@@ -741,12 +724,12 @@ def grid_comparisons(rows: list[Row], out: Path) -> Path:
         height_ratios=heights,
         sharex=True,
     )
-    for ax, (title, rs, column), own in zip(axes, parts, lines, strict=True):
+    for ax, (title, rs), own in zip(axes, parts, lines, strict=True):
         ax.axvspan(-endpoints.MARGIN, endpoints.MARGIN, color=BAND, zorder=0)
         labels = []
         for y, r in enumerate(own):
             if isinstance(r, str):
-                labels.append(f"reader {names[r]}")
+                labels.append(r)
                 continue
             pair = (
                 ("reader", "reader_b") if r["kind"] == "onset" else ("actor", "actor_b")
@@ -765,9 +748,7 @@ def grid_comparisons(rows: list[Row], out: Path) -> Path:
         for text, r in zip(ax.get_yticklabels(), own, strict=True):
             text.set(fontsize=6, fontweight="bold" if isinstance(r, str) else "normal")
         points(ax, "")
-        ax.set_title(
-            f"{title}\n{n_text(cells, column) if column else n_text(rs)}", fontsize=7
-        )
+        ax.set_title(f"{title}\n{n_text(rs)}", fontsize=7)
     points(axes[-1], f"difference (points; δ = {100 * endpoints.MARGIN:.0f})")
     fig.legend(
         handles=[
@@ -834,7 +815,9 @@ def stage_survival(feats: list[Row], out: Path) -> list[Path]:
                 pairs: dict[tuple[Any, str], list[bool]] = defaultdict(list)
                 for r in cells[key]:
                     if v := r.get(f"carry:{s}"):
-                        pairs[scenario(r), r.get("artifact_id", "")].append(is_on(v))
+                        pairs[scenario_key(r), r.get("artifact_id", "")].append(
+                            is_on(v)
+                        )
                 values: dict[Any, list[float]] = defaultdict(list)
                 for (sc, _), ys in pairs.items():
                     values[sc].append(mean(ys))
@@ -855,7 +838,7 @@ def stage_survival(feats: list[Row], out: Path) -> list[Path]:
                     f"{100 * c.diff:.0f}", (x, c.diff), xytext=(5, 3),
                     textcoords="offset points", fontsize=6.5,
                 )  # fmt: skip
-            n = len({scenario(r) for r in cells[key]})
+            n = len({scenario_key(r) for r in cells[key]})
             ax.set_title(
                 f"{ax.get_title(loc='left')}\nn = {n} scenarios, {len(cells[key])} runs",
                 fontsize=7,
