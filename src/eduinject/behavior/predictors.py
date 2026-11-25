@@ -35,6 +35,7 @@ from ..analysis import CELL_FIELDS, N_BOOT, percentiles
 from ..features import role_of
 from ..monitor.rules import RULES
 from ..scorers.outcomes import CarryState
+from .ladder import scenario
 from .propagation_model import (
     GROUP_FIELDS,
     HALFLIFE_FIELDS,
@@ -47,7 +48,7 @@ from .propagation_model import (
     survival,
 )
 
-TARGETS = ("out:harm_completed", "carry:action")
+TARGETS = ("out:harm_completed", "carry:action", "beh:attempt", "state:adopt")
 NOT_FEATURES = {
     "artifact_id": "CV group key",
     "base_id": "CV group key",
@@ -60,6 +61,8 @@ RESTRICTED_HEADER = (
 )
 """First line of every profile: predictors may name goal=, channel= or
 file_type= levels, which the release policy keeps out of public outputs."""
+APPENDIX_HEADER = "APPENDIX (doc 14 §9)"
+"""Second line of every profile: profiles are not in the primary path."""
 N_BINS = 10
 TOP_PREDICTORS = 3
 
@@ -74,6 +77,9 @@ GROUP_KEY: dict[str, str] = {
 SERVED_FIELDS = ("model", "host", "reasoning_effort")
 """The model as served: never an input under `leave_one_model_out`, where the
 held-out model's level is unseen in training by construction."""
+READER_FIELDS = ("reader_model", "reader_host")
+"""The reader as served (doc 14 §5): dropped with `SERVED_FIELDS` for the same
+reason."""
 MODEL_SCALED = ("tokens_in:", "tokens_out:")
 """Token counts follow each model's tokenizer, so they fingerprint the model
 and shift in scale between models: also dropped under `leave_one_model_out`."""
@@ -154,6 +160,12 @@ def default_columns(rows: Sequence[Mapping[str, Any]]) -> list[str]:
     return out
 
 
+def _transferable(columns: Sequence[str]) -> list[str]:
+    """`columns` less those that name the model as served or scale with it."""
+    served = (*SERVED_FIELDS, *READER_FIELDS)
+    return [c for c in columns if c not in served and not c.startswith(MODEL_SCALED)]
+
+
 def _check(columns: Sequence[str]) -> None:
     bad = []
     for column in columns:
@@ -231,7 +243,9 @@ def _estimator(model: Model, seed: int) -> Any:
     if model == "l1":
         return make_pipeline(
             StandardScaler(),
-            LogisticRegression(l1_ratio=1.0, solver="liblinear", C=1.0),
+            LogisticRegression(
+                l1_ratio=1.0, solver="liblinear", C=1.0, random_state=seed
+            ),
         )
     return DecisionTreeClassifier(max_depth=4, random_state=seed)
 
@@ -331,7 +345,8 @@ def cross_validate(
         scheme: `group_kfold` (`GroupKFold(5)` on `artifact_id`),
             `leave_one_base_out` (`LeaveOneGroupOut` on `base_id`) or
             `leave_one_model_out` (`LeaveOneGroupOut` on `model`, with
-            `SERVED_FIELDS` dropped from the inputs and the config baseline,
+            `SERVED_FIELDS` and `READER_FIELDS` dropped from the inputs and the
+            config baseline,
             and the `MODEL_SCALED` token counts from the inputs).
         seed: Tree seed.
 
@@ -339,14 +354,10 @@ def cross_validate(
     """
     scored = _scored(rows, target)
     lomo = scheme == "leave_one_model_out"
-    drop = SERVED_FIELDS if lomo else ()
-    columns = [
-        c
-        for c in default_columns(rows)
-        if c not in drop and not (lomo and c.startswith(MODEL_SCALED))
-    ]
+    columns = _transferable(default_columns(rows)) if lomo else default_columns(rows)
     x, y, _ = design_matrix(rows, target, columns)
-    config = [c for c in CELL_FIELDS if c not in drop and any(c in r for r in scored)]
+    config = [c for c in CELL_FIELDS if any(c in r for r in scored)]
+    config = _transferable(config) if lomo else config
     x_cfg, _, _ = _encode(scored, config)
     groups = [str(r.get(GROUP_KEY[scheme], "")) for r in scored]
     folds = _folds(groups, scheme)
@@ -365,6 +376,115 @@ def cross_validate(
         fold_groups=[]
         if scheme == "group_kfold"
         else [groups[int(te[0])] for _, te in folds],
+    )
+
+
+class Transfer(NamedTuple):
+    """A predictor fitted on one set of runs and scored on another (doc 14 §5).
+
+    The calibration line is a logistic regression of the test outcome on the
+    logit of the prediction: an intercept shift alone leaves the slope at 1.
+    `slope_lo`/`slope_hi` is its 95% interval over base-scenario resamples of
+    the test set. Every field but `n_test` is NaN when the test or the training
+    runs have one class.
+    """
+
+    auroc: float
+    brier: float
+    baseline_config_auroc: float
+    calibration_intercept: float
+    calibration_slope: float
+    n_test: int
+    slope_lo: float = math.nan
+    slope_hi: float = math.nan
+
+
+def _seen(
+    columns: Sequence[str],
+    train: Sequence[Mapping[str, Any]],
+    test: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    """`columns` less every categorical one with a test level absent from
+    training (`split`, a new corpus digest): nothing was fitted for that level,
+    and the reference level it would be scored as is arbitrary."""
+
+    def levels(rows: Sequence[Mapping[str, Any]], column: str) -> set[str]:
+        return {str(r.get(column)) for r in rows}
+
+    def numeric(column: str) -> bool:
+        values = [r.get(column) for r in (*train, *test)]
+        return all(_missing(v) or not math.isnan(_num(v)) for v in values)
+
+    return [c for c in columns if numeric(c) or levels(test, c) <= levels(train, c)]
+
+
+def _calibration_line(pred: Matrix, y: Matrix) -> tuple[float, float]:
+    """(intercept, slope); NaN where the outcome or the prediction is constant."""
+    if len(np.unique(y)) < 2 or np.ptp(pred) == 0:
+        return math.nan, math.nan
+    p = np.clip(pred, 1e-6, 1 - 1e-6)
+    fit = LogisticRegression(C=np.inf).fit(np.log(p / (1 - p)).reshape(-1, 1), y)
+    return float(fit.intercept_[0]), float(fit.coef_[0][0])
+
+
+def transfer(
+    train: Sequence[Mapping[str, Any]],
+    test: Sequence[Mapping[str, Any]],
+    target: str,
+    model: Model = "l1",
+    seed: int = 0,
+    n_boot: int = N_BOOT,
+) -> Transfer:
+    """Fit on `train`, score on `test` (a model the fit never saw).
+
+    Inputs are `default_columns` under the leave-one-model-out rule, less those
+    `_seen` drops.
+
+    Args:
+        train: Feature rows of the dev models.
+        test: Feature rows of the held-out model.
+        target: As `design_matrix`.
+        model: As `cross_validate`.
+        seed: Tree and bootstrap seed.
+        n_boot: Scenario resamples for the slope interval.
+    """
+    tr, te = _scored(train, target), _scored(test, target)
+    rows = [*tr, *te]
+    y_tr = np.array([_y(r, target) for r in tr])
+    y_te = np.array([_y(r, target) for r in te])
+    nan = math.nan
+    if len(np.unique(y_tr)) < 2 or len(np.unique(y_te)) < 2:
+        return Transfer(nan, nan, nan, nan, nan, len(te))
+
+    def predict(columns: Sequence[str]) -> Matrix:
+        columns = _seen(_transferable(columns), tr, te)
+        _check(columns)
+        x, _, _ = _encode(rows, columns)
+        return _fit_predict(model, x[: len(tr)], y_tr, x[len(tr) :], seed)
+
+    pred = predict(default_columns(rows))
+    baseline = predict([c for c in CELL_FIELDS if any(c in r for r in rows)])
+    intercept, slope = _calibration_line(pred, y_te)
+    by_scenario: dict[tuple[str, str], list[int]] = defaultdict(list)
+    for i, r in enumerate(te):
+        by_scenario[scenario(r)].append(i)
+    keys = sorted(by_scenario)
+    rng = random.Random(seed)
+    slopes = []
+    for _ in range(n_boot):
+        idx = [i for k in rng.choices(keys, k=len(keys)) for i in by_scenario[k]]
+        s = _calibration_line(pred[idx], y_te[idx])[1]
+        slopes += [] if math.isnan(s) else [s]
+    lo, hi = percentiles(slopes) if slopes else (nan, nan)
+    return Transfer(
+        auroc=float(roc_auc_score(y_te, pred)),
+        brier=float(np.mean((pred - y_te) ** 2)),
+        baseline_config_auroc=float(roc_auc_score(y_te, baseline)),
+        calibration_intercept=intercept,
+        calibration_slope=slope,
+        n_test=len(te),
+        slope_lo=lo,
+        slope_hi=hi,
     )
 
 
@@ -595,6 +715,7 @@ def profile_stats(
 
 TEMPLATES = {
     "restricted": RESTRICTED_HEADER,
+    "appendix": APPENDIX_HEADER,
     "title": "# Behaviour profile: {model}",
     "heading": "## {heading}",
     "carry": "- {cell}: carry at {stage} {rate} (95% CI {lo} to {hi}; n = {n} attack runs).",
@@ -625,7 +746,7 @@ def _fmt(x: float) -> str:
 def write_profile(model_label: str, stats: ProfileStats, path: Path) -> None:
     """Render a model profile from `TEMPLATES` only (doc 11 §3.7)."""
     t = TEMPLATES
-    lines = [t["restricted"], t["title"].format(model=model_label)]
+    lines = [t["restricted"], t["appendix"], t["title"].format(model=model_label)]
     sections: list[list[str]] = [
         [
             t["carry"].format(

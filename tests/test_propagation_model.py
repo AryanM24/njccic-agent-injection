@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from eduinject.behavior.ladder import BEHAVIOURS
 from eduinject.behavior.propagation_model import (
     HALFLIFE_FIELDS,
     RunPath,
@@ -22,6 +23,7 @@ from eduinject.behavior.propagation_model import (
     survival,
     survival_by_depth,
 )
+from eduinject.behavior.swap import block_effects, pair_effects
 from eduinject.features import FEATURES_VERSION
 from eduinject.scorers.outcomes import CarryState
 
@@ -169,7 +171,9 @@ def test_behavior_models_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     with (out / "halflife.csv").open(encoding="utf-8") as f:
         families = {r["family"] for r in csv.DictReader(f)}
     assert families == {"marker", "warning", "content:recipient"}
-    assert "kept" in (out / "halflife.csv").read_text().splitlines()[0]
+    header = (out / "halflife.csv").read_text().splitlines()[0]
+    assert "kept" in header and header.startswith("section,")
+    assert (out / "halflife.csv").read_text().splitlines()[1].startswith("appendix,")
     assert (out / "chain.csv").read_text().count("transition") > 0
     assert "n_boot_kept" in (out / "chain.csv").read_text().splitlines()[0]
     assert "residual" in (out / "decomposition.csv").read_text()
@@ -188,3 +192,152 @@ def test_groups_never_pool_across_conditions() -> None:
     ]
     assert len(group_rows(rows)) == 3
     assert len(group_rows(rows, HALFLIFE_FIELDS)) == 2
+
+
+def _block(
+    aa: float, at: float, ta: float, tt: float, pair: str = "p1", epoch: Any = 1
+) -> list[dict[str, Any]]:
+    cells = {"aa": aa, "at": at, "ta": ta, "tt": tt}
+    return [
+        {"artifact_id": pair, "epoch": epoch, "swap": c, "beh:attempt": y}
+        for c, y in cells.items()
+    ]
+
+
+def test_block_effects_identity() -> None:
+    from itertools import product
+
+    for aa, at, ta, tt in product((0.0, 1.0), repeat=4):
+        ((key, e),) = block_effects(_block(aa, at, ta, tt), "beh:attempt").items()
+        assert key == ("p1", 1)
+        assert e.te == e.de + e.le + e.interaction
+    (only_both,) = block_effects(_block(1, 0, 0, 0), "beh:attempt").values()
+    assert only_both == (1, 0, 0, 1)
+    (laundered,) = block_effects(_block(1, 0, 1, 0), "beh:attempt").values()
+    assert laundered == (1, 0, 1, 0)
+    (direct,) = block_effects(_block(1, 1, 0, 0), "beh:attempt").values()
+    assert direct == (1, 1, 0, 0)
+
+
+def test_incomplete_block_is_dropped() -> None:
+    whole = _block(1, 0, 0, 0)
+    for i in range(4):
+        assert block_effects(whole[:i] + whole[i + 1 :], "beh:attempt") == {}
+        undefined = [dict(r) for r in whole]
+        undefined[i]["beh:attempt"] = "nan" if i % 2 else math.nan
+        assert block_effects(undefined, "beh:attempt") == {}
+    # Rows of two cells (say, two models) would silently overwrite each other.
+    with pytest.raises(ValueError, match="group by cell"):
+        block_effects(whole + whole, "beh:attempt")
+
+
+def test_pair_effects_average_epochs() -> None:
+    rows = [
+        *_block(1, 0, 1, 0, epoch=1),
+        *_block(0, 0, 0, 0, epoch="2"),
+        *_block(1, 1, 0, 0, pair="p2"),
+    ]
+    pairs = pair_effects(block_effects(rows, "beh:attempt"))
+    assert pairs == {"p1": (0.5, 0.0, 0.5, 0.0), "p2": (1.0, 1.0, 0.0, 0.0)}
+
+
+IGNORE: dict[str, Any] = {"beh:ignore": 1.0}
+WARN: dict[str, Any] = {"beh:warn": 1.0}
+
+
+def _beh(pair: str, base: str, label: str, **cols: Any) -> dict[str, Any]:
+    attack = label == "attack"
+    states = dict.fromkeys(
+        ("uptake", "relay", "adopt", "attempt", "attempt_strict", "harm"), 0.0
+    )
+    return (
+        {"model": "m", "workflow": "w1", "artifact_id": pair, "base_id": base}
+        | {"label": label, "epoch": 1, "status": "ok", "out:harm_completed": 0.0}
+        | {f"beh:{b}": 0.0 for b in BEHAVIOURS}
+        | {f"state:{s}": v for s, v in states.items()}
+        | ({} if attack else {"beh:silent_carry": math.nan, "beh:ignore": math.nan})
+        | cols
+    )
+
+
+def _run_ladder(
+    rows: list[dict[str, Any]], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    import behavior_models
+
+    features = tmp_path / "f.csv"
+    with features.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=list(rows[0]))
+        w.writeheader()
+        w.writerows(rows)
+    features.with_suffix(".roles.json").write_text(
+        json.dumps({"features_version": FEATURES_VERSION})
+    )
+    monkeypatch.setattr(behavior_models, "LOGS", tmp_path / "logs")
+    out = tmp_path / "logs" / "b"
+    argv = ["ladder", "--features", str(features), "--out", str(out), "--n-boot", "20"]
+    assert behavior_models.main(argv) == 0
+    tables = []
+    for name in ("ladder.csv", "transitions.csv"):
+        with (out / name).open(encoding="utf-8") as f:
+            tables.append(list(csv.DictReader(f)))
+    return tables[0], tables[1]
+
+
+def test_ladder_table_is_paired_and_scenario_weighted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rows = [
+        # Scenario b1 (its premise variant included): differences 1 and 0.
+        _beh("p1", "b1", "attack", **WARN),
+        _beh("p1", "b1", "twin"),
+        _beh("p2", "b1p", "attack", **IGNORE),
+        _beh("p2", "b1p", "twin"),
+        # Scenario b2: difference -1.
+        _beh("p3", "b2", "attack"),
+        _beh("p3", "b2", "twin", **WARN),
+        # The twin is unscored, so neither side of this block counts.
+        _beh("p4", "b2", "attack", **WARN),
+        _beh("p4", "b2", "twin", **(WARN | {"beh:warn": math.nan})),
+        # Another model is another cell.
+        _beh("p1", "b1", "attack", model="n"),
+        _beh("p1", "b1", "twin", model="n"),
+    ]
+    ladder, _ = _run_ladder(rows, tmp_path, monkeypatch)
+    by = {(r["model"], r["behaviour"]): r for r in ladder}
+    warn = by["m", "warn"]
+    assert float(warn["attack_rate"]) == pytest.approx(0.25)
+    assert float(warn["twin_rate"]) == pytest.approx(0.5)
+    assert float(warn["difference"]) == pytest.approx(-0.25)
+    assert (warn["n_pairs"], warn["n_scenarios"]) == ("3", "2")
+    assert float(by["n", "warn"]["difference"]) == 0.0
+    # Attack-only behaviours have a rate and no difference.
+    ignore = by["m", "ignore"]
+    assert float(ignore["attack_rate"]) == pytest.approx(0.25)
+    assert ignore["twin_rate"] == ignore["difference"] == ""
+    assert not {"goal", "channel", "file_type"} & set(ladder[0])
+
+
+def test_transitions_count_and_standardise(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    on: dict[str, Any] = {"state:relay": 1.0}
+    adopt = on | {"state:adopt": 1.0}
+    rows = [
+        _beh("p1", "b1", "attack", **adopt),
+        _beh("p1", "b1", "twin"),
+        _beh("p2", "b2", "attack", **on),
+        # Model n relays only the easy pair: unstandardised, it looks perfect.
+        _beh("p1", "b1", "attack", model="n", **adopt),
+        _beh("p2", "b2", "attack", model="n"),
+    ]
+    _, table = _run_ladder(rows, tmp_path, monkeypatch)
+    by = {(r["model"], r["label"], r["from"], r["to"]): r for r in table}
+    m, n = (by[x, "attack", "relay", "adopt"] for x in ("m", "n"))
+    assert (m["k"], m["n"], float(m["p"])) == ("1", "2", 0.5)
+    assert (n["k"], n["n"], float(n["p"])) == ("1", "1", 1.0)
+    # Only p1 has the conditioning event under both models.
+    assert float(m["p_standardised"]) == float(n["p_standardised"]) == 1.0
+    assert m["n_pairs_common"] == n["n_pairs_common"] == "1"
+    assert by["m", "twin", "relay", "adopt"]["p"] == ""
+    assert ("m", "attack", "adopt", "attempt_strict") in by
