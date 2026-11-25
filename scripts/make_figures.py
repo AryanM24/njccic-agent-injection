@@ -768,9 +768,7 @@ def grid_comparisons(rows: list[Row], out: Path) -> Path:
         ax.set_title(
             f"{title}\n{n_text(cells, column) if column else n_text(rs)}", fontsize=7
         )
-    points(
-        axes[-1], f"difference (percentage points; δ = {100 * endpoints.MARGIN:.0f})"
-    )
+    points(axes[-1], f"difference (points; δ = {100 * endpoints.MARGIN:.0f})")
     fig.legend(
         handles=[
             plt.Line2D(
