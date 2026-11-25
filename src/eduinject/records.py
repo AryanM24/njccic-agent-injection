@@ -10,11 +10,24 @@ no model.
 import json
 from collections.abc import Iterator, Mapping, Sequence
 from types import MappingProxyType
-from typing import Any, Literal, NamedTuple, cast
+from typing import Any, Literal, NamedTuple
 
 from eduinject.analysis import finished_samples
 from eduinject.defense import unmark
 from eduinject.scorers.deterministic import RUNS_KEY
+
+SWAP_KEY = "swap_runs"
+"""Sample metadata key of a swap sample's two cross runs (doc 14 §4); the same
+key the solver writes (`scorers.deterministic.SWAP_KEY`)."""
+
+SWAP_CELLS: tuple[tuple[str, Literal["attack", "twin"]], ...] = (
+    ("tt", "twin"),
+    ("at", "attack"),
+    ("ta", "attack"),
+    ("aa", "attack"),
+)
+"""(swap cell, record label): first letter the document at and after the swap,
+second the hand-off's source. Any cell the attack reached is an attack run."""
 
 NOT_EXECUTED = "not_executed"
 """Outcome of a call with no ledger entry: the tool never ran (e.g. Inspect
@@ -66,6 +79,8 @@ class RunRecord(NamedTuple):
     granted_tools: tuple[str, ...] = ()
     submitted: bool = False
     """The action stage called `submit`."""
+    swap: str = ""
+    """The message-swap cell (`SWAP_CELLS`); empty for an ordinary run."""
 
 
 def message_text(content: Any) -> str:
@@ -128,81 +143,119 @@ def _calls(
     return tuple(out)
 
 
+def _record(
+    sample: Any,
+    smeta: Mapping[str, Any],
+    cell: Mapping[str, Any],
+    run: Mapping[str, Any],
+    label: Literal["attack", "twin"],
+    swap: str = "",
+) -> RunRecord:
+    """The typed view of one recorded run of `sample`."""
+    pipeline = run.get("pipeline") or {}
+    ledger = run.get("ledger") or {}
+    doc = run.get("document_text")
+    finished = sample.error is None and sample.limit is None
+    status: Status = (
+        "unfinished"
+        if not finished or not pipeline
+        else "handoff_parse_error"
+        if pipeline.get("status") == "handoff_parse_error"
+        else "doc_unavailable"
+        if doc is None
+        else "ok"
+    )
+    return RunRecord(
+        label=label,
+        sample_id=str(sample.id),
+        artifact_id=str(smeta.get("artifact_id", sample.id)),
+        epoch=sample.epoch,
+        cell=cell,
+        coords={
+            "base_id": smeta.get("base_id"),
+            "goal": smeta.get("goal"),
+            "file_type": smeta.get("file_type"),
+            "channel": smeta.get("concealment"),
+            "split": smeta.get("split"),
+        },
+        operator_request=sample.input
+        if isinstance(sample.input, str)
+        else "\n".join(m.text for m in sample.input),
+        document_text=None if doc is None else unmark(doc),
+        stages=tuple(
+            (s["name"], s.get("input", ""), s["output"])
+            for s in pipeline.get("stages") or []
+        ),
+        calls=_calls(
+            pipeline.get("stage3_messages") or [],
+            ledger.get("calls") or [],
+        ),
+        status=status,
+        meta=smeta,
+        usage_by_stage={
+            s["name"]: s["usage"]
+            for s in pipeline.get("stages") or []
+            if s.get("usage")
+        },
+        ledger_calls=tuple(ledger.get("calls") or []),
+        attempted_egress=tuple(ledger.get("attempted_egress") or []),
+        granted_tools=tuple(ledger.get("granted_tools") or []),
+        submitted=any(
+            tc.get("function") == "submit"
+            for m in pipeline.get("stage3_messages") or []
+            for tc in m.get("tool_calls") or []
+        ),
+        swap=swap,
+    )
+
+
+def _runs(sample: Any) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """(metadata without recorded runs, ordinary runs, cross runs)."""
+    smeta = dict(sample.metadata or {})
+    runs = smeta.pop(RUNS_KEY, None) or {}
+    cross = smeta.pop(SWAP_KEY, None) or {}
+    return smeta, runs, cross
+
+
 def records_from_sample(sample: Any, cell: Mapping[str, Any]) -> list[RunRecord]:
     """The run records of one sample epoch, attack before twin.
 
     A label absent from `metadata["runs"]` (benign-only cells, or a run cut
-    off before it was written) yields no record.
+    off before it was written) yields no record. A swap sample's cross runs
+    are `swap_records`' business.
 
     Args:
         sample: An Inspect `EvalSample`.
         cell: The sample's `CELL_FIELDS` (`analysis.cell_from_log`).
     """
-    smeta = dict(sample.metadata or {})
-    runs = smeta.pop(RUNS_KEY, None) or {}
-    coords = {
-        "base_id": smeta.get("base_id"),
-        "goal": smeta.get("goal"),
-        "file_type": smeta.get("file_type"),
-        "channel": smeta.get("concealment"),
-        "split": smeta.get("split"),
-    }
-    finished = sample.error is None and sample.limit is None
-    records: list[RunRecord] = []
-    for label in ("attack", "twin"):
-        run = runs.get(label)
-        if not run:
-            continue
-        pipeline = run.get("pipeline") or {}
-        ledger = run.get("ledger") or {}
-        doc = run.get("document_text")
-        status: Status = (
-            "unfinished"
-            if not finished or not pipeline
-            else "handoff_parse_error"
-            if pipeline.get("status") == "handoff_parse_error"
-            else "doc_unavailable"
-            if doc is None
-            else "ok"
-        )
-        records.append(
-            RunRecord(
-                label=cast(Literal["attack", "twin"], label),
-                sample_id=str(sample.id),
-                artifact_id=str(smeta.get("artifact_id", sample.id)),
-                epoch=sample.epoch,
-                cell=cell,
-                coords=coords,
-                operator_request=sample.input
-                if isinstance(sample.input, str)
-                else "\n".join(m.text for m in sample.input),
-                document_text=None if doc is None else unmark(doc),
-                stages=tuple(
-                    (s["name"], s.get("input", ""), s["output"])
-                    for s in pipeline.get("stages") or []
-                ),
-                calls=_calls(
-                    pipeline.get("stage3_messages") or [],
-                    ledger.get("calls") or [],
-                ),
-                status=status,
-                meta=smeta,
-                usage_by_stage={
-                    s["name"]: s["usage"]
-                    for s in pipeline.get("stages") or []
-                    if s.get("usage")
-                },
-                ledger_calls=tuple(ledger.get("calls") or []),
-                attempted_egress=tuple(ledger.get("attempted_egress") or []),
-                granted_tools=tuple(ledger.get("granted_tools") or []),
-                submitted=any(
-                    tc.get("function") == "submit"
-                    for m in pipeline.get("stage3_messages") or []
-                    for tc in m.get("tool_calls") or []
-                ),
-            )
-        )
-    return records
+    smeta, runs, _ = _runs(sample)
+    labels: tuple[Literal["attack", "twin"], ...] = ("attack", "twin")
+    return [
+        _record(sample, smeta, cell, run, label)
+        for label in labels
+        if (run := runs.get(label))
+    ]
+
+
+def swap_records(sample: Any, cell: Mapping[str, Any]) -> list[RunRecord]:
+    """The four message-swap records of one sample epoch, in `SWAP_CELLS` order.
+
+    Empty for a sample without recorded cross runs; a cell whose run is absent
+    yields no record.
+
+    Args:
+        sample: An Inspect `EvalSample`.
+        cell: The sample's `CELL_FIELDS` (`analysis.cell_from_log`).
+    """
+    smeta, runs, cross = _runs(sample)
+    if not cross:
+        return []
+    by_cell = {"tt": runs.get("twin"), "aa": runs.get("attack"), **cross}
+    return [
+        _record(sample, smeta, cell, run, label, name)
+        for name, label in SWAP_CELLS
+        if (run := by_cell.get(name))
+    ]
 
 
 def records_from_logs(
@@ -216,5 +269,20 @@ def records_from_logs(
     """
     for cell, sample in finished_samples(log_dirs):
         for rec in records_from_sample(sample, cell):
+            if split is None or rec.coords["split"] == split:
+                yield rec
+
+
+def swap_records_from_logs(
+    log_dirs: Sequence[str], split: str | None = None
+) -> Iterator[RunRecord]:
+    """`swap_records` of every winning finished sample under `log_dirs`.
+
+    Args:
+        log_dirs: Log directories (local, file:// or s3://).
+        split: Keep only samples whose manifest `split` equals this.
+    """
+    for cell, sample in finished_samples(log_dirs):
+        for rec in swap_records(sample, cell):
             if split is None or rec.coords["split"] == split:
                 yield rec

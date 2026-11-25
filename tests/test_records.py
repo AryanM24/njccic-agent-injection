@@ -7,7 +7,7 @@ from inspect_ai.model import ChatMessageAssistant, ChatMessageTool, ChatMessageU
 from inspect_ai.tool import ToolCall, ToolCallError
 
 from eduinject.defense import DATAMARK
-from eduinject.records import CallView, records_from_sample
+from eduinject.records import CallView, records_from_sample, swap_records
 
 CELL = {"workflow": "w1", "scope": "write"}
 
@@ -231,3 +231,57 @@ def test_typed_run_fields() -> None:
     assert r.attempted_egress == ({"to": "x@y.example", "body": "b"},)
     assert r.granted_tools == ("lookup_account",)
     assert r.submitted is False
+
+
+def _swap_sample() -> EvalSample:
+    """A message-swap sample (doc 14 §4): `aa`/`tt` as attack/twin, the cross
+    runs under `swap_runs`."""
+    attack, twin = f"attack{DATAMARK}doc", "twin doc"
+    sample = _sample(
+        {
+            "attack": _simple_run(document_text=attack),
+            "twin": _simple_run(document_text=twin),
+        }
+    )
+    sample.metadata["swap_runs"] = {
+        "at": _simple_run(document_text=attack) | {"action_document": "attack"},
+        "ta": _simple_run(document_text=attack) | {"action_document": "twin"},
+    }
+    return sample
+
+
+def test_swap_records_are_four_in_order_with_labels() -> None:
+    recs = swap_records(_swap_sample(), CELL)
+    assert [(r.swap, r.label) for r in recs] == [
+        ("tt", "twin"),
+        ("at", "attack"),
+        ("ta", "attack"),
+        ("aa", "attack"),
+    ]
+    assert all(len(r.calls) == 1 and r.status == "ok" for r in recs)
+
+
+def test_non_swap_sample_has_no_swap_records() -> None:
+    sample = _sample({"attack": _simple_run(), "twin": _simple_run()})
+    assert swap_records(sample, CELL) == []
+
+
+def test_records_from_sample_is_unchanged_by_swap_runs() -> None:
+    plain = _swap_sample()
+    del plain.metadata["swap_runs"]
+    recs = records_from_sample(_swap_sample(), CELL)
+    assert [(r.label, r.swap) for r in recs] == [("attack", ""), ("twin", "")]
+    assert recs == records_from_sample(plain, CELL)
+
+
+def test_cross_runs_carry_the_attack_document() -> None:
+    by_swap = {r.swap: r for r in swap_records(_swap_sample(), CELL)}
+    assert by_swap["tt"].document_text == "twin doc"
+    for cell in ("at", "ta", "aa"):
+        assert by_swap[cell].document_text == "attack doc"
+
+
+def test_a_missing_cross_run_yields_no_record() -> None:
+    sample = _swap_sample()
+    del sample.metadata["swap_runs"]["ta"]
+    assert [r.swap for r in swap_records(sample, CELL)] == ["tt", "at", "aa"]
