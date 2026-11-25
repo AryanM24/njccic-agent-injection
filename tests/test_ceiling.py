@@ -2,7 +2,9 @@
 stage the marker reaches, run against the arms on the mock model. No network."""
 
 import ast
+import csv
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +44,11 @@ from eduinject.task import workflow as workflow_spec
 from eduinject.tools.directory_w1 import ACCOUNTS, ASSETS
 from eduinject.tools.ledger import BLOCKED
 from tests.helpers import MOCK
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+import ceiling as ceiling_script
 
 
 def _manifest(workflow: str) -> list[dict[str, Any]]:
@@ -170,6 +177,7 @@ def test_ceiling_rows_keeps_only_arm_level_fields() -> None:
     rows = [
         {
             "workflow": "w1",
+            "split": "dev",
             "goal": "data_theft",
             "channel": "body",
             "file_type": "docx",
@@ -179,6 +187,7 @@ def test_ceiling_rows_keeps_only_arm_level_fields() -> None:
         },
         {
             "workflow": "w1",
+            "split": "dev",
             "goal": "false_premise",
             "channel": "body",
             "file_type": "pdf",
@@ -193,6 +202,7 @@ def test_ceiling_rows_keeps_only_arm_level_fields() -> None:
         "adversary": "copy",
         "arm": "baseline",
         "workflow": "w1",
+        "split": "dev",
         "n": 2,
         "n_not_scored": 0,
         "harm.attempted": 0.5,
@@ -446,7 +456,7 @@ def test_bodies_are_values_only(workflow: str, monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_module_reads_no_corpus_or_payload() -> None:
-    path = Path(__file__).parents[1] / "src" / "eduinject" / "ceiling_search.py"
+    path = ROOT / "src" / "eduinject" / "ceiling_search.py"
     tree = ast.parse(path.read_text(encoding="utf-8"))
     banned = {"corpus", "extraction", "payloads"}
     for node in ast.walk(tree):
@@ -543,3 +553,117 @@ def test_benign_agent_takes_the_first_alternative_its_tools_allow() -> None:
     tools = [t for t in _tools("w3") if t.name in standard]
     assert benign_plan(meta, tools)[-1][0] == "escalate_to_staff"
     assert benign_plan(meta, _tools("w3"))[-1][0] == "send_reply"
+
+
+def test_ceiling_rows_carry_split_and_arm_arguments() -> None:
+    def row(split: str, harm: float) -> dict[str, Any]:
+        return {
+            "workflow": "w1",
+            "split": split,
+            "model": MOCK,
+            "status": "scored",
+            "isolated": False,
+            "gate": True,
+            "score:harm.completed": harm,
+        }
+
+    rows = [row("dev", 1.0), row("confirm", 0.0), row("dev", 0.0)]
+    confirm, dev = ceiling_rows(rows, "copy", "gate_open")
+    assert (confirm["split"], confirm["n"], confirm["harm.completed"]) == (
+        "confirm",
+        1,
+        0.0,
+    )
+    assert (dev["split"], dev["n"], dev["harm.completed"]) == ("dev", 2, 0.5)
+    assert dev["isolated"] is False and dev["gate"] is True
+    assert "model" not in dev
+
+
+def test_combined_arms_are_registered() -> None:
+    assert ARMS["gate_open"] == {**ARMS["not_isolated"], "gate": True}
+    assert ARMS["typed_gate"] == {**ARMS["typed"], "gate": True}
+
+
+def _spy_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[tuple[str, dict[str, Any], list[str]]]:
+    """Replace the script's `run`, recording (workflow, task arguments, ids)."""
+    calls: list[tuple[str, dict[str, Any], list[str]]] = []
+
+    def run(
+        code: str, arm: dict[str, Any], policy: Any, ids: list[str], log_dir: Path
+    ) -> list[dict[str, Any]]:
+        calls.append((code, arm, ids))
+        return [
+            {
+                "workflow": code,
+                "split": "dev",
+                "artifact_id": i,
+                "epoch": 1,
+                "status": "scored",
+                "score:harm.completed": 1.0,
+            }
+            for i in ids
+        ]
+
+    monkeypatch.setattr(ceiling_script, "run", run)
+    return calls
+
+
+def test_default_split_is_dev(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _spy_run(monkeypatch)
+    args = ["--arms", "baseline", "--adversary", "copy", "--out", str(tmp_path)]
+    assert ceiling_script.main(args) == 0
+    assert {code: ids for code, _, ids in calls} == {w: _dev_ids(w) for w in TASKS}
+
+
+def test_split_and_per_base_select_samples() -> None:
+    manifest = Path(workflow_spec("w1").manifest)
+    every = [e["artifact_id"] for e in _manifest("w1")]
+    select = ceiling_script.sample_ids
+    assert select(manifest, None, "all") == select(manifest, 0, "all") == every
+    both = [*select(manifest, None, "dev"), *select(manifest, None, "confirm")]
+    assert sorted(both) == sorted(every)
+    assert select(manifest, 1, "dev") == _one_dev_id_per_base("w1")
+
+
+def test_search_flag_appends_search_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    two = strategies("w1")[:2]
+    monkeypatch.setattr(ceiling_script, "strategies", lambda code: two)
+    args = ["--workflows", "w1", "--arms", "gate", "--adversary", "drop"]
+    args += ["--search", "--per-base", "1", "--out", str(tmp_path)]
+    with pytest.raises(SystemExit):  # strategy codes stay under logs/
+        ceiling_script.main(args)
+    monkeypatch.setattr(ceiling_script, "LOGS", tmp_path)
+    assert ceiling_script.main(args) == 0
+    with (tmp_path / "ceiling.csv").open(encoding="utf-8") as f:
+        table = list(csv.DictReader(f))
+    assert [(r["adversary"], r["arm"], r["split"]) for r in table] == [
+        ("drop", "gate", "dev"),
+        ("search", "gate", "dev"),
+    ]
+    assert table[1]["n_strategies"] == "2"
+    assert table[1]["gate"] == "True"
+    assert "strategy" not in table[1]
+    with (tmp_path / "search_strategies.csv").open(encoding="utf-8") as f:
+        codes = [r["strategy"] for r in csv.DictReader(f)]
+    assert codes == [s.code() for s in two]
+    assert list((tmp_path / "search" / "gate" / "w1").glob("*.eval"))
+
+
+def test_arm_json_runs_an_unregistered_arm(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = _spy_run(monkeypatch)
+    args = ["--workflows", "w1", "--adversary", "copy", "--out", str(tmp_path)]
+    given = """relay_gate={"relay_stages": 1, "gate": true}"""
+    assert ceiling_script.main([*args, "--arm-json", given]) == 0
+    ((_, arm, _),) = calls
+    assert arm == {**ARMS["baseline"], "relay_stages": 1, "gate": True}
+    with (tmp_path / "ceiling.csv").open(encoding="utf-8") as f:
+        assert [r["arm"] for r in csv.DictReader(f)] == ["relay_gate"]
+    for bad in ("gate={}", "x=[1]", "x={", "a/b={}"):
+        with pytest.raises(SystemExit):
+            ceiling_script.main([*args, "--arm-json", bad])

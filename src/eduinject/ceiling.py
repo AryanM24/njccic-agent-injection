@@ -78,9 +78,12 @@ ARMS: dict[str, dict[str, Any]] = {
     "typed": {**BASELINE, "handoff_mode": "typed"},
     "gate": {**BASELINE, "gate": True},
     "relay_2": {**BASELINE, "relay_stages": 2},
+    "gate_open": {**BASELINE, "isolated": False, "gate": True},
+    "typed_gate": {**BASELINE, "handoff_mode": "typed", "gate": True},
 }
-"""The baseline and one change per arm (one factor at a time): every task
-argument not named stays at its default."""
+"""The baseline, one change per arm (one factor at a time), and the two combined
+arms doc 14 compares (`gate_open`, `typed_gate`): every task argument not named
+stays at its default."""
 
 ARM_FIELDS = tuple(
     f
@@ -97,6 +100,8 @@ ARM_FIELDS = tuple(
         "prompts_version",
         "benign_only",
         "controls",
+        "reader_model",
+        "reader_host",
     )
 )
 """The cell fields that are an arm's own task arguments, as table columns."""
@@ -413,22 +418,39 @@ def adversary(kind: Adversary) -> Policy:
     return scripted(kind, attack_plan, _everything_seen)
 
 
+def by_split(
+    rows: Sequence[Mapping[str, Any]],
+) -> list[tuple[str, str, list[Mapping[str, Any]]]]:
+    """(workflow, split, its rows), in order."""
+    groups: dict[tuple[str, str], list[Mapping[str, Any]]] = {}
+    for r in rows:
+        groups.setdefault((str(r["workflow"]), str(r.get("split"))), []).append(r)
+    return [(wf, split, mine) for (wf, split), mine in sorted(groups.items())]
+
+
+def arm_arguments(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """The task arguments (`ARM_FIELDS`) the rows of one arm ran under."""
+    return {f: rows[0][f] for f in ARM_FIELDS if f in rows[0]}
+
+
 def ceiling_rows(
     rows: Sequence[Mapping[str, Any]], adversary: str, arm: str
 ) -> list[dict[str, Any]]:
-    """Per workflow: run count, unscored count and the mean of every score
-    over the scored runs. Arm-level only: no goal, channel or file type."""
+    """Per workflow and split: run count, unscored count, the arm's task
+    arguments and the mean of every score over the scored runs. Arm-level only:
+    no goal, channel or file type."""
     out: list[dict[str, Any]] = []
-    for wf in sorted({str(r["workflow"]) for r in rows}):
-        mine = [r for r in rows if r["workflow"] == wf]
+    for wf, split, mine in by_split(rows):
         scored = [r for r in mine if r.get("status") == "scored"]
         metrics = sorted({k for r in scored for k in r if k.startswith("score:")})
         row: dict[str, Any] = {
             "adversary": adversary,
             "arm": arm,
             "workflow": wf,
+            "split": split,
             "n": len(mine),
             "n_not_scored": len(mine) - len(scored),
+            **arm_arguments(mine),
         }
         for k in metrics:
             values = [float(r[k]) for r in scored if k in r]

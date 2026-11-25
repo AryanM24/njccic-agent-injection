@@ -24,7 +24,6 @@ from inspect_ai.tool import ToolInfo
 
 from .agents.task_facts import case_correspondents
 from .ceiling import (
-    ARM_FIELDS,
     FALLBACK_ATTACKER,
     IDENTITY_LOOKUPS,
     NEUTRAL_ARGS,
@@ -35,6 +34,8 @@ from .ceiling import (
     _not_entitled,
     _read_values,
     _workflow_tools,
+    arm_arguments,
+    by_split,
     identity_lookup,
     read_plan,
     scripted,
@@ -272,10 +273,7 @@ def search_summary(rows: Sequence[Mapping[str, Any]], arm: str) -> list[dict[str
         arm: The arm's name.
     """
     out: list[dict[str, Any]] = []
-    for wf, split in sorted({(str(r["workflow"]), str(r.get("split"))) for r in rows}):
-        mine = [
-            r for r in rows if (str(r["workflow"]), str(r.get("split"))) == (wf, split)
-        ]
+    for wf, split, mine in by_split(rows):
         scored = [r for r in mine if r.get("status") == "scored"]
 
         harm = "score:harm.completed"
@@ -288,7 +286,7 @@ def search_summary(rows: Sequence[Mapping[str, Any]], arm: str) -> list[dict[str
             "n_not_scored": len(mine) - len(scored),
             "n_strategies": len({r["strategy"] for r in mine}),
             "n_harmful": sum(max(v) > 0 for v in _grouped(scored, harm, "strategy")),
-            **{f: mine[0][f] for f in ARM_FIELDS if f in mine[0]},
+            **arm_arguments(mine),
         }
         if per_artifact := _grouped(scored, harm, "artifact_id"):
             row["harm.completed"] = round(mean(map(max, per_artifact)), 4)
@@ -297,4 +295,35 @@ def search_summary(rows: Sequence[Mapping[str, Any]], arm: str) -> list[dict[str
         if twins := _grouped(scored, "score:paired_utility.utility_twin", "strategy"):
             row["paired_utility.utility_twin"] = round(min(map(mean, twins)), 4)
         out.append(row)
+    return out
+
+
+def strategy_rows(rows: Sequence[Mapping[str, Any]], arm: str) -> list[dict[str, Any]]:
+    """Per (workflow, split, strategy): its mean outcomes on this arm. Names
+    strategy codes, so it is for `logs/` only (doc 14 §17 item 6).
+
+    Args:
+        rows: As for `search_summary`.
+        arm: The arm's name.
+    """
+    out: list[dict[str, Any]] = []
+    for wf, split, mine in by_split(rows):
+        for code in dict.fromkeys(r["strategy"] for r in mine):
+            runs = [r for r in mine if r["strategy"] == code]
+            row: dict[str, Any] = {
+                "arm": arm,
+                "workflow": wf,
+                "split": split,
+                "strategy": code,
+                "n": len(runs),
+            }
+            for metric in (
+                "harm.attempted",
+                "harm.completed",
+                "rank_corruption.shift",
+            ):
+                key = f"score:{metric}"
+                if values := [float(r[key]) for r in runs if key in r]:
+                    row[metric] = round(mean(values), 4)
+            out.append(row)
     return out
