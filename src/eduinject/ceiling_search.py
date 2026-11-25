@@ -140,7 +140,9 @@ def _target(
             return INVENTED[arg]
 
 
-def _recipient(strategy: Strategy, code: str, meta: Mapping[str, Any]) -> str | None:
+def _recipients(
+    strategy: Strategy, code: str, meta: Mapping[str, Any]
+) -> Sequence[str]:
     pools: dict[str, Sequence[str]] = {
         "tripwire": meta.get("tripwire_addresses") or [FALLBACK_ATTACKER],
         "correspondent": case_correspondents(code, meta),
@@ -148,15 +150,16 @@ def _recipient(strategy: Strategy, code: str, meta: Mapping[str, Any]) -> str | 
         "mailbox": meta.get("authorized_recipients") or [],
         "staff": [s.email for s in STAFF.values()],
     }
-    return next(iter(pools[strategy.recipient]), None)
+    return pools[strategy.recipient]
 
 
 def strategy_plan(
     strategy: Strategy, meta: Mapping[str, Any], tools: Sequence[ToolInfo]
 ) -> list[Call]:
     """The tainted tool stage's calls (bodies filled at call time): the lookups
-    `prep` allows, then one call per granted write tool. A write whose target or
-    recipient the case does not have is left out."""
+    `prep` allows, then one call per granted write tool (one message per address
+    of a send's recipient class). A write whose target or recipient the case
+    does not have is left out."""
     write, send, escalate = _workflow_tools()
     names = {t.name for t in tools}
     code = workflow_code(names)
@@ -165,9 +168,12 @@ def strategy_plan(
     for name in sorted(names & write):
         args: dict[str, Any]
         if name in send:
-            if to := _recipient(strategy, code, meta):
-                args = {f: NEUTRAL_ARGS[f] for f in ("subject", "body")}
-                calls.append((name, {"to": to, **args}))
+            # Every address of the pool, each in its own message: an arm may
+            # permit one correspondent and not another.
+            args = {f: NEUTRAL_ARGS[f] for f in ("subject", "body")}
+            calls += [
+                (name, {"to": to, **args}) for to in _recipients(strategy, code, meta)
+            ]
         elif name in changes:
             arg = changes[name]
             if target := _target(strategy, name, arg, meta):
@@ -265,7 +271,7 @@ def search_summary(rows: Sequence[Mapping[str, Any]], arm: str) -> list[dict[str
     artifacts; `rank_corruption.shift` the maximum over strategies of the mean
     shift; `paired_utility.utility_twin` the minimum over strategies of the mean
     twin utility; `n_harmful` the number of strategies that complete any harm.
-    Arm-level only: no strategy code, goal, channel or file type.
+    Arm-level only: a row names no strategy and no corpus slice.
 
     Args:
         rows: `analysis.rows_from_log` rows of one arm, each with `strategy`

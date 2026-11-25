@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any
 
 from inspect_ai import eval
+from inspect_ai.log import read_eval_log_samples
 from inspect_ai.model import get_model
 
 from eduinject.analysis import rows_from_log
@@ -121,7 +122,11 @@ def run(
     )
     if log.status != "success":
         raise SystemExit(f"{log_dir}/{code}: {log.status} {log.error}")
-    return rows_from_log(log)
+    # Streamed: Inspect keeps a log's loaded samples alive, gigabytes per search.
+    rows: list[dict[str, Any]] = []
+    for sample in read_eval_log_samples(log.location):
+        rows += rows_from_log(log.model_copy(update={"samples": [sample]}))
+    return rows
 
 
 def main(argv: list[str] | None = None) -> int:

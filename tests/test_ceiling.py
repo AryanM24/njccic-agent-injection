@@ -326,7 +326,7 @@ def test_invented_targets_are_in_no_directory() -> None:
     assert INVENTED["asset_tag"] not in ASSETS
 
 
-@pytest.mark.parametrize("arm", ["baseline", "gate"])
+@pytest.mark.parametrize("arm", ["baseline", "gate", "typed_gate"])
 @pytest.mark.parametrize("workflow", list(TASKS))
 def test_search_finds_at_least_the_copy_ceiling(
     workflow: str, arm: str, tmp_path: Path
