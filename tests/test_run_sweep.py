@@ -338,3 +338,144 @@ def test_hosts_are_a_real_axis_and_duplicates_dedupe(
     with pytest.raises(SystemExit) as exc:
         parse_args(["--model", "m", "--hosts", "X", "-M", "provider=Y"])
     assert exc.value.code == 2
+
+
+def _lines(out: str) -> list[str]:
+    return [ln for ln in out.splitlines() if "config_hash=" in ln]
+
+
+def test_core_arms_are_four_per_scope(capsys: pytest.CaptureFixture[str]) -> None:
+    from run_sweep import ARMS, main
+
+    assert len(set(ARMS["core"])) == 4
+    argv = ["--model", "mockllm/model", "--workflow", "w1", "--arms", "core"]
+    argv += ["--scopes", "standard", "read_write", "--limit", "1", "--dry-run"]
+    assert main(argv) == 0
+    lines = _lines(capsys.readouterr().out)
+    assert len(lines) == 8 and all("swap=None" in ln for ln in lines)
+    got = [
+        tuple(f in ln for f in ("isolated=True", "handoff=typed", "gate=True"))
+        for ln in lines[:4]
+    ]
+    # U at both isolations, G, TG (doc 14 §2).
+    assert got == [
+        (False, False, False),
+        (True, False, False),
+        (False, False, True),
+        (True, True, True),
+    ]
+
+
+def test_swap_arm_sets_swap_stage_and_prices_1_6_pairs(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    from run_sweep import ARMS, main
+
+    (arm,) = ARMS["swap"]
+    assert arm.swap_stage == "action" and arm.isolated is False
+    argv = ["--preset", "gemini-3.8-flash", "--workflow", "w1", "--dry-run"]
+    argv += ["--scopes", "read_write", "--log-dir", str(tmp_path / "none")]
+    assert main([*argv, "--arms", "swap"]) == 0
+    (swap,) = _lines(capsys.readouterr().out)
+    assert main([*argv, "--isolation", "control", "--swap-stage", "action"]) == 0
+    (axis,) = _lines(capsys.readouterr().out)
+    assert main([*argv, "--isolation", "control"]) == 0
+    (plain,) = _lines(capsys.readouterr().out)
+    assert swap == axis and "swap=action" in swap and "swap=None" in plain
+    runs = int(plain.split("runs=")[1].split()[0])
+    entry = load_models()["gemini-3.8-flash"]
+    base = estimate_usd(runs, False, 0, entry, None)
+    assert base is not None
+    assert plain.endswith(f" est=${base:,.2f}")
+    assert swap.endswith(f" est=${1.6 * base:,.2f}")
+    assert swap.split("config_hash=")[1][:16] != plain.split("config_hash=")[1][:16]
+
+
+def test_swap_stage_is_an_axis(capsys: pytest.CaptureFixture[str]) -> None:
+    from run_sweep import main
+
+    argv = ["--model", "mockllm/model", "--scopes", "read_write", "--limit", "1"]
+    argv += ["--isolation", "control", "--swap-stage", "analysis", "action"]
+    assert main([*argv, "--dry-run"]) == 0
+    lines = _lines(capsys.readouterr().out)
+    assert ["swap=analysis" in ln for ln in lines] == [True, False]
+    assert "swap=action" in lines[1]
+
+
+@pytest.mark.parametrize("argv", [["--arms", "core"], ["--arms", "swap"]])
+def test_swap_stage_conflicts_with_arms(
+    argv: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as exc:
+        parse_args(["--model", "m", *argv, "--swap-stage", "action"])
+    assert exc.value.code == 2
+    assert "--swap-stage" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("isolation", [[], ["--isolation", "both"]])
+def test_swap_stage_needs_the_control_isolation(
+    isolation: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as exc:
+        parse_args(["--model", "m", *isolation, "--swap-stage", "action"])
+    assert exc.value.code == 2
+    assert "--isolation control" in capsys.readouterr().err
+
+
+def test_core_arms_refuse_identity_facts(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
+        parse_args(["--model", "m", "--arms", "core", "--identity", "facts"])
+    assert exc.value.code == 2
+    assert "--identity facts" in capsys.readouterr().err
+    assert parse_args(["--model", "m", "--arms", "swap", "--identity", "facts"])
+
+
+def test_reader_preset_crosses_models_and_diagonal_is_plain(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    from run_sweep import main
+
+    names = ["luna", "gemini-3.8-flash"]
+    argv = ["--workflow", "w1", "--scopes", "read_write", "--limit", "4"]
+    argv += ["--isolation", "isolated", "--dry-run", "--log-dir", str(tmp_path / "x")]
+    argv += ["--model-preset", *names]
+    assert main(argv) == 0
+    plain = _lines(capsys.readouterr().out)
+    assert main([*argv, "--reader-preset", *names]) == 0
+    lines = _lines(capsys.readouterr().out)
+    assert len({ln.split("config_hash=")[1][:16] for ln in lines}) == len(lines) == 4
+    diagonal = [ln for ln in lines if "reader=None" in ln]
+    assert diagonal == plain, "the diagonal is the ordinary cell, same hash and price"
+    off = [ln for ln in lines if ln not in diagonal]
+    models = load_models()
+    assert {
+        tuple(ln.split(f"{k}=")[1].split()[0] for k in ("reader", "model"))
+        for ln in off
+    } == {(models[a].model, models[b].model) for a, b in (names, names[::-1])}
+    dearer = estimate_usd(4, False, 0, models["gemini-3.8-flash"], None)
+    assert all(
+        ln.endswith(f" est=${dearer:,.2f} (upper bound: dearer of reader/actor)")
+        for ln in off
+    )
+
+
+def test_todo_reader_preset_is_refused(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
+        parse_args(["--preset", "luna", "--reader-preset", "todo-open-family"])
+    assert exc.value.code == 2
+    assert "todo-open-family has TODO fields" in capsys.readouterr().err
+
+
+def test_a_paid_reader_behind_a_mock_actor_is_a_paid_run(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import run_sweep
+
+    monkeypatch.setattr(run_sweep, "draft_documents", lambda: ["addendum"])
+    monkeypatch.setattr(
+        run_sweep, "eval_set", lambda *a, **k: pytest.fail("must not start the eval")
+    )
+    monkeypatch.setenv("OPENROUTER_API_KEY", "x")
+    argv = ["--model", "mockllm/model", "--reader-preset", "luna", "--limit", "1"]
+    assert run_sweep.main(argv) == 3
+    assert "refusing a paid run" in capsys.readouterr().err
