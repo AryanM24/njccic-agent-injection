@@ -14,6 +14,7 @@ import argparse
 import json
 import os
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, NamedTuple, get_args
 
@@ -23,6 +24,7 @@ from dotenv import find_dotenv, load_dotenv
 from estimate_cost import estimate_usd, token_stats
 from inspect_ai import eval_set
 
+from eduinject import freeze
 from eduinject.agents.task_facts import IDENTITY_MODES
 from eduinject.config import draft_documents
 from eduinject.defense import DEFENSES
@@ -45,6 +47,11 @@ WORKFLOWS = {
     "w2": (eduinject_w2, W2_MANIFEST),
     "w3": (eduinject_w3, W3_MANIFEST),
 }
+
+
+ROOT = Path(__file__).resolve().parents[1]
+FREEZE_COPY = "FREEZE.json"
+"""The freeze entry a confirm run was made under, written to its log directory."""
 
 
 class Cell(NamedTuple):
@@ -258,6 +265,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Path to the corpus manifest (defaults to the chosen workflow's).",
     )
     parser.add_argument(
+        "--split",
+        choices=["dev", "confirm"],
+        default="dev",
+        help="Samples whose scenario is in this split. confirm, and any held-out "
+        "model, needs a freeze that matches the working tree (doc 14 §10). There "
+        "is no way to run both: the default never touches a confirm scenario.",
+    )
+    parser.add_argument(
         "--epochs",
         type=int,
         default=None,
@@ -360,6 +375,41 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return args
 
 
+def split_refusals(
+    split: str,
+    cells: Sequence[Cell],
+    manifest: str,
+    log_dir: str,
+    root: Path = ROOT,
+) -> list[str]:
+    """Why this sweep may not run under doc 14 §10; [] when it may."""
+    held_out = {e.model for e in load_models().values() if e.held_out}
+    uses_held_out = any(
+        m in held_out
+        for c in cells
+        for m in (c.model, c.reader.model if c.reader else None)
+    )
+    if split == "dev":
+        problems = []
+        if uses_held_out:
+            problems.append("a held-out model runs on --split confirm only")
+        if (Path(log_dir) / FREEZE_COPY).exists():
+            problems.append(f"{log_dir} holds a confirm run; use another --log-dir")
+        return problems
+    problems = list(freeze.freeze_problems())
+    if root != freeze.ROOT:
+        problems.append(f"this script is in {root}, the frozen tree is {freeze.ROOT}")
+    resolved = Path(manifest).resolve()
+    frozen = {p.resolve() for p in (root / "corpus").glob("manifest_w*.jsonl")}
+    frozen |= set((root / "corpus" / "canonical").resolve().rglob("*.jsonl"))
+    if resolved not in frozen:
+        problems.append(f"manifest {manifest} is not in the frozen corpus")
+    logs = Path(log_dir)
+    if not (logs / FREEZE_COPY).exists() and any(logs.rglob("*.eval")):
+        problems.append(f"{log_dir} already holds a run that is not a confirm run")
+    return problems
+
+
 def main(argv: list[str] | None = None) -> int:
     # Inspect loads .env only when the eval starts; tasks bind their model
     # (and need its API key) before that.
@@ -415,12 +465,19 @@ def main(argv: list[str] | None = None) -> int:
         for verify in args.verification_tools
     ]
     tasks = [task for _, task in cells]
+    for task in tasks:
+        if any("split" not in (s.metadata or {}) for s in task.dataset):
+            print(f"{manifest}: a row has no split (doc 14 §2)", file=sys.stderr)
+            return 2
+        task.dataset = task.dataset.filter(
+            lambda s: (s.metadata or {})["split"] == args.split
+        )
 
     print(
         f"sweeping {len(tasks)} cell(s) of {args.workflow} on "
         f"{len({c.model for c, _ in cells})} model(s) "
         f"(epochs={args.epochs}, benign_only={args.benign_only}, "
-        f"controls={args.controls})"
+        f"controls={args.controls}, split={args.split})"
     )
     twin_only = args.benign_only or args.controls
     total = 0
@@ -481,8 +538,13 @@ def main(argv: list[str] | None = None) -> int:
     drafts = draft_documents()
     if drafts:
         print(f"governing documents still in draft: {', '.join(drafts)}")
+    refusals = split_refusals(args.split, args.cells, manifest, args.log_dir)
+    print(f"freeze: {'; '.join(refusals) or 'ok'}")
     if args.dry_run:
         return 0
+    if refusals:
+        print(f"refusing (doc 14 §10): {'; '.join(refusals)}", file=sys.stderr)
+        return 3
     paid = not all(
         str(m).startswith("mockllm/")
         for c, _ in cells
@@ -495,6 +557,12 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 3
+
+    if args.split == "confirm":
+        copy = Path(args.log_dir) / FREEZE_COPY
+        copy.parent.mkdir(parents=True, exist_ok=True)
+        entry = freeze.load_freeze()[-1]
+        copy.write_text(json.dumps(entry._asdict(), indent=2) + "\n", "utf-8")
 
     success, logs = eval_set(
         tasks,

@@ -479,3 +479,109 @@ def test_a_paid_reader_behind_a_mock_actor_is_a_paid_run(
     argv = ["--model", "mockllm/model", "--reader-preset", "luna", "--limit", "1"]
     assert run_sweep.main(argv) == 3
     assert "refusing a paid run" in capsys.readouterr().err
+
+
+def _confirm(tmp_path: Path, *extra: str) -> list[str]:
+    argv = ["--workflow", "w1", "--split", "confirm", "--benign-only", "--limit", "1"]
+    argv += ["--scopes", "read_only", "--isolation", "isolated"]
+    return [*argv, "--log-dir", str(tmp_path / "logs"), *extra]
+
+
+@pytest.fixture
+def swept(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    """Every `eval_set` call, none of which runs."""
+    import run_sweep
+
+    calls: list[dict[str, Any]] = []
+
+    def fake(tasks: Any, **kwargs: Any) -> tuple[bool, list[Any]]:
+        calls.append({"tasks": tasks, **kwargs})
+        return True, []
+
+    monkeypatch.setattr(run_sweep, "eval_set", fake)
+    return calls
+
+
+def test_confirm_split_is_refused_without_a_freeze(
+    tmp_path: Path, swept: list[dict[str, Any]], capsys: pytest.CaptureFixture[str]
+) -> None:
+    from run_sweep import main
+
+    assert main(_confirm(tmp_path, "--model", "mockllm/model")) == 3
+    assert "no freeze entry" in capsys.readouterr().err and not swept
+
+
+def test_held_out_model_needs_confirm_and_a_freeze(
+    tmp_path: Path, swept: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from run_sweep import main
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "x")
+    held = ["--model-preset", "gemini-3.8-flash", "--allow-draft-docs"]
+    slug = ["--model", load_models()["gemini-3.8-flash"].model, "--allow-draft-docs"]
+    slug += ["-M", 'provider={"order":["Google AI Studio"],"allow_fallbacks":false}']
+    reader = ["--model-preset", "luna", "--reader-preset", "gemini-3.8-flash"]
+    dev = [a if a != "confirm" else "dev" for a in _confirm(tmp_path)]
+    for who in (held, slug, [*reader, "--allow-draft-docs"]):
+        assert main([*dev, *who]) == 3
+        assert main([*_confirm(tmp_path), *who]) == 3
+    assert not swept
+
+
+def test_dry_run_reports_freeze_and_does_not_refuse(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from run_sweep import main
+
+    assert main(_confirm(tmp_path, "--model", "mockllm/model", "--dry-run")) == 0
+    assert "freeze: no freeze entry" in capsys.readouterr().out
+
+
+def test_split_selects_samples_and_defaults_to_dev(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from run_sweep import main
+
+    argv = ["--workflow", "w2", "--model", "mockllm/model", "--dry-run"]
+    argv += ["--scopes", "read_write", "--isolation", "isolated", "--epochs", "2"]
+    assert main(argv) == 0
+    assert f"total: {2 * 74} pairs" in capsys.readouterr().out
+    assert main([*argv, "--split", "confirm"]) == 0
+    assert f"total: {2 * 48} pairs" in capsys.readouterr().out
+
+
+def test_confirm_run_copies_the_entry_and_owns_its_log_dir(
+    tmp_path: Path, swept: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import run_sweep
+
+    from eduinject.freeze import FreezeEntry
+
+    entry = FreezeEntry("0" * 64, "c", "2026-12-01", ("gate",), ("baseline",), (), "n")
+    monkeypatch.setattr(run_sweep.freeze, "freeze_problems", list)
+    monkeypatch.setattr(run_sweep.freeze, "load_freeze", lambda: [entry])
+    argv = _confirm(tmp_path, "--model", "mockllm/model")
+    assert run_sweep.main(argv) == 0
+    (call,) = swept
+    assert {s.metadata["split"] for t in call["tasks"] for s in t.dataset} == {
+        "confirm"
+    }
+    copy = tmp_path / "logs" / run_sweep.FREEZE_COPY
+    assert '"2026-12-01"' in copy.read_text("utf-8")
+    # A dev sweep into a confirm log dir would be taken as already done.
+    assert run_sweep.main([a if a != "confirm" else "dev" for a in argv]) == 3
+    copy.unlink()
+    (tmp_path / "logs" / "x.eval").write_text("")
+    assert run_sweep.main(argv) == 3
+
+
+def test_confirm_refuses_a_manifest_outside_the_frozen_corpus(
+    tmp_path: Path, swept: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import run_sweep
+
+    monkeypatch.setattr(run_sweep.freeze, "freeze_problems", list)
+    other = tmp_path / "manifest_w1.jsonl"
+    other.write_bytes(Path(run_sweep.W1_MANIFEST).read_bytes())
+    argv = _confirm(tmp_path, "--model", "mockllm/model", "--manifest", str(other))
+    assert run_sweep.main(argv) == 3 and not swept
