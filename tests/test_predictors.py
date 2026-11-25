@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 from eduinject.behavior.predictors import (
+    APPENDIX_HEADER,
     LINE_PATTERNS,
     RESTRICTED_HEADER,
     TARGETS,
@@ -128,12 +129,12 @@ def test_explain_and_rule_targets() -> None:
     assert max(expl.drop_column, key=lambda k: expl.drop_column[k]) == "carry:analysis"
 
 
-def test_profile_has_no_free_text(tmp_path: Path) -> None:
+def test_profile_lines_still_match_templates(tmp_path: Path) -> None:
     rows = [r for r in _rows() if r["model"] == "m0"]
     path = tmp_path / "profile_m0.md"
     write_profile("m0", profile_stats(rows, n_boot=20), path)
     lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln]
-    assert lines[0] == RESTRICTED_HEADER
+    assert lines[:2] == [RESTRICTED_HEADER, APPENDIX_HEADER]
     assert len(lines) > 6
     for line in lines:
         assert any(p.fullmatch(line) for p in LINE_PATTERNS), line

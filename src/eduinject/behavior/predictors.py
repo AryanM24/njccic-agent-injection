@@ -60,6 +60,8 @@ RESTRICTED_HEADER = (
 )
 """First line of every profile: predictors may name goal=, channel= or
 file_type= levels, which the release policy keeps out of public outputs."""
+APPENDIX_HEADER = "APPENDIX (doc 14 §9)"
+"""Second line of every profile: profiles are not in the primary path."""
 N_BINS = 10
 TOP_PREDICTORS = 3
 
@@ -595,6 +597,7 @@ def profile_stats(
 
 TEMPLATES = {
     "restricted": RESTRICTED_HEADER,
+    "appendix": APPENDIX_HEADER,
     "title": "# Behaviour profile: {model}",
     "heading": "## {heading}",
     "carry": "- {cell}: carry at {stage} {rate} (95% CI {lo} to {hi}; n = {n} attack runs).",
@@ -625,7 +628,7 @@ def _fmt(x: float) -> str:
 def write_profile(model_label: str, stats: ProfileStats, path: Path) -> None:
     """Render a model profile from `TEMPLATES` only (doc 11 §3.7)."""
     t = TEMPLATES
-    lines = [t["restricted"], t["title"].format(model=model_label)]
+    lines = [t["restricted"], t["appendix"], t["title"].format(model=model_label)]
     sections: list[list[str]] = [
         [
             t["carry"].format(

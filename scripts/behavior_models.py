@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
-"""Behaviour models over the A4 feature table (doc 11 §3.6).
+"""Behaviour models over the A4 feature table (doc 11 §3.6, doc 14 §3).
 
+    behavior_models.py ladder   --features logs/features/<name>.csv --out logs/behavior/
     behavior_models.py chain    --features logs/features/<name>.csv --out logs/behavior/
     behavior_models.py halflife --features logs/features/<name>.csv --out logs/behavior/
     behavior_models.py predict  --features logs/features/<name>.csv --out logs/behavior/
     behavior_models.py profiles --features logs/features/<name>.csv --out logs/behavior/
 
-`chain` writes `chain.csv` (transition and emission fractions) and
+`ladder` writes `ladder.csv` (per cell and behaviour: attack rate, twin rate and
+their within-pair difference, pairs averaged within a base scenario and
+scenarios equally weighted, with a scenario-bootstrap interval) and
+`transitions.csv` (P(next state | state) per cell and label, with counts, and on
+attack runs the same standardised to the pooled pair mix over the pairs where
+every model of the cell has the conditioning event). `chain` writes `chain.csv` (transition and emission fractions) and
 `decomposition.csv`; `halflife` writes `halflife.csv` (whole marker, each
-component marker as content, flag language as the warning). Every estimate
+component marker as content, flag language as the warning; appendix). Every estimate
 is per experimental cell (`analysis.CELL_FIELDS`; half-lives pool relay depths
 only) with a pair-bootstrap 95% interval and the count of bootstrap draws that
 defined it. `predict` (A7, doc 11 §3.7) cross-validates L1 logistic and
@@ -16,22 +22,27 @@ depth-4 tree predictors from `pre_outcome` columns only, grouped by pair,
 by base scenario and by model (leave one model out: does a predictor transfer
 to a model it never saw?), for harmful completion, carry to the action stage and the five most violated rules:
 `predictors.csv`, `calibration.csv`, `coefficients.csv`, `drop_column.csv`,
-`trees.txt`. `profiles` writes `profile_<model>.md` per model, templated
-sentences only. OUT must lie under the repository's `logs/` (exit 2), and a
+`trees.txt`. `profiles` writes `profile_<model>.md` per model (appendix),
+templated sentences only. OUT must lie under the repository's `logs/` (exit 2), and a
 feature table whose `<name>.roles.json` is missing or names another
 `FEATURES_VERSION` is refused as stale (exit 4). Nothing here contacts a model.
 """
 
 import argparse
 import csv
+import math
 import re
 import sys
+from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from statistics import mean
 from typing import Any, get_args
 
-from eduinject.analysis import N_BOOT
+from eduinject.analysis import N_BOOT, mean_with_ci
+from eduinject.behavior.ladder import ATTACK_ONLY, BEHAVIOURS, scenario
 from eduinject.behavior.predictors import (
+    SERVED_FIELDS,
     TARGETS,
     Scheme,
     cross_validate,
@@ -61,14 +72,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("command", choices=("chain", "halflife", "predict", "profiles"))
+    ap.add_argument(
+        "command", choices=("ladder", "chain", "halflife", "predict", "profiles")
+    )
     ap.add_argument("--features", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument(
         "--n-boot",
         type=int,
         default=N_BOOT,
-        help="pair resamples for predict/profiles coefficient CIs",
+        help="resamples for the ladder intervals (scenarios) and the "
+        "predict/profiles coefficient CIs (pairs)",
     )
     return ap.parse_args(argv)
 
@@ -80,6 +94,121 @@ def _write(path: Path, rows: list[dict[str, Any]]) -> None:
         w.writeheader()
         w.writerows(rows)
     print(f"{len(rows)} row(s) -> {path}")
+
+
+Rows = Sequence[Mapping[str, Any]]
+
+
+def _num(value: Any) -> float:
+    return float("nan") if value in ("", None) else float(value)
+
+
+def _per_scenario(values: Mapping[str, list[float]], rows: Rows) -> dict[Any, float]:
+    """Pair values (mean over epochs) averaged within each base scenario."""
+    of = {str(r["artifact_id"]): scenario(r) for r in rows}
+    groups: dict[Any, list[float]] = defaultdict(list)
+    for pair, v in values.items():
+        groups[of[pair]].append(mean(v))
+    return {s: mean(v) for s, v in groups.items()}
+
+
+def _ladder(
+    groups: Mapping[tuple[str, ...], Rows], n_boot: int
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for key, rows in groups.items():
+        for name in BEHAVIOURS:
+            blocks: dict[tuple[str, str], dict[str, float]] = defaultdict(dict)
+            for r in rows:
+                if not math.isnan(y := _num(r.get(f"beh:{name}"))):
+                    block = (str(r["artifact_id"]), str(r["epoch"]))
+                    blocks[block][str(r["label"])] = y
+            alone = name in ATTACK_ONLY
+            need = {"attack"} if alone else {"attack", "twin"}
+            sides: dict[str, dict[str, list[float]]] = {
+                "attack": defaultdict(list),
+                "twin": defaultdict(list),
+                "diff": defaultdict(list),
+            }
+            for (pair, _), run in blocks.items():
+                if not need <= set(run):
+                    continue
+                sides["attack"][pair].append(run["attack"])
+                if not alone:
+                    sides["twin"][pair].append(run["twin"])
+                    sides["diff"][pair].append(run["attack"] - run["twin"])
+            if not sides["attack"]:
+                continue
+            attack = _per_scenario(sides["attack"], rows)
+            twin = _per_scenario(sides["twin"], rows)
+            ci = mean_with_ci(_per_scenario(sides["diff"], rows), n_boot)
+            out.append(
+                dict(zip(GROUP_FIELDS, key))
+                | {"behaviour": name, "attack_rate": mean(attack.values())}
+                | {"twin_rate": mean(twin.values()) if twin else ""}
+                | {"difference": ci.diff if ci else ""}
+                | {"lo": ci.lo if ci else "", "hi": ci.hi if ci else ""}
+                | {"n_pairs": len(sides["attack"]), "n_scenarios": len(attack)}
+            )
+    return out
+
+
+TRANSITIONS = (
+    ("uptake", "relay"),
+    ("relay", "adopt"),
+    ("relay", "attempt_strict"),
+    ("adopt", "attempt"),
+    ("adopt", "attempt_strict"),
+    ("attempt", "harm"),
+)
+"""Doc 14 §3. P(attempt | adopt) is partly by definition (misdirection), so
+`attempt_strict` is reported beside it; P(harm | attempt) is the arm's."""
+
+
+def _hits(rows: Rows, label: str, frm: str, to: str) -> dict[str, list[float]]:
+    """Per pair: `state:to` on its `label` runs where `state:frm` holds."""
+    hits: dict[str, list[float]] = defaultdict(list)
+    for r in rows:
+        y = _num(r.get(f"state:{to}"))
+        if math.isnan(y) or r["label"] != label:
+            continue
+        if _num(r.get(f"state:{frm}")) == 1.0:
+            hits[str(r["artifact_id"])].append(y)
+    return hits
+
+
+def _transitions(groups: Mapping[tuple[str, ...], Rows]) -> list[dict[str, Any]]:
+    # Cells that differ only in the model as served are the compared models.
+    families: dict[tuple[str, ...], list[tuple[str, ...]]] = defaultdict(list)
+    for key in groups:
+        cell = dict(zip(GROUP_FIELDS, key))
+        families[tuple(v for f, v in cell.items() if f not in SERVED_FIELDS)].append(
+            key
+        )
+    out: list[dict[str, Any]] = []
+    for keys in families.values():
+        for label in ("attack", "twin"):
+            for frm, to in TRANSITIONS:
+                hits = {k: _hits(groups[k], label, frm, to) for k in keys}
+                common = set.intersection(*(set(h) for h in hits.values()))
+                weight = {p: sum(len(h[p]) for h in hits.values()) for p in common}
+                for key, h in hits.items():
+                    ys = [y for v in h.values() for y in v]
+                    std = sum(w * mean(h[p]) for p, w in weight.items())
+                    standard = label == "attack" and len(keys) > 1 and bool(common)
+                    out.append(
+                        dict(zip(GROUP_FIELDS, key))
+                        | {"label": label, "from": frm, "to": to}
+                        | {"k": int(sum(ys)), "n": len(ys)}
+                        | {"p": mean(ys) if ys else ""}
+                        | {
+                            "p_standardised": std / sum(weight.values())
+                            if standard
+                            else "",
+                            "n_pairs_common": len(common) if len(keys) > 1 else "",
+                        }
+                    )
+    return out
 
 
 def _chain(
@@ -141,7 +270,10 @@ def _halflife(
             fit = survival(rows, column)
             if fit.n:
                 out.append(
-                    dict(zip(HALFLIFE_FIELDS, key)) | {"family": family} | fit._asdict()
+                    {"section": "appendix"}
+                    | dict(zip(HALFLIFE_FIELDS, key))
+                    | {"family": family}
+                    | fit._asdict()
                 )
     return out
 
@@ -207,7 +339,10 @@ def main(argv: list[str] | None = None) -> int:
     with open(args.features, newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     out.mkdir(parents=True, exist_ok=True)
-    if args.command == "chain":
+    if args.command == "ladder":
+        _write(out / "ladder.csv", _ladder(group_rows(rows), args.n_boot))
+        _write(out / "transitions.csv", _transitions(group_rows(rows)))
+    elif args.command == "chain":
         chain_rows, decomp_rows = _chain(group_rows(rows))
         _write(out / "chain.csv", chain_rows)
         _write(out / "decomposition.csv", decomp_rows)
