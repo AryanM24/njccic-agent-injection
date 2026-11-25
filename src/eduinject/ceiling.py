@@ -15,8 +15,8 @@ attacker named.
   W1's state-changing tools act on a target
   that is not entitled; W2's shortlist puts `attacker_candidate` first. It never
   escalates (warning suppression). Then it submits.
-- An untainted tool stage does the manifest's declared correct action
-  (`correct[0]`) after the lookups the existing rules require before it
+- An untainted tool stage does the first of the manifest's declared correct
+  alternatives its tools allow, after the lookups the existing rules require before it
   (`REQUIRED_LOOKUPS`), so a twin run stays benign and, under the gate, is not
   refused (doc 14 §6).
 - A text stage (intake, analysis, relays) writes a fixed summary. Under `copy`
@@ -280,38 +280,44 @@ def with_lookups(
 
 
 def _correct_calls(
-    meta: Mapping[str, Any], granted: Mapping[str, ToolInfo]
+    meta: Mapping[str, Any], granted: Collection[str]
 ) -> list[dict[str, Any]]:
-    """The calls of `correct[0]`. Where a workflow has no escalation tool,
-    escalating is a send to the case mailbox, and asking for information is a
-    send to the case's correspondent (`outcomes.correct_outcome`)."""
-    first = (meta.get("correct") or [{"kind": "refuse", "calls": []}])[0]
-    calls = list(first.get("calls") or [])
-    kind = first.get("kind")
-    if calls or kind not in ("escalate", "ask_info"):
-        return calls
-    _, send, escalate = _workflow_tools()
-    if kind == "escalate" and (tools := sorted(escalate & set(granted))):
-        return [{"tool": t, "args": {}} for t in tools]
-    if kind == "escalate":
-        to = list(meta.get("authorized_recipients") or [])
-    else:
-        to = case_correspondents(workflow_code(granted), meta)
-    return [
-        {"tool": t, "args": {"to": to[0]}} for t in sorted(send & set(granted)) if to
-    ]
+    """The calls of the first `correct` alternative the granted tools allow, as
+    `outcomes.correct_outcome` judges them. Where a workflow has no escalation
+    tool, escalating is a send to the case mailbox; asking for information is a
+    send to the case's first correspondent; refusing is no call."""
+    _, send, _ = _workflow_tools()
+    spec = workflow(workflow_code(granted))
+    sends = sorted(send & set(granted))
+
+    def mail(addresses: Sequence[str]) -> list[dict[str, Any]]:
+        return [{"tool": t, "args": {"to": addresses[0]}} for t in sends if addresses]
+
+    for alt in meta.get("correct") or []:
+        kind, calls = alt.get("kind"), list(alt.get("calls") or [])
+        if kind == "refuse":
+            return []
+        if not calls and kind == "escalate":
+            calls = (
+                [{"tool": t, "args": {}} for t in spec.escalation_tools]
+                if spec.escalation_tools
+                else mail(meta.get("authorized_recipients") or [])
+            )
+        elif not calls and kind == "ask_info":
+            calls = mail(case_correspondents(spec.code, meta))
+        if calls and all(c["tool"] in granted for c in calls):
+            return calls
+    return []
 
 
 def benign_plan(meta: Mapping[str, Any], tools: Sequence[ToolInfo]) -> list[Call]:
-    """The declared correct action (`correct[0]`) after the lookups it requires,
-    restricted to granted tools, with omitted required arguments filled with
-    neutral text."""
+    """The first declared correct alternative the granted tools allow, after the
+    lookups it requires, with omitted required arguments filled with neutral
+    text."""
     by_name = {t.name: t for t in tools}
     calls: list[Call] = []
     for call in _correct_calls(meta, by_name):
-        tool = by_name.get(call["tool"])
-        if tool is None:
-            continue
+        tool = by_name[call["tool"]]
         args = dict(call.get("args") or {})
         for name in _params(tool)[1]:
             if name in args:

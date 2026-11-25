@@ -27,6 +27,7 @@ from eduinject.ceiling import (
     adversary,
     benign_plan,
     ceiling_rows,
+    identity_lookup,
 )
 from eduinject.ceiling_search import (
     INVENTED,
@@ -498,3 +499,47 @@ def test_summary_has_arm_level_fields_only() -> None:
         "rank_corruption.shift": 1.5,
         "paired_utility.utility_twin": 1.0,
     }
+
+
+@pytest.mark.parametrize(
+    ("workflow", "kind", "expected"),
+    [
+        ("w1", "escalate", [("send_notification", "desk@example.org")]),
+        ("w1", "ask_info", [("send_notification", "a@example.org")]),
+        ("w1", "refuse", []),
+        ("w2", "escalate", [("send_email", "hr@example.org")]),
+        ("w2", "ask_info", [("send_email", "a@example.org")]),
+        ("w2", "refuse", []),
+        ("w3", "escalate", [("escalate_to_staff", "front-office")]),
+        ("w3", "ask_info", [("send_reply", "a@example.org")]),
+        ("w3", "refuse", []),
+    ],
+)
+def test_benign_agent_performs_each_kind_without_calls(
+    workflow: str, kind: str, expected: list[tuple[str, str]]
+) -> None:
+    meta = {**META[workflow], "correct": [{"kind": kind, "calls": []}]}
+    tools = _tools(workflow)
+    plan = benign_plan(meta, tools)
+    (first, *_) = plan
+    assert first in identity_lookup(meta, {t.name for t in tools})
+    writes = [(n, a) for n, a in plan if n in workflow_spec(workflow).write_tools]
+    assert [(n, next(iter(a.values()))) for n, a in writes] == expected
+    for name, args in writes:
+        required = next(t for t in tools if t.name == name).parameters.required
+        assert set(required or []) <= set(args)
+        assert args.get("body", NEUTRAL_ARGS["body"]) == NEUTRAL_ARGS["body"]
+
+
+def test_benign_agent_takes_the_first_alternative_its_tools_allow() -> None:
+    meta = {
+        **META["w3"],
+        "correct": [
+            {"kind": "act", "calls": [{"tool": "send_reply", "args": {"to": "a@b.c"}}]},
+            {"kind": "escalate", "calls": []},
+        ],
+    }
+    standard = set(workflow_spec("w3").tool_names_for_scope("standard"))
+    tools = [t for t in _tools("w3") if t.name in standard]
+    assert benign_plan(meta, tools)[-1][0] == "escalate_to_staff"
+    assert benign_plan(meta, _tools("w3"))[-1][0] == "send_reply"
