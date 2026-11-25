@@ -6,6 +6,8 @@
     behavior_models.py halflife --features logs/features/<name>.csv --out logs/behavior/
     behavior_models.py predict  --features logs/features/<name>.csv --out logs/behavior/
     behavior_models.py profiles --features logs/features/<name>.csv --out logs/behavior/
+    behavior_models.py transfer --features logs/features/<name>.csv --out logs/behavior/
+                       --held-out MODEL [MODEL ...] [--train-split dev] [--test-split confirm]
 
 `ladder` writes `ladder.csv` (per cell and behaviour: attack rate, twin rate and
 their within-pair difference, pairs averaged within a base scenario and
@@ -23,7 +25,11 @@ by base scenario and by model (leave one model out: does a predictor transfer
 to a model it never saw?), for harmful completion, carry to the action stage and the five most violated rules:
 `predictors.csv`, `calibration.csv`, `coefficients.csv`, `drop_column.csv`,
 `trees.txt`. `profiles` writes `profile_<model>.md` per model (appendix),
-templated sentences only. OUT must lie under the repository's `logs/` (exit 2), and a
+templated sentences only. `transfer` (doc 14 §5) fits the L1 predictor on the
+other models' `--train-split` runs, scores it on each held-out model's
+`--test-split` runs and writes `transfer.csv`, one row per target and held-out
+model, with the training models' own leave-one-model-out mean AUROC beside it.
+It uses runs in which one model served every stage (no `reader_model`). OUT must lie under the repository's `logs/` (exit 2), and a
 feature table whose `<name>.roles.json` is missing or names another
 `FEATURES_VERSION` is refused as stale (exit 4). Nothing here contacts a model.
 """
@@ -49,6 +55,7 @@ from eduinject.behavior.predictors import (
     explain,
     profile_stats,
     top_rule_targets,
+    transfer,
     write_profile,
 )
 from eduinject.behavior.propagation_model import (
@@ -73,7 +80,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     ap.add_argument(
-        "command", choices=("ladder", "chain", "halflife", "predict", "profiles")
+        "command",
+        choices=("ladder", "chain", "halflife", "predict", "profiles", "transfer"),
     )
     ap.add_argument("--features", required=True)
     ap.add_argument("--out", required=True)
@@ -84,7 +92,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="resamples for the ladder intervals (scenarios) and the "
         "predict/profiles coefficient CIs (pairs)",
     )
-    return ap.parse_args(argv)
+    ap.add_argument("--train-split", choices=("dev", "confirm"), default="dev")
+    ap.add_argument("--test-split", choices=("dev", "confirm"), default="confirm")
+    ap.add_argument(
+        "--held-out", nargs="+", default=[], metavar="MODEL", help="model slugs"
+    )
+    args = ap.parse_args(argv)
+    if args.command == "transfer" and not args.held_out:
+        ap.error("transfer needs --held-out")
+    return args
 
 
 def _write(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -319,6 +335,37 @@ def _predict(rows: list[dict[str, Any]], out: Path, n_boot: int) -> None:
     (out / "trees.txt").write_text("\n".join(trees), encoding="utf-8")
 
 
+def _transfer(rows: list[dict[str, Any]], args: argparse.Namespace) -> list[Any]:
+    own = [r for r in rows if not r.get("reader_model")]
+    missing = set(args.held_out) - {r.get("model") for r in own}
+    if missing:
+        raise ValueError(f"no runs of held-out model(s) {sorted(missing)}")
+    train = [
+        r
+        for r in own
+        if r.get("split") == args.train_split and r.get("model") not in args.held_out
+    ]
+    out = []
+    for target in TARGETS:
+        dev = cross_validate(train, target, "l1", "leave_one_model_out")
+        for held in args.held_out:
+            test = [
+                r
+                for r in own
+                if r.get("split") == args.test_split and r.get("model") == held
+            ]
+            result = transfer(train, test, target, n_boot=args.n_boot)
+            out.append(
+                {"target": target, "held_out": held, "n_train": len(train)}
+                | result._asdict()
+                | {
+                    "dev_lomo_auroc": dev.auroc,
+                    "auroc_minus_dev_lomo": result.auroc - dev.auroc,
+                }
+            )
+    return out
+
+
 def _profiles(rows: list[dict[str, Any]], out: Path, n_boot: int) -> None:
     for model in sorted({str(r.get("model", "")) for r in rows}):
         mine = [r for r in rows if str(r.get("model", "")) == model]
@@ -350,6 +397,8 @@ def main(argv: list[str] | None = None) -> int:
         _write(out / "halflife.csv", _halflife(group_rows(rows, HALFLIFE_FIELDS)))
     elif args.command == "predict":
         _predict(rows, out, args.n_boot)
+    elif args.command == "transfer":
+        _write(out / "transfer.csv", _transfer(rows, args))
     else:
         _profiles(rows, out, args.n_boot)
     return 0

@@ -21,6 +21,7 @@ from eduinject.behavior.predictors import (
     explain,
     profile_stats,
     top_rule_targets,
+    transfer,
     write_profile,
 )
 from eduinject.features import FEATURES_VERSION, role_of
@@ -64,6 +65,8 @@ def _rows(n: int = 200, seed: int = 0) -> list[dict[str, Any]]:
                 "monitor:origin_stage": "analysis" if carried else "action",
                 "out:harm_completed": float(harm),
                 "out:exfiltration": float(harm),
+                "beh:attempt": float(harm),
+                "state:adopt": float(carried),
             }
         )
     return rows
@@ -290,3 +293,149 @@ def test_lomo_drops_token_counts() -> None:
     assert cross_validate(rows, "out:harm_completed", "l1", "group_kfold").auroc > 0.9
     lomo = cross_validate(rows, "out:harm_completed", "l1", "leave_one_model_out")
     assert lomo.auroc < 0.7
+
+
+def _transfer_rows(
+    model: str, split: str, base: float, seed: int, n: int = 600
+) -> list[dict[str, Any]]:
+    """Attack runs: P(target) = expit(base + 5·carried − 2.5)."""
+    rng = random.Random(seed)
+    rows = []
+    for i in range(n):
+        carried = rng.random() < 0.5
+        p = 1 / (1 + math.exp(-(base + 5 * carried - 2.5)))
+        rows.append(
+            {
+                "model": model,
+                "host": model,
+                "workflow": "w1",
+                "corpus_digest": split,
+                "isolated": "True",
+                "label": "attack",
+                "status": "ok",
+                "artifact_id": f"{split}{i // 4}",
+                "base_id": f"{split}{i % 10}",
+                "epoch": i % 4,
+                "split": split,
+                "carry:intake": S if rng.random() < 0.5 else A,
+                "carry:analysis": S if carried else A,
+                "out:harm_completed": 0.0,
+                "beh:attempt": float(rng.random() < p),
+            }
+        )
+    return rows
+
+
+def _train() -> list[dict[str, Any]]:
+    return [
+        r
+        for i, m in enumerate(("m0", "m1", "m2"))
+        for r in _transfer_rows(m, "dev", 0.0, i)
+    ]
+
+
+def test_transfer_recovers_a_planted_signal() -> None:
+    t = transfer(
+        _train(), _transfer_rows("held", "confirm", 0.0, 9), "beh:attempt", n_boot=50
+    )
+    assert t.auroc > 0.9 and t.n_test == 600
+    assert 0.5 < t.calibration_slope < 2
+    assert t.slope_lo < t.calibration_slope < t.slope_hi
+    assert abs(t.calibration_intercept) < 0.5
+    assert t.baseline_config_auroc == pytest.approx(0.5)
+    assert t.brier < 0.15
+
+
+def test_transfer_intercept_shift_keeps_auroc() -> None:
+    """One logit of extra prevalence at the same slope moves the intercept."""
+    plain, shifted = (
+        transfer(
+            _train(), _transfer_rows("held", "confirm", b, 9), "beh:attempt", n_boot=5
+        )
+        for b in (0.0, 1.0)
+    )
+    assert abs(plain.auroc - shifted.auroc) < 0.05
+    assert shifted.calibration_intercept > 0.4
+    assert shifted.calibration_intercept > plain.calibration_intercept + 0.4
+    assert 0.5 < shifted.calibration_slope < 2
+
+
+def test_transfer_single_class_is_nan() -> None:
+    train, test = _train(), _transfer_rows("held", "confirm", 0.0, 9)
+    flat = [r | {"beh:attempt": 0.0} for r in test]
+    for a, b in ((train, flat), (flat, test), (train, []), ([], test)):
+        t = transfer(a, b, "beh:attempt", n_boot=5)
+        assert math.isnan(t.auroc) and math.isnan(t.brier)
+        assert math.isnan(t.calibration_slope) and math.isnan(t.baseline_config_auroc)
+        assert t.n_test == len(b)
+
+
+def test_transfer_never_reads_served_fields() -> None:
+    """Served fields and token counts that separate training outcomes perfectly
+    change nothing."""
+    train, test = _train(), _transfer_rows("held", "confirm", 0.0, 9)
+    plain = transfer(train, test, "beh:attempt", n_boot=5)
+    for column in ("model", "host", "reasoning_effort", "tokens_in:intake"):
+        named = [r | {column: 100.0 + r["beh:attempt"]} for r in train]
+        held = [r | {column: 100.0} for r in test]
+        assert transfer(named, held, "beh:attempt", n_boot=5) == plain, column
+
+
+def test_transfer_ignores_levels_unseen_in_training() -> None:
+    """A corpus digest that follows the workflow in training would otherwise
+    absorb the workflow's effect and vanish on the test set."""
+
+    def relabel(rows: list[dict[str, Any]], digest: str) -> list[dict[str, Any]]:
+        return [
+            r
+            | {
+                "workflow": f"w{1 + int(r['carry:analysis'] == S)}",
+                "corpus_digest": f"{digest}{r['carry:analysis']}",
+                "carry:analysis": A,
+            }
+            for r in rows
+        ]
+
+    t = transfer(
+        relabel(_train(), "d"),
+        relabel(_transfer_rows("held", "confirm", 0.0, 9), "e"),
+        "beh:attempt",
+        n_boot=5,
+    )
+    assert t.auroc > 0.9 and 0.5 < t.calibration_slope < 2
+
+
+def test_behavior_models_transfer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import behavior_models
+
+    rows = [
+        *(r | {"reader_model": ""} for r in _train()),
+        *(r | {"reader_model": ""} for r in _transfer_rows("held", "confirm", 0.0, 9)),
+        # A dev actor fed by the held-out reader is neither set's run.
+        *(r | {"reader_model": "held"} for r in _transfer_rows("m0", "dev", 0.0, 5)),
+    ]
+    features = tmp_path / "f.csv"
+    with features.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=list(rows[0]))
+        w.writeheader()
+        w.writerows(rows)
+    features.with_suffix(".roles.json").write_text(
+        json.dumps({"features_version": FEATURES_VERSION})
+    )
+    monkeypatch.setattr(behavior_models, "LOGS", tmp_path / "logs")
+    out = tmp_path / "logs" / "b"
+    args = ["transfer", "--features", str(features), "--out", str(out), "--n-boot", "5"]
+    with pytest.raises(SystemExit):
+        behavior_models.main(args)
+    assert behavior_models.main([*args, "--held-out", "held"]) == 0
+    with (out / "transfer.csv").open(encoding="utf-8") as f:
+        table = {r["target"]: r for r in csv.DictReader(f)}
+    assert set(table) == set(TARGETS)
+    row = table["beh:attempt"]
+    assert (row["held_out"], row["n_train"], row["n_test"]) == ("held", "1800", "600")
+    assert float(row["auroc"]) > 0.9
+    assert abs(float(row["auroc_minus_dev_lomo"])) < 0.05
+    with pytest.raises(ValueError, match="nobody"):
+        behavior_models.main([*args, "--held-out", "nobody"])
