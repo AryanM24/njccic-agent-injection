@@ -71,6 +71,7 @@ from .scorers import (
     scope_violation,
     suppression,
 )
+from .scorers.deterministic import SWAP_KEY
 from .scorers.outcomes import stage_names
 from .scorers.provenance import PROVENANCE_VERSION
 from .tools import ats
@@ -387,6 +388,16 @@ def guard_for(workflow: Workflow, metadata: Mapping[str, Any]) -> Guard:
     )
 
 
+SWAP_CELLS = {
+    "attack": ("attack", "attack"),
+    "twin": ("twin", "twin"),
+    "at": ("attack", "twin"),
+    "ta": ("twin", "attack"),
+}
+"""Swap run label -> (document at and after the swap, hand-off source). Doc 14
+§4's `aa` and `tt` are the sample's ordinary `attack` and `twin` runs."""
+
+
 @solver
 def paired_pipeline(
     workflow: str,
@@ -426,10 +437,13 @@ def paired_pipeline(
         reader_model: Model for every stage before action (default: the task's).
         reader_model_args: Provider args bound with the reader.
         reader_effort: Reasoning effort bound with the reader.
-        swap_stage: First stage of the message swap (doc 14 §4), or None.
+        swap_stage: First stage of the message swap (doc 14 §4), or None. The
+            stages before it run once per document, the rest once per
+            `SWAP_CELLS` entry on those hand-offs.
 
     Returns:
-        A solver that records each run under `metadata["runs"]`.
+        A solver that records each run under `metadata["runs"]` (and a swap's
+        cross runs under `metadata["swap_runs"]`).
     """
     spec = WORKFLOWS[workflow]
     tools_for_scope, tool_names_for_scope = tools_with_verification(
@@ -455,19 +469,13 @@ def paired_pipeline(
         guard = guard_for(spec, meta) if identity_mode == "guard" else None
         paths = {"attack": meta["artifact_path"], "twin": meta["twin_path"]}
 
-        runs: dict[str, dict[str, Any]] = {}
-        meta[RUNS_KEY] = runs
-        for label in labels:
-            extracted = extract(paths[label])
-            document_text = datamark(extracted) if spotlight else extracted
-            # Separate ledger instances keep the two runs' tool activity from
-            # merging — they share a sample, and therefore a store.
-            result = await run_pipeline(
-                document_text,
+        async def run_one(document: str, instance: str, **splice: Any) -> Any:
+            return await run_pipeline(
+                datamark(document) if spotlight else document,
                 state.input_text,
                 scope=scope,
                 isolated=isolated,
-                instance=label,
+                instance=instance,
                 tools_for_scope=tools_for_scope,
                 tool_names_for_scope=tool_names_for_scope,
                 intake_system=spec.intake_system + clause,
@@ -480,18 +488,62 @@ def paired_pipeline(
                 handoff_mode=handoff_mode,
                 trusted_block=trusted,
                 gate=gate,
-                gate_meta={k: v for k, v in meta.items() if k != RUNS_KEY},
+                gate_meta={
+                    k: v for k, v in meta.items() if k not in (RUNS_KEY, SWAP_KEY)
+                },
                 workflow=workflow,
                 identity_mode=identity_mode,
                 reader=reader,
+                **splice,
             )
-            # Written per run, so a run that hits a limit later still leaves
-            # the finished one on the record.
-            runs[label] = {
-                "document_text": extracted,
+
+        # Separate ledger instances keep the runs' tool activity from merging:
+        # they share a sample, and therefore a store.
+        def recorded(document: str, instance: str, result: Any) -> dict[str, Any]:
+            return {
+                "document_text": document,
                 "pipeline": result,
-                "ledger": store_as(Ledger, instance=label).model_dump(),
+                "ledger": store_as(Ledger, instance=instance).model_dump(),
             }
+
+        # Written per run, so a run that hits a limit later still leaves the
+        # finished ones on the record.
+        runs: dict[str, dict[str, Any]] = {}
+        meta[RUNS_KEY] = runs
+        if swap_stage is None:
+            for label in labels:
+                document = extract(paths[label])
+                result = await run_one(document, label)
+                runs[label] = recorded(document, label, result)
+        else:
+            cross: dict[str, dict[str, Any]] = {}
+            meta[SWAP_KEY] = cross
+            docs = {d: extract(paths[d]) for d in labels}
+            prefixes = {
+                m: await run_one(docs[m], "prefix", stop_before=swap_stage)
+                for m in labels
+            }
+            for label, (d, m) in SWAP_CELLS.items():
+                # Any cell an attack-derived wire reached is scored on (and
+                # gated by) the attack document.
+                scored = docs["twin" if label == "twin" else "attack"]
+                both = (prefixes[m], *prefixes.values())
+                failed = [p for p in both if p["status"] != "ok"]
+                if failed:
+                    # One unparsed hand-off leaves no block: nothing is spent
+                    # on the rest, and no cell shows another's stages.
+                    result = {**failed[0], "stages": prefixes[m]["stages"]}
+                    ledger = store_as(Ledger, instance=label)
+                    ledger.scope = scope
+                    ledger.granted_tools = list(tool_names_for_scope(scope))
+                else:
+                    result = await run_one(
+                        docs[d], label, resume=prefixes[m], gate_document=scored
+                    )
+                (runs if label in labels else cross)[label] = {
+                    **recorded(scored, label, result),
+                    "action_document": d,
+                }
 
         state.output = ModelOutput.from_content(
             model=str(state.model), content=runs[labels[0]]["pipeline"]["final"]
