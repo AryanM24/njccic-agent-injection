@@ -289,7 +289,7 @@ Verdict = Literal[
 
 
 class Equivalence(NamedTuple):
-    """Two ratios over the same scenarios, their difference and the verdict.
+    """Two (mean) ratios over the same scenarios, their difference and the verdict.
 
     `lo_sim`, `hi_sim` is the 95% interval Bonferroni-adjusted for the number of
     comparisons it is one of: the one that decides `different`.
@@ -307,11 +307,24 @@ class Equivalence(NamedTuple):
     verdict: Verdict
 
 
+Ratio = tuple[Mapping[str, float], Mapping[str, float]]
+"""Numerator and denominator by scenario."""
+
+
 def equivalence(
     num_a: Mapping[str, float],
     den_a: Mapping[str, float],
     num_b: Mapping[str, float],
     den_b: Mapping[str, float],
+    **kw: Any,
+) -> Equivalence:
+    """`mean_equivalence` of one ratio on each side."""
+    return mean_equivalence([(num_a, den_a)], [(num_b, den_b)], **kw)
+
+
+def mean_equivalence(
+    a: Sequence[Ratio],
+    b: Sequence[Ratio],
     *,
     margin: float = 0.10,
     min_runs: int = 40,
@@ -320,18 +333,21 @@ def equivalence(
     n_boot: int = N_BOOT,
     seed: int = 0,
 ) -> Equivalence:
-    """Equivalence (two one-sided 5% tests) of two per-scenario ratios.
+    """Equivalence (two one-sided 5% tests) of two mean per-scenario ratios.
 
-    `a` and `b` are ratios of sums over scenarios. Scenarios with no run on
-    either side are dropped; the rest are resampled jointly, within workflow,
+    Each side is the mean, equally weighted, of its ratios of sums over
+    scenarios (one ratio per reader of doc 14 §5; a single one is itself).
+    Scenarios with no run on either side are dropped; the rest are resampled
+    jointly, within workflow,
     and draws with a zero denominator are dropped. Each interval is
     diff ± t · sqrt(S / (S − H)) · (bootstrap SE), t on S − H degrees of
     freedom for S scenarios in H workflows, because a plain percentile interval
     called a true difference exactly at the margin equivalent 7–10% of the time
     at 22 scenarios (14% at six). Needs scipy (the `analysis` extra).
 
-    Verdict: `not_estimable` if either side has fewer than `min_runs` runs or
-    `min_scenarios` scenarios with a run, or no workflow has two scenarios;
+    Verdict: `not_estimable` if any ratio has fewer than `min_runs` runs or
+    `min_scenarios` scenarios with a run, a side has none, or no workflow has two
+    scenarios;
     `saturated` if both ratios are within ±`margin` of 0 (an excess may be
     negative) or both above 1 − `margin`;
     `equivalent` if the 90% interval lies inside ±`margin`; `different` if the
@@ -341,20 +357,22 @@ def equivalence(
     """
     from scipy.stats import t  # type: ignore[import-untyped]
 
-    keys = sorted(
-        k for k in set(den_a) | set(den_b) if den_a.get(k, 0) + den_b.get(k, 0) > 0
-    )
+    dens = [den for _, den in (*a, *b)]
+    keys = sorted({k for den in dens for k, v in den.items() if v > 0})
 
-    def ratio(
-        num: Mapping[str, float], den: Mapping[str, float], chosen: Sequence[str]
-    ) -> float:
-        total = sum(den.get(k, 0) for k in chosen)
-        return sum(num.get(k, 0) for k in chosen) / total if total else math.nan
+    def side(ratios: Sequence[Ratio], chosen: Sequence[str]) -> float:
+        totals = [sum(den.get(k, 0) for k in chosen) for _, den in ratios]
+        if not all(totals) or not ratios:
+            return math.nan
+        return mean(
+            sum(num.get(k, 0) for k in chosen) / total
+            for (num, _), total in zip(ratios, totals)
+        )
 
     def difference(chosen: Sequence[str]) -> float:
-        return ratio(num_a, den_a, chosen) - ratio(num_b, den_b, chosen)
+        return side(a, chosen) - side(b, chosen)
 
-    a, b, diff = ratio(num_a, den_a, keys), ratio(num_b, den_b, keys), difference(keys)
+    mean_a, mean_b, diff = side(a, keys), side(b, keys), difference(keys)
     drawn = [difference(d) for d in _scenario_draws(keys, n_boot, seed)]
     kept = [d for d in drawn if not math.isnan(d)]
     df = len(keys) - len(_by_workflow(keys))
@@ -365,22 +383,31 @@ def equivalence(
             float(t.ppf(q, df)) * se for q in (0.95, 0.975, 1 - 0.025 / comparisons)
         )
     lo90, hi90, lo95, hi95 = diff - half90, diff + half90, diff - half95, diff + half95
-    thin = any(
+    thin = not (a and b) or any(
         sum(den.values()) < min_runs or sum(v > 0 for v in den.values()) < min_scenarios
-        for den in (den_a, den_b)
+        for den in dens
     )
     verdict: Verdict = "inconclusive"
     # The tolerance keeps a difference exactly at the margin in neither verdict.
     if thin or math.isnan(half90):
         verdict = "not_estimable"
-    elif max(abs(a), abs(b)) < margin or min(a, b) > 1 - margin:
+    elif max(abs(mean_a), abs(mean_b)) < margin or min(mean_a, mean_b) > 1 - margin:
         verdict = "saturated"
     elif -margin + 1e-9 < lo90 and hi90 < margin - 1e-9:
         verdict = "equivalent"
     elif diff - half_sim > margin + 1e-9 or diff + half_sim < -margin - 1e-9:
         verdict = "different"
     return Equivalence(
-        a, b, diff, lo90, hi90, lo95, hi95, diff - half_sim, diff + half_sim, verdict
+        mean_a,
+        mean_b,
+        diff,
+        lo90,
+        hi90,
+        lo95,
+        hi95,
+        diff - half_sim,
+        diff + half_sim,
+        verdict,
     )
 
 

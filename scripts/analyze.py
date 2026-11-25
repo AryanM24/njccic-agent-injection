@@ -63,21 +63,28 @@
                          [--swap logs/features/<name>.swap.csv]
                          [--ceiling logs/<ceiling>/ceiling.csv]
                          [--candidate ARM --reference ARM]... --split dev|confirm
-                         --out logs/<dir>
+                         [--post-hoc] --out logs/<dir>
         The behaviour study's endpoints (doc 14 §§4-7), from feature tables. An
         ARM is a name in `ceiling.ARMS`; without any, E5's two declared subjects.
+        Estimates are intention-to-treat; `complete_case` is the finished-runs
+        estimate, `bound_lo`/`bound_hi` the range runs without an outcome allow.
         endpoints.csv     E1-E5 with Holm, the held-out model and the call; the
-                          fixed-sequence follow-ups E5a/E5b; E3, E4 and H-main
+                          fixed-sequence follow-ups E5a (twin utility, with the
+                          attack-run utility DiD beside it) and E5b (attempt);
+                          E3, E4 and H-main
         swap_effects.csv  total, direct, laundered and interaction effects, dev
                           models pooled and each model, per workflow and pooled
         did.csv           difference in differences per comparison and outcome
                           (twin utility: plain difference), with the noise
-                          floor's verdict, dropped blocks and parse-error rates
-        grid.csv          reader x actor cells, transition equivalence, onset
-                          differences, variance shares
+                          floor's verdict, missing runs and parse-error rates
+        grid.csv          reader x actor cells, actor pairs averaged over readers
+                          and per reader, onset differences, variance shares
         headroom.csv      permitted against observed harm per arm
         Exit 2: OUT outside logs/, an unknown arm, or rows that mix
-        configurations. Exit 4: a stale feature or swap table.
+        configurations. Exit 3: --split confirm while the tree is not the last
+        freeze entry's, or an arm the entry does not name; --post-hoc allows it
+        and every output row then says `post_hoc`. Exit 4: a stale feature or
+        swap table.
 
 Outputs default to logs/analysis/, which is gitignored: analysis of canonical
 runs is Tier 1, like the logs it is computed from. Nothing here contacts a model.
@@ -93,7 +100,7 @@ from itertools import combinations
 from pathlib import Path
 from typing import Any, NamedTuple
 
-from eduinject import ceiling, endpoints, stats
+from eduinject import ceiling, endpoints, freeze, stats
 from eduinject.analysis import (
     CELL_FIELDS,
     N_BOOT,
@@ -1163,6 +1170,25 @@ def read_columns(path: str | None, columns: Iterable[str]) -> list[dict[str, Any
         return [{c: v for c, v in r.items() if c in keep} for r in csv.DictReader(f)]
 
 
+FREEZE: dict[str, Path] = {}
+"""Where the freeze check looks, when not at the repository (tests)."""
+
+
+def unfrozen(subjects: Sequence[tuple[str, str]]) -> list[str]:
+    """Why a confirm analysis of `subjects` is not the frozen one (doc 14 §10)."""
+    if problems := freeze.freeze_problems(**FREEZE):
+        return problems
+    last = freeze.load_freeze(FREEZE.get("path", freeze.FREEZE_FILE))[-1]
+    return [
+        f"{role} {arm!r} is not in the freeze entry of {last.date}"
+        for pair in subjects
+        for role, arm, named in zip(
+            ("candidate", "reference"), pair, (last.candidates, last.references)
+        )
+        if arm not in named
+    ]
+
+
 def cmd_endpoints(args: argparse.Namespace) -> int:
     out = Path(args.out)
     if not out.resolve().is_relative_to(LOGS):
@@ -1171,6 +1197,11 @@ def cmd_endpoints(args: argparse.Namespace) -> int:
     if len(args.candidate) != len(args.reference):
         print("refused: one --reference per --candidate", file=sys.stderr)
         return 2
+    subjects = tuple(zip(args.candidate, args.reference)) or endpoints.E5_SUBJECTS
+    gated = args.split == "confirm" and not args.post_hoc
+    if gated and (problems := unfrozen(subjects)):
+        print("refused:", "; ".join(problems), file=sys.stderr)
+        return 3
     stale = [s for p in (args.features, args.swap) if p and (s := stale_features(p))]
     if stale:
         print("\n".join(stale), file=sys.stderr)
@@ -1180,8 +1211,7 @@ def cmd_endpoints(args: argparse.Namespace) -> int:
             read_columns(args.features, endpoints.COLUMNS),
             read_columns(args.swap, endpoints.COLUMNS),
             read_columns(args.ceiling, endpoints.CEILING_COLUMNS),
-            subjects=tuple(zip(args.candidate, args.reference))
-            or endpoints.E5_SUBJECTS,
+            subjects=subjects,
             arms=ceiling.ARMS,
             models=endpoints.study_models(),
             split=args.split,
@@ -1192,7 +1222,8 @@ def cmd_endpoints(args: argparse.Namespace) -> int:
         return 2
     for name, rows in tables._asdict().items():
         if name != "notes":
-            write_csv(out / f"{name}.csv", rows)
+            stamped = [{**r, "post_hoc": args.post_hoc} for r in rows]
+            write_csv(out / f"{name}.csv", stamped)
     for note in tables.notes:
         print(f"note: {note}")
     for row in tables.endpoints:
@@ -1307,6 +1338,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ends.add_argument("--candidate", action="append", default=[], metavar="ARM")
     ends.add_argument("--reference", action="append", default=[], metavar="ARM")
     ends.add_argument("--split", choices=("dev", "confirm"), required=True)
+    ends.add_argument("--post-hoc", action="store_true")
     ends.add_argument("--out", required=True)
     ends.add_argument("--n-boot", type=int, default=N_BOOT)
     ends.set_defaults(func=cmd_endpoints)

@@ -35,7 +35,8 @@ from ..analysis import CELL_FIELDS, N_BOOT, percentiles
 from ..features import role_of
 from ..monitor.rules import RULES
 from ..scorers.outcomes import CarryState
-from .ladder import scenario
+from ..stats import scenario_key
+from .ladder import num
 from .propagation_model import (
     GROUP_FIELDS,
     HALFLIFE_FIELDS,
@@ -86,13 +87,6 @@ and shift in scale between models: also dropped under `leave_one_model_out`."""
 Matrix = NDArray[np.float64]
 
 
-def _num(value: Any) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return math.nan
-
-
 def _missing(value: Any) -> bool:
     """Empty, None, or a NaN (float or the CSV text "nan")."""
     if value in ("", None):
@@ -129,7 +123,7 @@ def _y(row: Mapping[str, Any], target: str) -> float:
         if value not in get_args(CarryState):
             raise ValueError(f"{target}: unrecognised carry state {value!r}")
         return float(is_on(value))
-    return _num(row.get(target))
+    return num(row.get(target))
 
 
 def _scored(rows: Sequence[Mapping[str, Any]], target: str) -> list[Mapping[str, Any]]:
@@ -195,9 +189,9 @@ def _encode(
     for column in columns:
         values = [r.get(column) for r in rows]
         present = [v for v in values if not _missing(v)]
-        nums = [_num(v) for v in present]
+        nums = [num(v) for v in present]
         if present and not any(math.isnan(x) for x in nums):
-            col = np.array([_num(v) for v in values], dtype=float)
+            col = np.array([num(v) for v in values], dtype=float)
             col[np.isnan(col)] = float(np.median(nums))
             encoded = [(column, col)]
         else:
@@ -413,7 +407,7 @@ def _seen(
 
     def numeric(column: str) -> bool:
         values = [r.get(column) for r in (*train, *test)]
-        return all(_missing(v) or not math.isnan(_num(v)) for v in values)
+        return all(_missing(v) or not math.isnan(num(v)) for v in values)
 
     return [c for c in columns if numeric(c) or levels(test, c) <= levels(train, c)]
 
@@ -465,9 +459,9 @@ def transfer(
     pred = predict(default_columns(rows))
     baseline = predict([c for c in CELL_FIELDS if any(c in r for r in rows)])
     intercept, slope = _calibration_line(pred, y_te)
-    by_scenario: dict[tuple[str, str], list[int]] = defaultdict(list)
+    by_scenario: dict[str, list[int]] = defaultdict(list)
     for i, r in enumerate(te):
-        by_scenario[scenario(r)].append(i)
+        by_scenario[scenario_key(r)].append(i)
     keys = sorted(by_scenario)
     rng = random.Random(seed)
     slopes = []

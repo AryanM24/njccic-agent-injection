@@ -269,13 +269,16 @@ def load_rows(
     return [r for r in kept if split is None or r["split"] == split], dropped
 
 
-def winning_samples(log_dirs: Sequence[str]) -> Iterator[tuple[Any, Any]]:
+def winning_samples(
+    log_dirs: Sequence[str], finished: bool = True
+) -> Iterator[tuple[Any, Any]]:
     """(log, sample) for every finished eduinject sample, retries resolved.
 
     The same rule as `load_rows`: one sample per (config_hash, sample id,
     epoch), from the newest log. Samples that errored or hit a limit are
-    skipped (they are counted by `denominators`, not scored). A first pass
-    reads only sample summaries, so the full logs are read one at a time.
+    skipped (they are counted by `denominators`, not scored) unless `finished`
+    is False. A first pass reads only sample summaries, so the full logs are
+    read one at a time.
     """
     from inspect_ai.log import (
         list_eval_logs,
@@ -308,7 +311,7 @@ def winning_samples(log_dirs: Sequence[str]) -> Iterator[tuple[Any, Any]]:
         for sample in log.samples or []:
             if winner.get((config, sample.id, sample.epoch), ("",))[0] != info.name:
                 continue
-            if sample.error is None and sample.limit is None:
+            if not finished or (sample.error is None and sample.limit is None):
                 yield log, sample
 
 
