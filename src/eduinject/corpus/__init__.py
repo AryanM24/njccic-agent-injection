@@ -91,6 +91,27 @@ def fill_candidate(text: str, label: str | None) -> str:
     return text.replace(CANDIDATE_TOKEN, label)
 
 
+TRIPWIRE_TOKEN = "{tripwire}"
+"""Token in a gated text: the generator replaces it with the base's own attacker
+address (`tripwire_addresses[0]`). A text used on a confirm scenario must use it
+and name no literal address, so a held-out attack's address is new too."""
+
+
+def fill_tripwire(text: str, base_id: str, split: str, address: str) -> str:
+    """`text` with every `TRIPWIRE_TOKEN` replaced by `address`.
+
+    Raises:
+        ValueError: If a confirm scenario's text names a literal address, which
+            would be the dev scenarios' attacker, not this one's.
+    """
+    if split == "confirm" and "@" in text:
+        raise ValueError(
+            f"base {base_id}: a payload for a confirm scenario must name its address "
+            f"as {TRIPWIRE_TOKEN}, never literally (doc 14 §2)"
+        )
+    return text.replace(TRIPWIRE_TOKEN, address)
+
+
 def payload_problems(table: Mapping[str, Any]) -> list[str]:
     """Every way a gated payload table breaks the payload contract (doc 11 §5.2).
 
@@ -140,16 +161,40 @@ def payload_problems(table: Mapping[str, Any]) -> list[str]:
     return problems
 
 
+def confirm_payload_problems(table: Mapping[str, Any]) -> list[str]:
+    """Every way a `CONFIRM_PAYLOADS` table breaks its contract (doc 14 §2).
+
+    As `payload_problems`, for exactly the attack goals (no confirm base has a
+    premise variant), and no text names a literal address.
+    """
+    premise = {"false_premise": PLACEHOLDERS["false_premise"]}
+    full = {
+        w: {**entries, **premise} if isinstance(entries, Mapping) else entries
+        for w, entries in table.items()
+    }
+    problems = [
+        p.replace("PAYLOADS", "CONFIRM_PAYLOADS") for p in payload_problems(full)
+    ]
+    for workflow, entries in table.items():
+        for goal, text in entries.items() if isinstance(entries, Mapping) else ():
+            where = f"CONFIRM_PAYLOADS['{workflow}']['{goal}']"
+            if goal == "false_premise":
+                problems.append(f"{where}: confirm scenarios have no premise variant")
+            if isinstance(text, str) and "@" in text:
+                problems.append(f"{where} must name its address as {TRIPWIRE_TOKEN}")
+    return problems
+
+
 _ABSENT = object()
 
 
-def _gated_table() -> object:
-    """The gated module's raw `PAYLOADS` (None if undefined), or `_ABSENT`."""
+def _gated_table(name: str = "PAYLOADS") -> object:
+    """The gated module's raw `name` (None if undefined), or `_ABSENT`."""
     try:
         from . import payloads  # type: ignore[attr-defined]
     except ImportError:
         return _ABSENT
-    return getattr(payloads, "PAYLOADS", None)
+    return getattr(payloads, name, None)
 
 
 def gated_texts() -> list[str] | None:
@@ -158,13 +203,13 @@ def gated_texts() -> list[str] | None:
     For the Tier-1 guard: a table that fails the contract must still be kept
     out of commits, so this never raises on its shape.
     """
-    table = _gated_table()
-    if table is _ABSENT:
+    tables = [_gated_table(), _gated_table("CONFIRM_PAYLOADS")]
+    if _ABSENT in tables:
         return None
-    if not isinstance(table, Mapping):
-        return []
     return [
         text
+        for table in tables
+        if isinstance(table, Mapping)
         for entries in table.values()
         if isinstance(entries, Mapping)
         for text in entries.values()
@@ -194,6 +239,25 @@ def load_gated_payloads() -> dict[str, dict[str, str]] | None:
         )
     problems = payload_problems(table)
     if problems:
+        raise ValueError("; ".join(problems))
+    return table
+
+
+def load_confirm_payloads() -> dict[str, dict[str, str]] | None:
+    """The gated texts of the confirm scenarios, or None when the PI wrote none.
+
+    Without them a confirm scenario carries the dev texts: new cases, the same
+    attacks, and the paper says so (doc 14 §2).
+
+    Raises:
+        ValueError: If the table exists but breaks its contract.
+    """
+    table = _gated_table("CONFIRM_PAYLOADS")
+    if table is _ABSENT or table is None:
+        return None
+    if not isinstance(table, dict):
+        raise ValueError("CONFIRM_PAYLOADS must be a dict")  # noqa: TRY004
+    if problems := confirm_payload_problems(table):
         raise ValueError("; ".join(problems))
     return table
 

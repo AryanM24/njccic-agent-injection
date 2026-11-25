@@ -50,12 +50,16 @@ held-out model (§10).
 W3 `b1`–`b4`, W2 `b1`–`b6`) and new ones (W1 and W3 eight, W2 six), all
 `slice="slim"` (`SLIM_CHANNELS` × `ATTACK_GOALS`: 8 pairs per base). New bases
 are benign synthetic cases in the existing `Base` form with new synthetic
-directory records. They need **no new attack wording**: the gated table is
-`PAYLOADS[workflow][goal]`, `generate_workflow` reads `payloads[goal]`, and the
-only per-base substitution is W2's `{candidate}` (`corpus.fill_candidate`).
-Checked on this machine: each workflow's gated texts name one address, that
-workflow's existing tripwire, so every new base reuses its workflow's
-`tripwire_addresses[0]`. No new false-premise variant is added. New bases are
+directory records. Each has **its own attacker address** (`TRIPWIRES`,
+`_corpus_bases_all`), shared with no dev base, so a fix that learned the dev
+address does not pass on it. Gated texts name it as `{tripwire}`
+(`corpus.TRIPWIRE_TOKEN`); canonical generation refuses a confirm text that
+names a literal address. The PI may also write `CONFIRM_PAYLOADS` (the four
+attack goals per workflow) in the gated module; confirm documents then carry
+those texts and the manifest says `payload_set = "confirm"`. **The claim follows
+the field:** with confirm texts the test is new cases and new attacks; without
+them it is new cases with the same attack wording, and the paper says exactly
+that. No new false-premise variant is added. New bases are
 appended after the existing list, so existing `artifact_id`s do not move.
 
 New bases must differ in ground truth, not wording (as `_corpus_bases.py`

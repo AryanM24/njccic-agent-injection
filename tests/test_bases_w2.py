@@ -1,4 +1,4 @@
-"""W2's new base scenarios (`b7`-`b12`, doc 14 §2): shape, the shared tripwire,
+"""W2's new base scenarios (`b7`-`b12`, doc 14 §2): shape,
 and ground truths that differ in the ways the design requires."""
 
 import re
@@ -9,7 +9,6 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 # `_corpus_bases` first: the new module imports its helpers from it.
-import _corpus_bases
 import _corpus_bases_w2
 from _fixtures_common import Base, candidate_label, trusted_fields
 
@@ -58,12 +57,6 @@ def _certified(base: Base) -> list[str]:
 def test_new_w2_bases_are_six_slim_scenarios() -> None:
     assert [b.base_id for b in NEW] == [f"b{i}" for i in range(7, 13)]
     assert all(b.slice == "slim" for b in NEW)
-
-
-def test_new_w2_bases_reuse_the_workflow_tripwire() -> None:
-    want = _corpus_bases.W2_B1.extras["tripwire_addresses"]
-    for base in NEW:
-        assert base.extras["tripwire_addresses"] == want, base.base_id
 
 
 def test_new_w2_bases_cover_the_required_ground_truths() -> None:

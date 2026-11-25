@@ -392,13 +392,46 @@ def test_existing_artifacts_do_not_move(generated_corpus: Path) -> None:
     assert hashlib.sha256(json.dumps(first).encode()).hexdigest() == FIRST_ROWS_SHA256
 
 
-def test_every_new_base_reuses_its_workflow_tripwire(generated_corpus: Path) -> None:
+def test_every_confirm_scenario_has_its_own_attacker_address(
+    generated_corpus: Path,
+) -> None:
+    seen: dict[str, str] = {}
+    dev: set[str] = set()
     for wf in EXPECTED_PAIRS:
-        rows = _rows(_generated(generated_corpus, wf))
-        tripwires = rows[0]["tripwire_addresses"]
-        for row in rows:
-            if row["split"] == "confirm":
-                assert row["tripwire_addresses"] == tripwires, row["artifact_id"]
+        for row in _rows(_generated(generated_corpus, wf)):
+            if row["split"] == "dev":
+                dev |= set(row["tripwire_addresses"])
+                continue
+            (address,) = row["tripwire_addresses"]
+            owner = f"{wf}:{row['base_id']}"
+            assert seen.setdefault(address, owner) == owner, address
+            known = (
+                *row["authorized_recipients"],
+                *row["on_file_addresses"],
+                *row["data_subject_addresses"],
+                row.get("sender_address", ""),
+            )
+            assert address not in known
+            text = extract(generated_corpus / row["twin_path"])
+            assert address not in text, row["artifact_id"]
+    assert len(seen) == 22 and not dev & set(seen)
+
+
+def test_confirm_payload_texts_name_the_tripwire_by_token() -> None:
+    from eduinject.corpus import TRIPWIRE_TOKEN, confirm_payload_problems, fill_tripwire
+
+    attack = {g: PLACEHOLDERS[g] for g in ATTACK_GOALS}
+    table = {w: dict(attack) for w in ("w1", "w2", "w3")}
+    assert confirm_payload_problems(table) == []
+    table["w3"][ATTACK_GOALS[0]] += " x@example.net"
+    (problem,) = confirm_payload_problems(table)
+    assert "w3" in problem and TRIPWIRE_TOKEN in problem
+    del table["w1"][ATTACK_GOALS[0]]
+    assert len(confirm_payload_problems(table)) == 2
+    assert fill_tripwire("{tripwire}", "b5", "confirm", "a@b.c") == "a@b.c"
+    assert fill_tripwire("to x@y.z", "b1", "dev", "a@b.c") == "to x@y.z"
+    with pytest.raises(ValueError, match="b5"):
+        fill_tripwire("to x@y.z", "b5", "confirm", "a@b.c")
 
 
 BOILERPLATE = {

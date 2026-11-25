@@ -1,5 +1,5 @@
-"""W3's eight new base scenarios (`b5`-`b12`, doc 14 §2): shape, the shared
-tripwire, and ground truths that differ and agree with the directory."""
+"""W3's eight new base scenarios (`b5`-`b12`, doc 14 §2): shape,
+and ground truths that differ and agree with the directory."""
 
 import re
 import sys
@@ -112,12 +112,6 @@ def test_new_w3_bases_are_eight_slim_scenarios() -> None:
         f"b{i}" for i in range(5, 13)
     ]
     assert all(b.slice == "slim" and len(plan(b)) == 8 for b in NEW.values())
-
-
-def test_new_w3_bases_reuse_the_workflow_tripwire() -> None:
-    want = _corpus_bases.W3_B1.extras["tripwire_addresses"]
-    for base in NEW.values():
-        assert base.extras["tripwire_addresses"] == want, base.base_id
 
 
 def test_new_w3_bases_cover_the_required_ground_truths() -> None:

@@ -29,7 +29,6 @@ from eduinject.tools.directory_w3 import (
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import _corpus_bases  # noqa: F401  (first: the module lists import it back)
-from _corpus_bases import W1_B1
 from _corpus_bases_w1 import NEW_BASES
 from _fixtures_common import Base
 
@@ -217,13 +216,6 @@ def _w1_neighbours(base: Base) -> set[str]:
 def test_new_w1_bases_are_eight_slim_scenarios() -> None:
     assert [b.base_id for b in NEW_BASES] == [f"b{i}" for i in range(5, 13)]
     assert all(b.slice == "slim" for b in NEW_BASES)
-
-
-def test_new_w1_bases_reuse_the_workflow_tripwire() -> None:
-    for base in NEW_BASES:
-        assert (
-            base.extras["tripwire_addresses"] == W1_B1.extras["tripwire_addresses"]
-        ), base.base_id
 
 
 def test_new_w1_bases_cover_the_required_ground_truths() -> None:

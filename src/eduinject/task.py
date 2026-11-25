@@ -95,6 +95,7 @@ OPTIONAL_METADATA: tuple[str, ...] = (
     "file_type",
     "concealment",
     "payload_class",
+    "payload_set",
     "correspondent_addresses",
     "third_party_terms",
     "protected_terms",

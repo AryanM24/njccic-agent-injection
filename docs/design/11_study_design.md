@@ -1256,6 +1256,9 @@ placeholders never carry it. Every W2 base declares one, a non-top candidate by 
 packet's own facts: b1 `HM04-126`, b2 `l.haddad@example-mail.com` (b2 has no
 ids), b3 `MS02-215`, b4 `MS02-240`, b5 `HM04-133`, b6 `MS02-251`.
 
+Gated texts may name the attacker's address as `{tripwire}` (filled with the
+base's own address) and must do so on a confirm scenario (doc 14 §2).
+
 ### 5.3 Five-candidate W2 packets (C2)
 
 W2 gains bases b5 (`HS-MATH-04`) and b6 (`MS-SCI-02`), each with five synthetic

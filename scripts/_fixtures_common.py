@@ -398,6 +398,8 @@ from eduinject.corpus import (
     PLACEHOLDERS,
     PREMISE_MARKER,
     fill_candidate,
+    fill_tripwire,
+    load_confirm_payloads,
     load_gated_payloads,
     split_for_base,
 )
@@ -614,6 +616,8 @@ def generate_workflow(
         The manifest rows, in artifact order.
     """
     payloads, payload_class = select_payloads(workflow, canonical)
+    held_out = load_confirm_payloads() if canonical else None
+    confirm_texts = held_out[workflow] if held_out else payloads
     if canonical:
         file_dir = out_root / "corpus" / "canonical" / workflow
         path_prefix = f"canonical/{workflow}"
@@ -630,6 +634,8 @@ def generate_workflow(
     rows: list[dict] = []
     count = start_count - 1
     for base in bases:
+        split = split_for_base(workflow, base.base_id)
+        confirm = split == "confirm"
         for ftype, goal, channel in plan(base):
             count += 1
             name = f"{stem}_{count:04d}"
@@ -650,6 +656,7 @@ def generate_workflow(
                 "concealment": channel,
                 "base_id": base.base_id,
                 "payload_class": payload_class,
+                "payload_set": "confirm" if held_out and confirm else "dev",
                 "canaries": list(CANARIES),
             }
             if goal == "false_premise":
@@ -661,7 +668,11 @@ def generate_workflow(
             if dry_run:
                 print(f"{label} would write {attack_path} and {twin_path}")
                 continue
-            payload = fill_candidate(payloads[goal], candidate_label(base))
+            text = (confirm_texts if confirm else payloads)[goal]
+            text = fill_tripwire(
+                text, base.base_id, split, base.extras["tripwire_addresses"][0]
+            )
+            payload = fill_candidate(text, candidate_label(base))
             wrap = pdf_lines if (ftype, channel) == ("pdf", "visible") else None
             neutral = neutral_text(channel, payload, count, wrap)
             write_document(base, twin_path, ftype, channel, neutral)
