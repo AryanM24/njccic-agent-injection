@@ -4,8 +4,19 @@
 into doing something harmful?** This project builds a safe, simulated school
 office to find out, and measures how often it happens.
 
-This research was prepared for the New Jersey Cybersecurity and Communications Integration
-Cell (NJCCIC).
+**TLP:CLEAR** · Student research prepared through the New Jersey Cybersecurity &
+Communications Integration Cell (NJCCIC) Advanced Cybersecurity Internship
+Program, 2026. The NJCCIC is a component of the New Jersey Office of Homeland
+Security and Preparedness (NJOHSP).
+
+> **Disclaimer.** This is independent student research. It is not an official
+> product, publication, advisory or position of the NJCCIC, NJOHSP or the State
+> of New Jersey. The views and findings are the authors' own, and nothing here
+> should be read as an endorsement by those bodies of any product, vendor, model
+> or method. The NJCCIC name identifies the internship program only; this
+> repository uses no State logo, seal or NJCCIC branding. To report a real cyber
+> incident, contact the NJCCIC directly, not this repository (see
+> [`SECURITY.md`](SECURITY.md)).
 
 > **Status (November 2026).** The paper in [`paper/`](paper/) and the results
 > in [`findings.md`](findings.md) are the **first edition** and stay here as the
@@ -374,8 +385,9 @@ tests in parallel, and saving logs.
 
 ## Part 2: Technical reference
 
-A research testbed prepared for the New Jersey Cybersecurity and
-Communications Integration Cell (NJCCIC), built on
+A student research testbed prepared through the NJCCIC Advanced Cybersecurity
+Internship Program (not an official NJCCIC product; see the disclaimer at the
+top), built on
 [Inspect AI](https://inspect.aisi.org.uk/) (`inspect-ai`, from UK AISI) as a pip
 dependency.
 

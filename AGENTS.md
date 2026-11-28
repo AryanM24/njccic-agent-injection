@@ -101,6 +101,7 @@ figure are recoverable from the log alone.
 | `pyproject.toml` | The eduinject package: deps (`inspect-ai`, `pypdf`, `python-docx`, `pydantic`), the `dev`, `openrouter` and `analysis` extras, `src/` layout, and pytest config (`testpaths = ["tests"]`). |
 | `README.md` | Project overview: the staged pipeline (relays, hand-off modes, gate), the arms and instruments, what is measured, the four load-bearing constraints, why benign twins are mandatory, how to run it, and release status. |
 | `RUNNING.md` | Every command, each with a dry-run or no-model example: free checks, sweeps (`--arms`, `--model-preset`, `--hosts`), the offline analyses in order, and the first-edition run record. |
+| `SECURITY.md` | How to report a problem with this repository (a gated-material leak, a flaw in a real product, a real incident) and where each goes, per doc 05 §9; NJCCIC contacts for real incidents. |
 | `HANDOFF.md` | Current state and the "You must do" list only a project member can do. |
 | `Makefile` | `make install` (lock file, then the package), `make check` (ruff, format check, mypy) and `make test-eduinject` (pytest); CI runs the same two targets. |
 | `.gitattributes` | LF line endings everywhere; binary fixtures and the grounding archive are left byte-exact. |
